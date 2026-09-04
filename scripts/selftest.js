@@ -367,15 +367,19 @@ async function main() {
   };
 
   try {
+    // 90 seconds, not 24: the first run after a clean `npm ci` has no tsx compile cache, and a
+    // cold Windows box can spend most of a minute on it. Failing there says "server broken" when
+    // the truth is "server slow", which is a worse lie than waiting.
     let up = false;
-    for (let i = 0; i < 60 && !up; i++) {
-      await sleep(400);
+    const startedAt = Date.now();
+    for (let i = 0; i < 180 && !up; i++) {
+      await sleep(500);
       try {
         const res = await fetch(base + '/api/health');
         up = res.status === 200 || res.status === 401;
       } catch { /* not listening yet */ }
     }
-    check('server started', up, serverLog.slice(-500));
+    check('server started', up, up ? '' : 'gave up after ' + Math.round((Date.now() - startedAt) / 1000) + 's; last output: ' + serverLog.slice(-500));
     if (!up) return;
 
     eq('health needs no token', (await call('/api/health')).status, 200);
