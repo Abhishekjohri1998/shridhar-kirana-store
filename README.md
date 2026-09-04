@@ -296,17 +296,25 @@ npx eas login
 ```
 
 ```bash
-EAS_NO_VCS=1 npm run apk
+npm run apk
 ```
 
 A free Expo account is enough. It uploads the project, builds on Expo's Android machines and hands
 back a download link; open that on the phone and install it. Ten to twenty minutes, most of it
 queueing.
 
-`EAS_NO_VCS=1` is there because this folder is not a git repository — without it eas-cli stops
-looking for one. On Windows PowerShell that is `$env:EAS_NO_VCS=1` on its own line first. And
-because `dist/` is ignored, `shared` is rebuilt by its own `prepare` script during the install step
-in the cloud, rather than being uploaded already built.
+**This has to be a git repository, and that is not a formality.** eas-cli finds the repository root
+and uploads from there; without one it falls back to the current directory, which is `mobile/` —
+and an archive of `mobile/` alone has no `shared/` in it and no lockfile beside it. The build then
+fails in its first ten seconds, with yarn asking the public npm registry for `@shridhar/shared` and
+being told it does not exist. Do **not** set `EAS_NO_VCS=1` to get past the warning; that is what
+causes it.
+
+Two things follow from the upload being the whole workspace: the root `package-lock.json` travels
+with it, so EAS uses npm, which understands workspaces (with no lockfile it reaches for yarn, which
+here does not) — and `shared/dist`, being gitignored, is rebuilt in the cloud by `shared`'s own
+`prepare` script during install. `npm ci` on a wiped tree reproduces that step exactly, if you want
+to check it before spending a build.
 
 **Local build — needs JDK 17 and the Android SDK (~3 GB):**
 
