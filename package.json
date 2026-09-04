@@ -1,0 +1,37 @@
+{
+  "name": "shridhar-billing",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "server",
+    "client",
+    "mobile"
+  ],
+  "scripts": {
+    "build:shared": "npm run build --workspace @shridhar/shared",
+    "dev": "npm run build:shared && concurrently -n server,client -c green,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace @shridhar/server",
+    "dev:client": "npm run dev --workspace @shridhar/client",
+    "build": "npm run build:shared && npm run build --workspace @shridhar/server && npm run build --workspace @shridhar/client",
+    "start": "npm run start --workspace @shridhar/server",
+    "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
+    "selftest": "npm run build:shared && node scripts/selftest.js",
+    "test": "npm run typecheck && npm run fieldtest && npm run i18ntest && npm run rastertest && npm run printertest && npm run seedtest && npm run selftest",
+    "fieldtest": "node scripts/fieldtest.js",
+    "seedtest": "node scripts/seedtest.js",
+    "i18ntest": "node scripts/i18ntest.js",
+    "i18n:review": "node scripts/gen-i18n-review.js",
+    "apk": "npm run build:shared && npm run apk --workspace @shridhar/mobile",
+    "mobile": "npm run build:shared && npm run start --workspace @shridhar/mobile",
+    "rastertest": "node scripts/rastertest.js",
+    "printertest": "node scripts/printertest.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2"
+  },
+  "installConfig": {
+    "hoistingLimits": "workspaces"
+  }
+}

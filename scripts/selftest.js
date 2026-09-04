@@ -1,0 +1,570 @@
+/**
+ * Checks the parts that a browser click-through would not catch, without needing MongoDB or a
+ * printer: money and totals, the receipt document, handwriting geometry, the canvas layout that
+ * feeds a Bluetooth printer, the ESC/POS framing, and the live API -- auth, validation,
+ * server-side totals, customer balances and the quiet-customer list.
+ *
+ * The canvas is faked -- measureText and fillText are approximated -- so this proves the layout
+ * code runs and produces well-formed dots, not that the Kannada glyphs look right. Only paper can
+ * tell you that; use Settings > Test print.
+ *
+ *   npm run selftest
+ */
+const { execFileSync, spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const ROOT = path.join(__dirname, '..');
+const BUILD = path.join(ROOT, '.selftest-build');
+const DATA = path.join(os.tmpdir(), 'shridhar-selftest-data-' + Date.now().toString(36));
+const PORT = 4600 + Math.floor(Math.random() * 400);
+const PIN = '9137';
+
+let failures = 0;
+function check(name, ok, detail) {
+  if (ok) console.log('  ok   ' + name);
+  else {
+    failures++;
+    console.log('  FAIL ' + name + (detail ? ' -- ' + detail : ''));
+  }
+}
+function eq(name, actual, expected) {
+  check(name, actual === expected, 'got ' + JSON.stringify(actual) + ', wanted ' + JSON.stringify(expected));
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------------------------------------------------------------- fake canvas
+function fakeCanvas() {
+  const c = { width: 0, height: 0 };
+  c.getContext = function () {
+    let fb = null;
+    let tx = { a: 1, e: 0, f: 0 };
+    const ctx = {
+      font: '10px sans-serif',
+      fillStyle: '#000',
+      strokeStyle: '#000',
+      lineWidth: 1,
+      textAlign: 'left',
+      textBaseline: 'alphabetic',
+      _size() {
+        const m = /(\d+)px/.exec(ctx.font);
+        return m ? Number(m[1]) : 10;
+      },
+      measureText(t) {
+        // Rough but monotonic in length, which is all the wrapping logic needs.
+        return { width: String(t).length * ctx._size() * 0.55 };
+      },
+      _ensure() {
+        if (!fb || fb.length !== c.width * c.height * 4) {
+          fb = new Uint8ClampedArray(Math.max(0, c.width * c.height * 4)).fill(255);
+        }
+        return fb;
+      },
+      _dot(x, y) {
+        const buf = ctx._ensure();
+        const px = Math.round(x * tx.a + tx.e);
+        const py = Math.round(y * tx.a + tx.f);
+        if (px < 0 || py < 0 || px >= c.width || py >= c.height) return;
+        const p = (py * c.width + px) * 4;
+        buf[p] = 0; buf[p + 1] = 0; buf[p + 2] = 0; buf[p + 3] = 255;
+      },
+      fillRect(x, y, w, h) {
+        const buf = ctx._ensure();
+        const black = ctx.fillStyle !== '#fff';
+        for (let yy = Math.max(0, Math.floor(y)); yy < Math.min(c.height, Math.ceil(y + h)); yy++) {
+          for (let xx = Math.max(0, Math.floor(x)); xx < Math.min(c.width, Math.ceil(x + w)); xx++) {
+            const p = (yy * c.width + xx) * 4;
+            const v = black ? 0 : 255;
+            buf[p] = v; buf[p + 1] = v; buf[p + 2] = v; buf[p + 3] = 255;
+          }
+        }
+      },
+      fillText(t, x, y) {
+        const w = ctx.measureText(t).width;
+        const size = ctx._size();
+        const left = ctx.textAlign === 'center' ? x - w / 2 : ctx.textAlign === 'right' ? x - w : x;
+        ctx.fillRect(left, y, w, size * 0.75);
+      },
+      // Enough of the path API for the ink renderer: transforms plus straight segments.
+      save() { ctx._saved = { ...tx }; },
+      restore() { if (ctx._saved) tx = ctx._saved; },
+      translate(x, y) { tx = { a: tx.a, e: tx.e + x * tx.a, f: tx.f + y * tx.a }; },
+      scale(s) { tx = { a: tx.a * s, e: tx.e, f: tx.f }; },
+      beginPath() { ctx._at = null; },
+      moveTo(x, y) { ctx._at = [x, y]; ctx._dot(x, y); },
+      lineTo(x, y) {
+        const from = ctx._at ?? [x, y];
+        const steps = Math.max(1, Math.ceil(Math.hypot(x - from[0], y - from[1]) * Math.max(1, tx.a)));
+        for (let i = 0; i <= steps; i++) {
+          ctx._dot(from[0] + ((x - from[0]) * i) / steps, from[1] + ((y - from[1]) * i) / steps);
+        }
+        ctx._at = [x, y];
+      },
+      stroke() { /* points were already committed by lineTo */ },
+      getImageData(x, y, w, h) {
+        return { data: ctx._ensure(), width: w, height: h };
+      },
+    };
+    return ctx;
+  };
+  return c;
+}
+
+// A short handwritten squiggle, as the ink pad would record it.
+const SAMPLE_INK = {
+  w: 300,
+  h: 120,
+  strokes: [
+    [10, 60, 30, 20, 50, 80, 70, 25, 90, 70],
+    [110, 30, 140, 30, 140, 80, 110, 80],
+  ],
+};
+
+async function main() {
+  // ------------------------------------------------------------ compile the browser print code
+  const tsc = path.join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+  fs.rmSync(BUILD, { recursive: true, force: true });
+  execFileSync(process.execPath, [
+    tsc,
+    'client/src/print/raster.ts', 'client/src/print/escpos.ts',
+    '--outDir', BUILD, '--module', 'commonjs', '--target', 'es2019',
+    '--strict', '--skipLibCheck', '--lib', 'es2019,dom',
+  ], { cwd: ROOT, stdio: 'inherit' });
+
+  const shared = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'index.js'));
+
+  // raster.ts reaches for `document` when called, so the fake only has to exist by then.
+  global.document = { createElement: (tag) => (tag === 'canvas' ? fakeCanvas() : {}) };
+  const { rasterize } = require(path.join(BUILD, 'raster.js'));
+  const { rasterToEscPos } = require(path.join(BUILD, 'escpos.js'));
+
+  // ------------------------------------------------------------ the bill from the paper slip
+  const LINES = [
+    { itemId: 'gana-enne', nameKn: 'ಗಾಣದ ಎಣ್ಣೆ', nameEn: 'Gana oil', qty: 5, rate: 110 },
+    { itemId: 'menasinakayi', nameKn: 'ಮೆಣಸಿನಕಾಯಿ', nameEn: 'Chilli', qty: 5, rate: 123 },
+    { itemId: 'ot', nameKn: 'OT', nameEn: 'OT', qty: 1, rate: 50 },
+    { itemId: 'j-pulse', nameKn: 'J Pulse', nameEn: 'J Pulse', qty: 1, rate: 155 },
+  ];
+  const BILL = {
+    no: 42, at: '2026-09-03T09:06:00', lines: LINES, total: shared.billTotal(LINES),
+    paid: 1370, balance: 0, showBalance: false,
+  };
+  const SETTINGS = {
+    shopName: 'Shridhar Kirani Stores', footer: 'Thank you, Visit again!',
+    showRate: false, inactiveAfterDays: 30,
+  };
+
+  console.log('\nMoney and totals');
+  eq('line amount 5 x 110', shared.lineAmount(5, 110), 550);
+  eq('line amount 5 x 123', shared.lineAmount(5, 123), 615);
+  eq('bill total matches the paper slip', BILL.total, 1370);
+  eq('whole rupees print without decimals', shared.money(1370), '1370');
+  eq('paise print with two decimals', shared.money(1370.5), '1370.50');
+  eq('weighed quantity survives', shared.lineAmount(1.5, 62), 93);
+  // 0.1 + 0.2 style drift is what makes a printed total disagree with the sum of its lines.
+  eq('rounding does not drift', shared.money(shared.billTotal([
+    { itemId: 'a', nameKn: 'a', nameEn: 'a', qty: 3, rate: 0.1 },
+    { itemId: 'b', nameKn: 'b', nameEn: 'b', qty: 3, rate: 0.2 },
+  ])), '0.90');
+
+  console.log('\nReceipt document');
+  const receipt = shared.buildReceipt(BILL, SETTINGS);
+  eq('paper is 384 dots wide', receipt.width, 384);
+  const itemRows = receipt.rows.filter((r) => r.t === 'item');
+  eq('one row per line', itemRows.length, 4);
+  eq('first row prints the Kannada name', itemRows[0].name, 'ಗಾಣದ ಎಣ್ಣೆ');
+  eq('first row amount is the line total', itemRows[0].amount, '550');
+  eq('the quantity prints even when it is 1', itemRows[2].qty, '1');
+  check('no rate note when showRate is off', itemRows.every((r) => r.note === undefined));
+  const totalRow = receipt.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL');
+  eq('total row reads 1370', totalRow && totalRow.right, '1370');
+  eq('date is day-first', shared.stamp('2026-09-03T09:06:00'), '03/09/26 9:06 am');
+  eq('noon does not print as 0:00', shared.stamp('2026-09-03T12:30:00'), '03/09/26 12:30 pm');
+  eq('midnight prints as 12 am', shared.stamp('2026-09-03T00:05:00'), '03/09/26 12:05 am');
+  eq('showRate adds the per-unit note',
+    shared.buildReceipt(BILL, { ...SETTINGS, showRate: true }).rows.filter((r) => r.t === 'item')[0].note, '@ 110');
+  check('no balance lines unless asked', !receipt.rows.some((r) => r.t === 'kv' && r.left === 'Balance'));
+  check('no customer lines without a customer', !receipt.rows.some((r) => r.t === 'kv' && r.left === 'Name'));
+
+  console.log('\nReceipt document: customer, balance, handwriting');
+  const rich = shared.buildReceipt(
+    {
+      ...BILL,
+      customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' },
+      lines: [
+        ...LINES,
+        { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40 },
+        { itemId: 'bare-1', nameKn: '', nameEn: '', qty: 1, rate: 12 },
+      ],
+      total: 1422,
+      paid: 1000,
+      balance: 422,
+      showBalance: true,
+    },
+    SETTINGS,
+  );
+  const nameRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Name');
+  const phoneRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Phone');
+  eq('customer name prints at the top', nameRow && nameRow.right, 'Ramesh');
+  eq('customer contact number prints', phoneRow && phoneRow.right, '9886012345');
+  check('the customer block sits above the items',
+    rich.rows.indexOf(nameRow) < rich.rows.findIndex((r) => r.t === 'item'));
+  eq('a handwritten line becomes an ink row', rich.rows.filter((r) => r.t === 'ink').length, 1);
+  const inkRow = rich.rows.find((r) => r.t === 'ink');
+  eq('the ink row carries the price', inkRow && inkRow.amount, '40');
+  eq('a line with no description still prints its price',
+    rich.rows.filter((r) => r.t === 'item' && r.name === '').length, 1);
+  const paidRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Paid');
+  const balanceRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Balance');
+  eq('paid prints when the balance is shown', paidRow && paidRow.right, '1000');
+  eq('balance prints when the balance is shown', balanceRow && balanceRow.right, '422');
+
+  console.log('\nHandwriting geometry');
+  const bounds = shared.inkBounds(SAMPLE_INK);
+  eq('bounds trim to what was written', bounds.minX + ',' + bounds.minY, '10,20');
+  eq('bounds find the far corner', bounds.maxX + ',' + bounds.maxY, '140,80');
+  const fit = shared.inkFit(SAMPLE_INK, shared.inkMaxWidth(384), shared.INK_ROW_HEIGHT);
+  check('handwriting is scaled to the row height', Math.abs(fit.h - shared.INK_ROW_HEIGHT) < 0.001, 'h ' + fit.h);
+  check('handwriting stays inside the column', fit.w <= shared.inkMaxWidth(384) + 0.001, 'w ' + fit.w);
+  const wide = shared.inkFit({ w: 1000, h: 20, strokes: [[0, 0, 1000, 10]] }, shared.inkMaxWidth(384), shared.INK_ROW_HEIGHT);
+  check('very wide handwriting is capped by width, not height', wide.w <= shared.inkMaxWidth(384) + 0.001, 'w ' + wide.w);
+  eq('a single tap still yields a path', shared.inkToSvgPath({ w: 10, h: 10, strokes: [[5, 5]] }), 'M5 5 l0.01 0');
+  eq('point count adds up', shared.inkPointCount(SAMPLE_INK), 9);
+  check('a bare price counts as price-only',
+    shared.isPriceOnly({ itemId: 'x', nameKn: '', nameEn: '', qty: 1, rate: 10 }));
+  check('a handwritten line is not price-only',
+    !shared.isPriceOnly({ itemId: 'x', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 10 }));
+
+  console.log('');
+  console.log('');
+  console.log('Paper profiles (58mm and 80mm)');
+  eq('58mm prints 384 dots', shared.PAPERS['58mm'].dots, 384);
+  eq('80mm prints 576 dots', shared.PAPERS['80mm'].dots, 576);
+  eq('a 58mm receipt is laid out at 384', shared.buildReceipt(BILL, SETTINGS).width, 384);
+  eq('an 80mm receipt is laid out at 576',
+    shared.buildReceipt(BILL, { ...SETTINGS, paper: '80mm' }).width, 576);
+  eq('an unknown paper falls back to 58mm', shared.paperProfile('99mm').dots, 384);
+  eq('a missing paper falls back to 58mm', shared.paperProfile(undefined).dots, 384);
+  check('the wider roll gives handwriting more room',
+    shared.inkMaxWidth(576) > shared.inkMaxWidth(384),
+    shared.inkMaxWidth(576) + ' vs ' + shared.inkMaxWidth(384));
+  check('the ink cap always leaves room for the price columns',
+    shared.inkMaxWidth(384) < 384 && shared.inkMaxWidth(576) < 576);
+  // The physical dot size is the same on both, which is why text is not rescaled.
+  const mmPerDot58 = shared.PAPERS['58mm'].printableMm / shared.PAPERS['58mm'].dots;
+  const mmPerDot80 = shared.PAPERS['80mm'].printableMm / shared.PAPERS['80mm'].dots;
+  check('both rolls are the same dpi', Math.abs(mmPerDot58 - mmPerDot80) < 0.0001,
+    mmPerDot58 + ' vs ' + mmPerDot80);
+
+  console.log('Typing Kannada without a Kannada keyboard');
+  eq('akki', shared.latinToKannada('akki'), 'ಅಕ್ಕಿ');
+  eq('sakkare', shared.latinToKannada('sakkare'), 'ಸಕ್ಕರೆ');
+  eq('eNNe (retroflex from a capital)', shared.latinToKannada('eNNe'), 'ಎಣ್ಣೆ');
+  eq('uppu', shared.latinToKannada('uppu'), 'ಉಪ್ಪು');
+  eq('bella', shared.latinToKannada('bella'), 'ಬೆಲ್ಲ');
+  eq('haalu (long vowel from a doubled letter)', shared.latinToKannada('haalu'), 'ಹಾಲು');
+  eq('hiTTu', shared.latinToKannada('hiTTu'), 'ಹಿಟ್ಟು');
+  eq('beLe (the other l)', shared.latinToKannada('beLe'), 'ಬೆಳೆ');
+  eq('anusvara from M', shared.latinToKannada('naMdi'), 'ನಂದಿ');
+  eq('a long vowel needs the doubled form', shared.latinToKannada('gOdhi hiTTu'), 'ಗೋಧಿ ಹಿಟ್ಟು');
+  eq('digits and spaces pass through', shared.latinToKannada('5 kg'), '5 ಕ್ಗ್');
+  eq('text that is already Kannada is left alone', shared.latinToKannada('ಅಕ್ಕಿ'), 'ಅಕ್ಕಿ');
+  eq('an empty string stays empty', shared.latinToKannada(''), '');
+  check('Kannada is detected', shared.hasKannada('1kg ಅಕ್ಕಿ'));
+  check('plain English is not', !shared.hasKannada('1kg rice'));
+
+  console.log('\nCanvas renderer (fake canvas)');
+  const raster = rasterize(receipt);
+  eq('raster is 384 dots wide', raster.width, 384);
+  check('raster is a plausible height', raster.height > 200 && raster.height < 1200, 'height ' + raster.height);
+  const bytesPerRow = Math.ceil(raster.width / 8);
+  eq('one bit per dot, packed by row', raster.bits.length, bytesPerRow * raster.height);
+  const countDots = (bits) => {
+    let n = 0;
+    for (const byte of bits) for (let b = 0; b < 8; b++) if (byte & (1 << b)) n++;
+    return n;
+  };
+  const black = countDots(raster.bits);
+  check('the receipt is not blank', black > 500, black + ' black dots');
+  check('the receipt is not all black', black < raster.bits.length * 8 * 0.6, black + ' black dots');
+
+  const withInk = rasterize(rich);
+  check('handwriting makes the slip longer', withInk.height > raster.height,
+    withInk.height + ' vs ' + raster.height);
+  const inkOnly = rasterize({ width: 384, rows: [{ t: 'ink', qty: '1', ink: SAMPLE_INK, amount: '40' }] });
+  check('an ink row draws dots of its own', countDots(inkOnly.bits) > 40, countDots(inkOnly.bits) + ' dots');
+  check('an ink row is about one row tall',
+    inkOnly.height >= shared.INK_ROW_HEIGHT && inkOnly.height < shared.INK_ROW_HEIGHT * 2,
+    'height ' + inkOnly.height);
+
+  const wideRaster = rasterize(shared.buildReceipt(BILL, { ...SETTINGS, paper: '80mm' }));
+  eq('an 80mm raster is 576 dots wide', wideRaster.width, 576);
+  eq('and packs 72 bytes per row', wideRaster.bits.length / wideRaster.height, 72);
+  const wideBytes = rasterToEscPos(wideRaster);
+  eq('its ESC/POS header declares 72 bytes per row', wideBytes[9], 72);
+
+  const wrapped = rasterize({
+    width: 384,
+    rows: [{ t: 'item', qty: '1', name: 'Extra long product name that cannot possibly fit on one line', amount: '12345' }],
+  });
+  check('a long item name wraps to more rows', wrapped.height > 60, 'height ' + wrapped.height);
+  // A zero-height raster is rejected by the printer, so an empty document must still have one row.
+  check('an empty receipt still has height', rasterize({ width: 384, rows: [] }).height >= 1);
+
+  console.log('\nESC/POS framing');
+  const bytes = rasterToEscPos(raster);
+  eq('starts with ESC @ (initialise)', bytes[0] + ',' + bytes[1], '27,64');
+  const bands = Math.ceil(raster.height / 64);
+  let found = 0;
+  for (let i = 0; i < bytes.length - 3; i++) {
+    if (bytes[i] === 0x1d && bytes[i + 1] === 0x76 && bytes[i + 2] === 0x30 && bytes[i + 3] === 0x00) found++;
+  }
+  eq('one GS v 0 command per 64-row band', found, bands);
+  eq('the 58mm header declares 48 bytes per row', bytes[9], 48);
+  eq('total length is header + bands + dots', bytes.length, 2 + 3 + bands * 8 + raster.bits.length + 3);
+  eq('ends by feeding the paper out', bytes[bytes.length - 3] + ',' + bytes[bytes.length - 2], '27,100');
+
+  // ------------------------------------------------------------ the API, against the JSON store
+  console.log('\nAPI (JSON store, no MongoDB needed)');
+  fs.mkdirSync(DATA, { recursive: true });
+  // Pre-seed one customer who last came in 90 days ago, so the quiet-customer list has something
+  // real to find. Items are left empty so the normal seeding still runs.
+  const longAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  fs.writeFileSync(path.join(DATA, 'db.json'), JSON.stringify({
+    items: [], bills: [], billNo: 0,
+    customers: [{
+      id: 'p9000000001', name: 'Old Regular', phone: '9000000001',
+      since: longAgo, totalBilled: 500, totalPaid: 500, billCount: 3, lastVisit: longAgo,
+    }],
+  }), 'utf8');
+
+  const server = spawn(
+    process.execPath,
+    [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'server', 'src', 'index.ts')],
+    {
+      cwd: path.join(ROOT, 'server'),
+      env: {
+        ...process.env,
+        PORT: String(PORT), DATA_DIR: DATA, AUTH_PIN: PIN,
+        MONGO_URI: '', JWT_SECRET: 'selftest-secret', NODE_ENV: 'test',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  let serverLog = '';
+  server.stdout.on('data', (d) => { serverLog += d; });
+  server.stderr.on('data', (d) => { serverLog += d; });
+
+  const base = 'http://127.0.0.1:' + PORT;
+  const call = async (p, init) => {
+    const res = await fetch(base + p, init);
+    const text = await res.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+    return { status: res.status, body };
+  };
+
+  try {
+    let up = false;
+    for (let i = 0; i < 60 && !up; i++) {
+      await sleep(400);
+      try {
+        const res = await fetch(base + '/api/health');
+        up = res.status === 200 || res.status === 401;
+      } catch { /* not listening yet */ }
+    }
+    check('server started', up, serverLog.slice(-500));
+    if (!up) return;
+
+    eq('health needs no token', (await call('/api/health')).status, 200);
+    eq('items are behind auth', (await call('/api/items')).status, 401);
+    eq('customers are behind auth', (await call('/api/customers')).status, 401);
+    const wrongPin = await call('/api/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: 'nope' }),
+    });
+    eq('a wrong PIN is refused', wrongPin.status, 401);
+    // The browser shows this message as-is, so it has to say the PIN is wrong rather than
+    // anything about sessions.
+    check('and the reason names the PIN', /pin/i.test(wrongPin.body.error), wrongPin.body.error);
+
+    const login = await call('/api/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: PIN }),
+    });
+    eq('the right PIN issues a token', login.status, 200);
+    const auth = { authorization: 'Bearer ' + login.body.token, 'content-type': 'application/json' };
+    const post = (p, body) => call(p, { method: 'POST', headers: auth, body: JSON.stringify(body) });
+
+    const items = await call('/api/items', { headers: auth });
+    eq('items load', items.status, 200);
+    check('the shop is seeded', items.body.length >= 20, items.body.length + ' items');
+    eq('the whole starter catalogue is there, not part of it', items.body.length, 24);
+    check('the slip items are seeded at their real rates',
+      items.body.some((i) => i.id === 'gana-enne' && i.rate === 110) &&
+      items.body.some((i) => i.id === 'menasinakayi' && i.rate === 123));
+
+    console.log('\nAPI: bills, totals and validation');
+    // The server owns the total. A browser that sends a wrong one must not be able to record it.
+    const made = await post('/api/bills', { lines: LINES, total: 999999 });
+    eq('a bill is created', made.status, 201);
+    eq('the server recomputes the total, ignoring the one sent', made.body.total, 1370);
+    eq('the first bill is number 1', made.body.no, 1);
+    eq('a bill with no customer is fully paid', made.body.paid, 1370);
+    eq('and carries no balance', made.body.balance, 0);
+    eq('and does not print balance lines', made.body.showBalance, false);
+
+    eq('bill numbers increment', (await post('/api/bills', { lines: LINES })).body.no, 2);
+    eq('an empty bill is rejected', (await post('/api/bills', { lines: [] })).status, 400);
+    eq('a negative quantity is rejected', (await post('/api/bills', { lines: [{ ...LINES[0], qty: -5 }] })).status, 400);
+    eq('a non-numeric rate is rejected', (await post('/api/bills', { lines: [{ ...LINES[0], rate: 'free' }] })).status, 400);
+
+    // "Sometimes it should calculate the total of price entered without items."
+    const bare = await post('/api/bills', {
+      lines: [{ itemId: 'bare-1', qty: 1, rate: 30 }, { itemId: 'bare-2', qty: 2, rate: 15 }],
+    });
+    eq('a bill of bare prices is accepted', bare.status, 201);
+    eq('and totals correctly', bare.body.total, 60);
+    check('and keeps its lines nameless', bare.body.lines.every((l) => l.nameKn === '' && l.nameEn === ''));
+
+    console.log('\nAPI: handwriting');
+    const inked = await post('/api/bills', {
+      lines: [{ itemId: 'ink-1', qty: 1, rate: 40, ink: SAMPLE_INK }],
+    });
+    eq('a handwritten line is accepted', inked.status, 201);
+    eq('the strokes come back intact', JSON.stringify(inked.body.lines[0].ink.strokes), JSON.stringify(SAMPLE_INK.strokes));
+    eq('an odd number of coordinates is rejected', (await post('/api/bills', {
+      lines: [{ itemId: 'ink-2', qty: 1, rate: 40, ink: { w: 10, h: 10, strokes: [[1, 2, 3]] } }],
+    })).status, 400);
+    eq('a stroke longer than the cap is rejected', (await post('/api/bills', {
+      lines: [{ itemId: 'ink-3', qty: 1, rate: 40, ink: { w: 10, h: 10, strokes: [new Array(2000).fill(1)] } }],
+    })).status, 400);
+    eq('too many strokes on one line is rejected', (await post('/api/bills', {
+      lines: [{
+        itemId: 'ink-4', qty: 1, rate: 40,
+        ink: { w: 10, h: 10, strokes: new Array(shared.INK_LIMITS.maxStrokes + 1).fill([1, 2]) },
+      }],
+    })).status, 400);
+
+    console.log('\nAPI: customers');
+    const created = await post('/api/customers', { name: 'Ramesh', phone: '98860 12345' });
+    eq('a customer is created', created.status, 201);
+    eq('the phone number is stored as digits', created.body.phone, '9886012345');
+    eq('the id is derived from the number', created.body.id, 'p9886012345');
+    eq('a new customer starts settled', created.body.balance, 0);
+
+    const again = await post('/api/customers', { name: 'Ramesh Kumar', phone: '9886012345' });
+    eq('the same number is the same person, not a second record', again.body.id, created.body.id);
+    eq('and their name is updated', again.body.name, 'Ramesh Kumar');
+    eq('a customer with neither name nor number is rejected', (await post('/api/customers', {})).status, 400);
+
+    // The same person written with a country code must land on the existing record.
+    const withCode = await post('/api/customers', { name: 'Ramesh Kumar', phone: '+91 98860 12345' });
+    eq('a country-code form is the same customer, not a new one', withCode.body.id, created.body.id);
+    eq('and their number stays canonical', withCode.body.phone, '9886012345');
+    const trunkZero = await post('/api/customers', { name: 'Ramesh Kumar', phone: '09886012345' });
+    eq('a trunk-zero form is the same customer too', trunkZero.body.id, created.body.id);
+    const allCustomers = await call('/api/customers', { headers: auth });
+    eq('so only one record exists for that number',
+      allCustomers.body.filter((c) => c.phone === '9886012345').length, 1);
+
+    const byName = await call('/api/customers/search?q=Rame', { headers: auth });
+    check('suggestions match on a name prefix', byName.body.some((c) => c.id === created.body.id));
+    const byPhone = await call('/api/customers/search?q=98860', { headers: auth });
+    check('suggestions match on a number prefix', byPhone.body.some((c) => c.id === created.body.id));
+    eq('an empty query suggests nothing', (await call('/api/customers/search?q=', { headers: auth })).body.length, 0);
+    // A customer called "R." must not be read as a regular expression.
+    eq('a regex-looking query is treated as text', (await call('/api/customers/search?q=' + encodeURIComponent('.*'), { headers: auth })).body.length, 0);
+
+    console.log('\nAPI: balances');
+    const partly = await post('/api/bills', {
+      lines: LINES, customerId: created.body.id, paid: 1000, showBalance: true,
+    });
+    eq('a bill can be part paid', partly.body.paid, 1000);
+    eq('the balance is what is still owed', partly.body.balance, 370);
+    eq('the balance lines are switched on', partly.body.showBalance, true);
+    eq('the customer is copied onto the bill', partly.body.customer.name, 'Ramesh Kumar');
+
+    const second = await post('/api/bills', { lines: [{ itemId: 'x', qty: 1, rate: 200 }], customerId: created.body.id, paid: 0 });
+    eq('an unpaid bill adds to the balance', second.body.balance, 570);
+
+    const detail = await call('/api/customers/' + created.body.id, { headers: auth });
+    eq('the customer total transaction figure adds up', detail.body.customer.totalBilled, 1570);
+    eq('so does what they have paid', detail.body.customer.totalPaid, 1000);
+    eq('and the outstanding balance', detail.body.customer.balance, 570);
+    eq('their bill count is right', detail.body.customer.billCount, 2);
+    check('their last visit is recorded', typeof detail.body.customer.lastVisit === 'string');
+    eq('their bills come back with them', detail.body.bills.length, 2);
+    check('and only their bills', detail.body.bills.every((b) => b.customer && b.customer.id === created.body.id));
+
+    eq('a balance cannot be printed without a customer',
+      (await post('/api/bills', { lines: LINES, showBalance: true })).status, 400);
+    eq('an unknown customer is rejected',
+      (await post('/api/bills', { lines: LINES, customerId: 'nobody' })).status, 400);
+
+    console.log('\nAPI: quiet customers');
+    const inactive = await call('/api/customers/inactive', { headers: auth });
+    eq('the window comes from settings', inactive.body.days, 30);
+    check('a customer last seen 90 days ago is flagged',
+      inactive.body.customers.some((c) => c.id === 'p9000000001'));
+    check('a customer who just bought something is not',
+      !inactive.body.customers.some((c) => c.id === created.body.id));
+    eq('the window can be overridden',
+      (await call('/api/customers/inactive?days=3650', { headers: auth })).body.customers.length, 0);
+    eq('the window can be changed in settings', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ inactiveAfterDays: 7 }),
+    })).body.inactiveAfterDays, 7);
+    eq('and the list follows it',
+      (await call('/api/customers/inactive', { headers: auth })).body.days, 7);
+    eq('a nonsense window is rejected', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ inactiveAfterDays: 0 }),
+    })).status, 400);
+
+    console.log('\nAPI: items and settings');
+    const newItem = await post('/api/items', { nameKn: 'ಹಾಲು', nameEn: 'Milk', rate: 28, unit: 'ltr' });
+    eq('an item can be added', newItem.status, 201);
+    check('the id is derived from the name', String(newItem.body.id).startsWith('milk-'), newItem.body.id);
+    eq('an item can be edited', (await call('/api/items/' + newItem.body.id, {
+      method: 'PUT', headers: auth,
+      body: JSON.stringify({ nameKn: 'ಹಾಲು', nameEn: 'Milk', rate: 30, unit: 'ltr' }),
+    })).body.rate, 30);
+    eq('an item with a zero rate is rejected',
+      (await post('/api/items', { nameEn: 'Free stuff', rate: 0 })).status, 400);
+    eq('an item can be removed',
+      (await call('/api/items/' + newItem.body.id, { method: 'DELETE', headers: auth })).status, 204);
+    eq('removing it twice is a 404',
+      (await call('/api/items/' + newItem.body.id, { method: 'DELETE', headers: auth })).status, 404);
+
+    eq('the paper size can be changed', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ paper: '80mm' }),
+    })).body.paper, '80mm');
+    eq('an unknown paper size is rejected', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ paper: '99mm' }),
+    })).status, 400);
+    eq('an empty shop name is rejected', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ shopName: '   ' }),
+    })).status, 400);
+    eq('a forged token is refused',
+      (await call('/api/items', { headers: { authorization: 'Bearer not.a.token' } })).status, 401);
+
+    const customerRemoved = await call('/api/customers/' + created.body.id, { method: 'DELETE', headers: auth });
+    eq('a customer can be removed', customerRemoved.status, 204);
+    eq('their past bills survive it', (await call('/api/bills/' + partly.body.no, { headers: auth })).body.customer.name, 'Ramesh Kumar');
+  } finally {
+    server.kill();
+    fs.rmSync(DATA, { recursive: true, force: true });
+    fs.rmSync(BUILD, { recursive: true, force: true });
+  }
+
+  console.log('');
+  if (failures) {
+    console.log(failures + ' check(s) failed');
+    process.exit(1);
+  }
+  console.log('All checks passed.');
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

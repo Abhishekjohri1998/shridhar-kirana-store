@@ -1,0 +1,31 @@
+{
+  "name": "@shridhar/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild --platform android --clean",
+    "apk": "eas build --platform android --profile preview",
+    "apk:local": "eas build --platform android --profile preview --local",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "@shridhar/shared": "1.0.0",
+    "expo": "~53.0.0",
+    "expo-updates": "~0.28.18",
+    "react": "19.0.0",
+    "react-native": "0.79.5",
+    "react-native-bluetooth-classic": "1.73.0-rc.17",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-svg": "15.11.2",
+    "react-native-webview": "13.13.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~19.0.10",
+    "typescript": "~5.7.2"
+  }
+}

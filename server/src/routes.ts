@@ -1,0 +1,230 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { INK_LIMITS, inkPointCount } from '@shridhar/shared';
+import { issueToken, pinMatches, requireAuth } from './auth';
+import { HttpError, handler } from './http';
+import { getRepo } from './store';
+
+const itemBody = z.object({
+  id: z.string().trim().min(1).max(80).optional(),
+  nameKn: z.string().trim().max(120).default(''),
+  nameEn: z.string().trim().max(120).default(''),
+  rate: z.coerce.number().finite().positive().max(1_000_000),
+  unit: z.string().trim().max(16).default('pc'),
+});
+
+/** Handwriting arrives as pen paths. Capped so one bill cannot carry a megabyte of scribble. */
+const inkBody = z
+  .object({
+    w: z.coerce.number().finite().positive().max(10_000),
+    h: z.coerce.number().finite().positive().max(10_000),
+    strokes: z
+      .array(z.array(z.coerce.number().finite()).max(INK_LIMITS.maxPointsPerStroke * 2))
+      .max(INK_LIMITS.maxStrokes),
+  })
+  .refine((ink) => ink.strokes.every((s) => s.length % 2 === 0), {
+    message: 'each stroke must hold an even number of coordinates',
+  })
+  .refine((ink) => inkPointCount(ink) <= INK_LIMITS.maxTotalPoints, {
+    message: 'too much handwriting on one line',
+  });
+
+const lineBody = z.object({
+  itemId: z.string().trim().min(1).max(80),
+  // All three descriptions are optional: a line can be a catalogue item, handwriting, or a bare
+  // price with no description at all -- the shop bills all three ways.
+  nameKn: z.string().trim().max(120).default(''),
+  nameEn: z.string().trim().max(120).default(''),
+  ink: inkBody.optional(),
+  qty: z.coerce.number().finite().positive().max(100_000),
+  rate: z.coerce.number().finite().nonnegative().max(1_000_000),
+});
+
+const settingsBody = z.object({
+  shopName: z.string().trim().min(1).max(80).optional(),
+  footer: z.string().trim().max(120).optional(),
+  paper: z.enum(['58mm', '80mm']).optional(),
+  language: z.enum(['en', 'kn']).optional(),
+  showRate: z.boolean().optional(),
+  inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
+});
+
+const customerBody = z.object({
+  id: z.string().trim().min(1).max(80).optional(),
+  name: z.string().trim().max(80).default(''),
+  phone: z.string().trim().max(24).default(''),
+});
+
+/** Readable ids, so the data stays legible if anyone ever looks at the collection directly. */
+function makeId(nameEn: string, nameKn: string): string {
+  const base = (nameEn || nameKn).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return (base || 'item') + '-' + Date.now().toString(36).slice(-4);
+}
+
+export const api = Router();
+
+api.get('/health', handler(async (_req, res) => {
+  res.json({ ok: true, storage: getRepo().kind });
+}));
+
+api.post('/auth/login', handler(async (req, res) => {
+  const { pin } = z.object({ pin: z.string().min(1).max(64) }).parse(req.body);
+  if (!pinMatches(pin)) throw new HttpError(401, 'That PIN is not right');
+  res.json({ token: issueToken() });
+}));
+
+api.use(requireAuth);
+
+// ---------------------------------------------------------------------------- items
+
+api.get('/items', handler(async (_req, res) => {
+  res.json(await getRepo().listItems());
+}));
+
+api.post('/items', handler(async (req, res) => {
+  const body = itemBody.parse(req.body);
+  if (!body.nameKn && !body.nameEn) throw new HttpError(400, 'Give the item at least one name');
+  res.status(201).json(await getRepo().upsertItem({
+    id: body.id ?? makeId(body.nameEn, body.nameKn),
+    // Either name falls back to the other, so a half-filled item still bills and prints.
+    nameKn: body.nameKn || body.nameEn,
+    nameEn: body.nameEn || body.nameKn,
+    rate: body.rate,
+    unit: body.unit || 'pc',
+  }));
+}));
+
+api.put('/items/:id', handler(async (req, res) => {
+  const id = z.string().trim().min(1).parse(req.params.id);
+  const body = itemBody.parse({ ...req.body, id });
+  if (!body.nameKn && !body.nameEn) throw new HttpError(400, 'Give the item at least one name');
+  res.json(await getRepo().upsertItem({
+    id,
+    nameKn: body.nameKn || body.nameEn,
+    nameEn: body.nameEn || body.nameKn,
+    rate: body.rate,
+    unit: body.unit || 'pc',
+  }));
+}));
+
+api.delete('/items/:id', handler(async (req, res) => {
+  const removed = await getRepo().deleteItem(String(req.params.id));
+  if (!removed) throw new HttpError(404, 'No such item');
+  res.status(204).end();
+}));
+
+// ---------------------------------------------------------------------------- settings
+
+api.get('/settings', handler(async (_req, res) => {
+  res.json(await getRepo().getSettings());
+}));
+
+api.put('/settings', handler(async (req, res) => {
+  const patch = settingsBody.parse(req.body);
+  if (Object.keys(patch).length === 0) throw new HttpError(400, 'Nothing to change');
+  res.json(await getRepo().updateSettings(patch));
+}));
+
+// ---------------------------------------------------------------------------- customers
+
+api.get('/customers', handler(async (_req, res) => {
+  res.json(await getRepo().listCustomers());
+}));
+
+/** Feeds the suggestions under the name and phone fields at the top of the bill. */
+api.get('/customers/search', handler(async (req, res) => {
+  const q = z.string().trim().max(80).default('').parse(req.query.q ?? '');
+  const limit = z.coerce.number().int().min(1).max(20).default(8).parse(req.query.limit ?? 8);
+  res.json(await getRepo().searchCustomers(q, limit));
+}));
+
+api.get('/customers/inactive', handler(async (req, res) => {
+  const settings = await getRepo().getSettings();
+  const days = z.coerce.number().int().min(1).max(3650).default(settings.inactiveAfterDays)
+    .parse(req.query.days ?? settings.inactiveAfterDays);
+  res.json({ days, customers: await getRepo().inactiveCustomers(days) });
+}));
+
+api.get('/customers/:id', handler(async (req, res) => {
+  const customer = await getRepo().getCustomer(String(req.params.id));
+  if (!customer) throw new HttpError(404, 'No such customer');
+  // Their bills come with them: this is the "customer total transaction" view.
+  const bills = await getRepo().listBills(100, customer.id);
+  res.json({ customer, bills });
+}));
+
+api.post('/customers', handler(async (req, res) => {
+  const body = customerBody.parse(req.body);
+  if (!body.name && !body.phone) throw new HttpError(400, 'Give the customer a name or a phone number');
+  res.status(201).json(await getRepo().upsertCustomer(body));
+}));
+
+api.put('/customers/:id', handler(async (req, res) => {
+  const id = z.string().trim().min(1).parse(req.params.id);
+  const body = customerBody.parse(req.body);
+  if (!body.name && !body.phone) throw new HttpError(400, 'Give the customer a name or a phone number');
+  const existing = await getRepo().getCustomer(id);
+  if (!existing) throw new HttpError(404, 'No such customer');
+  res.json(await getRepo().upsertCustomer({ ...body, id }));
+}));
+
+api.delete('/customers/:id', handler(async (req, res) => {
+  const removed = await getRepo().deleteCustomer(String(req.params.id));
+  if (!removed) throw new HttpError(404, 'No such customer');
+  res.status(204).end();
+}));
+
+// ---------------------------------------------------------------------------- bills
+
+api.get('/bills', handler(async (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(500).default(100).parse(req.query.limit ?? 100);
+  const customerId = z.string().trim().min(1).max(80).optional().parse(req.query.customerId || undefined);
+  res.json(await getRepo().listBills(limit, customerId));
+}));
+
+api.get('/bills/:no', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const bill = await getRepo().getBill(no);
+  if (!bill) throw new HttpError(404, 'No such bill');
+  res.json(bill);
+}));
+
+api.post('/bills', handler(async (req, res) => {
+  const body = z
+    .object({
+      lines: z.array(lineBody).min(1).max(200),
+      customerId: z.string().trim().min(1).max(80).optional(),
+      paid: z.coerce.number().finite().nonnegative().max(10_000_000).optional(),
+      showBalance: z.boolean().optional(),
+    })
+    .parse(req.body);
+
+  if (body.customerId && !(await getRepo().getCustomer(body.customerId))) {
+    throw new HttpError(400, 'That customer is not on file');
+  }
+  if (body.showBalance && !body.customerId) {
+    throw new HttpError(400, 'A balance can only be printed for a named customer');
+  }
+
+  // The number, the total and the balance are the server's to decide. A browser that sends its
+  // own figures, whether by bug or by hand, cannot change what gets recorded.
+  const bill = await getRepo().createBill({
+    lines: body.lines.map((l) => ({
+      itemId: l.itemId,
+      nameKn: l.nameKn || l.nameEn,
+      nameEn: l.nameEn || l.nameKn,
+      ...(l.ink && l.ink.strokes.length > 0 ? { ink: l.ink } : {}),
+      qty: l.qty,
+      rate: l.rate,
+    })),
+    ...(body.customerId ? { customerId: body.customerId } : {}),
+    ...(body.paid == null ? {} : { paid: body.paid }),
+    showBalance: body.showBalance ?? false,
+  });
+
+  res.status(201).json(bill);
+}));
+
+api.get('/summary/today', handler(async (_req, res) => {
+  res.json(await getRepo().todaySummary());
+}));

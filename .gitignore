@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.data/
+*.log
+.DS_Store
+*.tsbuildinfo
+.selftest-build/
+.fieldtest-build/
+.seedtest-build/
+.i18ntest-build/
+.i18nreview-build/
+.rastertest-build/
+.printertest-build/
