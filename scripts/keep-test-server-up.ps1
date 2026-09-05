@@ -57,6 +57,30 @@ function Get-TunnelProcess {
 }
 
 <#
+    Is the tunnel actually serving?
+
+    Checking that a cloudflared process exists is not the same question, and the difference cost a
+    client an evening: the process stayed up while its tunnel lost its registration, so Cloudflare
+    answered every request with 530 -- "cannot reach the origin" -- and the watchdog saw a healthy
+    process and did nothing. The only honest test is to ask the public URL.
+#>
+function Test-Tunnel {
+    param([string] $Url)
+    if (-not $Url) { return $false }
+    try {
+        $r = Invoke-WebRequest -Uri "$Url/api/health" -UseBasicParsing -TimeoutSec 15
+        return $r.StatusCode -eq 200
+    } catch { return $false }
+}
+
+function Stop-Tunnel {
+    Get-Process cloudflared -ErrorAction SilentlyContinue | ForEach-Object {
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 2
+}
+
+<#
     Is this watchdog already running?
 
     Answered with a lock file holding a process id, not by searching command lines. Command-line
@@ -123,9 +147,24 @@ Write-Host ''
 # process lists.
 $beat = Join-Path $logDir 'watchdog-heartbeat.txt'
 
+# The public URL is only probed every third pass. Once a minute is often enough to catch a dead
+# tunnel, and it keeps the round trip off Cloudflare's doorstep the rest of the time.
+$pass = 0
+
 while ($true) {
+    $pass++
     if (-not (Test-Api)) { Start-Api }
-    if (-not (Get-TunnelProcess)) { Start-Tunnel }
+
+    $url = if (Test-Path $urlFile) { (Get-Content $urlFile -Raw).Trim() } else { '' }
+
+    if (-not (Get-TunnelProcess)) {
+        Start-Tunnel
+    } elseif ($pass % 3 -eq 0 -and -not (Test-Tunnel $url)) {
+        Write-Host "[$(Get-Date -Format HH:mm:ss)] the tunnel stopped serving; restarting it" -ForegroundColor Yellow
+        Stop-Tunnel
+        Start-Tunnel
+    }
+
     Set-Content -Path $beat -Value "alive $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') pid $PID" -Encoding utf8
     Start-Sleep -Seconds 20
 }
