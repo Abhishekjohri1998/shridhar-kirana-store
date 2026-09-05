@@ -74,11 +74,24 @@ function drawInk(ctx: CanvasRenderingContext2D, ink: Ink, x: number, y: number, 
     if (stroke.length < 2) continue;
     ctx.beginPath();
     ctx.moveTo(stroke[0] as number, stroke[1] as number);
-    for (let i = 2; i + 1 < stroke.length; i += 2) {
-      ctx.lineTo(stroke[i] as number, stroke[i + 1] as number);
+    // Curved through the midpoints, exactly as the screen draws it: every sampled point becomes
+    // the control point of a quadratic and the line runs midpoint to midpoint. Joining the
+    // samples with straight segments printed handwriting with a visible corner at every sample.
+    const n = stroke.length / 2;
+    if (n === 1) {
+      ctx.lineTo((stroke[0] as number) + 0.01, stroke[1] as number);
+    } else if (n === 2) {
+      ctx.lineTo(stroke[2] as number, stroke[3] as number);
+    } else {
+      for (let i = 1; i < n - 1; i++) {
+        const cx = stroke[i * 2] as number;
+        const cy = stroke[i * 2 + 1] as number;
+        const mx = (cx + (stroke[(i + 1) * 2] as number)) / 2;
+        const my = (cy + (stroke[(i + 1) * 2 + 1] as number)) / 2;
+        ctx.quadraticCurveTo(cx, cy, mx, my);
+      }
+      ctx.lineTo(stroke[(n - 1) * 2] as number, stroke[(n - 1) * 2 + 1] as number);
     }
-    // A single tap is a dot, which needs a zero-length segment to show up at all.
-    if (stroke.length === 2) ctx.lineTo((stroke[0] as number) + 0.01, stroke[1] as number);
     ctx.stroke();
   }
   ctx.restore();

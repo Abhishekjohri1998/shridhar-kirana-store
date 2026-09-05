@@ -102,6 +102,22 @@ function fakeCanvas() {
         }
         ctx._at = [x, y];
       },
+      quadraticCurveTo(cx, cy, x, y) {
+        const from = ctx._at ?? [cx, cy];
+        const steps = Math.max(
+          2,
+          Math.ceil((Math.hypot(cx - from[0], cy - from[1]) + Math.hypot(x - cx, y - cy)) * Math.max(1, tx.a)),
+        );
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          const u = 1 - t;
+          ctx._dot(
+            u * u * from[0] + 2 * u * t * cx + t * t * x,
+            u * u * from[1] + 2 * u * t * cy + t * t * y,
+          );
+        }
+        ctx._at = [x, y];
+      },
       stroke() { /* points were already committed by lineTo */ },
       getImageData(x, y, w, h) {
         return { data: ctx._ensure(), width: w, height: h };

@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { INK_LIMITS, type Ink } from '@shridhar/shared';
 
 /** Ink coordinates are CSS pixels of the pad, so the stored box is whatever the pad measured. */
-const STROKE_WIDTH = 2.4;
+const STROKE_WIDTH = 2.8;
 /** Points closer together than this are dropped: pens fire far more events than a line needs. */
 const MIN_STEP = 1.2;
 

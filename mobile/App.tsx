@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { money, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { PrintProvider } from './src/lib/usePrint';
@@ -74,6 +75,17 @@ function Tab({
 function Shell() {
   const shop = useShop();
   const [tab, setTab] = useState<TabKey>('bill');
+  /**
+   * The shell is given the window's height outright rather than told to fill its parent.
+   *
+   * On a tablet the flex chain collapsed to the height of its contents -- the totals rode up
+   * under the slip and the tab bar floated in the middle of the glass. Every link in that chain
+   * said flex: 1 and it still happened, so the height is stated here instead of inferred. A
+   * number cannot collapse.
+   */
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const shellHeight = Math.max(320, windowHeight - insets.top - insets.bottom);
   const barWidth = useRef(0);
   const slide = useRef(new Animated.Value(0)).current;
 
@@ -107,7 +119,7 @@ function Shell() {
 
   return (
     <PrintProvider>
-      <View style={styles.shell}>
+      <View style={[styles.shell, { height: shellHeight }]}>
         <View style={styles.header}>
           <Mark size={24} color={C.accent} />
           <Text style={styles.headerText} numberOfLines={1}>
@@ -175,15 +187,25 @@ function Shell() {
   );
 }
 
+/** Plain padding rather than SafeAreaView, so the child is free to state its own height. */
+function SafeArea({ children }: { children: React.ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      {children}
+    </View>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="dark-content" backgroundColor={C.card} />
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <ShopProvider>
+      <ShopProvider>
+        <SafeArea>
           <Shell />
-        </ShopProvider>
-      </SafeAreaView>
+        </SafeArea>
+      </ShopProvider>
     </SafeAreaProvider>
   );
 }

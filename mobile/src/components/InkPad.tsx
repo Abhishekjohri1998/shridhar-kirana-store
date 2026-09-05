@@ -7,7 +7,7 @@ import { C, R } from '../theme';
 
 /** Points closer together than this are dropped: a finger reports far more than a line needs. */
 const MIN_STEP = 1.5;
-const STROKE_WIDTH = 2.4;
+const STROKE_WIDTH = 2.8;
 
 type Point = { x: number; y: number };
 
@@ -93,10 +93,14 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   const responder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
+        // A palm resting on the glass is a second touch. Once more than one finger is down there
+        // is no way to tell which is the pen, so nothing is drawn until the screen is down to one
+        // contact again -- a resting hand stops leaving a trail, which is the whole complaint.
+        onStartShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) <= 1,
+        onMoveShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) <= 1,
         onPanResponderGrant: (e) => {
           if (strokesRef.current.length >= INK_LIMITS.maxStrokes) return;
+          if ((e.nativeEvent.touches?.length ?? 1) > 1) return;
           const p = clamp(e.nativeEvent.locationX, e.nativeEvent.locationY);
           currentRef.current = [p];
           setCurrent([p]);
@@ -104,6 +108,12 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
         onPanResponderMove: (e) => {
           const stroke = currentRef.current;
           if (stroke.length === 0 || stroke.length >= INK_LIMITS.maxPointsPerStroke) return;
+          // A palm landing mid-word abandons the stroke rather than dragging it across the line.
+          if ((e.nativeEvent.touches?.length ?? 1) > 1) {
+            currentRef.current = [];
+            setCurrent([]);
+            return;
+          }
           const p = clamp(e.nativeEvent.locationX, e.nativeEvent.locationY);
           const last = stroke[stroke.length - 1]!;
           if (Math.hypot(p.x - last.x, p.y - last.y) < MIN_STEP) return;

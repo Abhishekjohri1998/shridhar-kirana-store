@@ -184,7 +184,7 @@ export function BillPage() {
                     <InkPad
                       ref={(handle) => { pads.current[line.itemId] = handle; }}
                       variant="line"
-                      height={62}
+                      height={78}
                       value={line.ink ?? null}
                       onChange={(ink) => shop.setLineInk(index, ink)}
                       label={t('bill.writeLine', { n: index + 1 })}

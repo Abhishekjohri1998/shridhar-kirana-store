@@ -126,8 +126,21 @@ export const RASTER_SCRIPT = `
       if (st.length < 2) continue;
       ctx.beginPath();
       ctx.moveTo(st[0], st[1]);
-      for (var i = 2; i + 1 < st.length; i += 2) ctx.lineTo(st[i], st[i + 1]);
-      if (st.length === 2) ctx.lineTo(st[0] + 0.01, st[1]);
+      // Same midpoint-quadratic smoothing as the counter PC. scripts/rastertest.js proves the two
+      // agree dot for dot, so this has to change on both sides at once or not at all.
+      var n = st.length / 2;
+      if (n === 1) {
+        ctx.lineTo(st[0] + 0.01, st[1]);
+      } else if (n === 2) {
+        ctx.lineTo(st[2], st[3]);
+      } else {
+        for (var i = 1; i < n - 1; i++) {
+          var cx = st[i * 2], cy = st[i * 2 + 1];
+          var mx = (cx + st[(i + 1) * 2]) / 2, my = (cy + st[(i + 1) * 2 + 1]) / 2;
+          ctx.quadraticCurveTo(cx, cy, mx, my);
+        }
+        ctx.lineTo(st[(n - 1) * 2], st[(n - 1) * 2 + 1]);
+      }
       ctx.stroke();
     }
     ctx.restore();

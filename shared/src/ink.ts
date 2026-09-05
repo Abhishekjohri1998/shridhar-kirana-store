@@ -49,16 +49,52 @@ export function inkFit(ink: Ink, maxWidth: number, targetHeight: number): InkFit
  * with a viewBox or a transform, which keeps the handwriting resolution-independent -- crisp on a
  * screen and crisp at 384 dots.
  */
+/**
+ * Strokes as a path, smoothed.
+ *
+ * A pen reports positions in bursts, and joining them with straight lines makes handwriting look
+ * like it was drawn with a ruler -- every sampled point becomes a visible corner. Curving through
+ * the midpoints instead gives a continuous line that still passes where the hand went: each
+ * sampled point becomes the control point of a quadratic, and the curve runs midpoint to
+ * midpoint. It costs nothing, changes no stored data, and is the difference between writing that
+ * looks written and writing that looks plotted.
+ */
 export function inkToSvgPath(ink: Ink): string {
   const parts: string[] = [];
   for (const stroke of ink.strokes) {
     if (stroke.length < 2) continue;
-    parts.push('M' + round(stroke[0] as number) + ' ' + round(stroke[1] as number));
-    for (let i = 2; i + 1 < stroke.length; i += 2) {
-      parts.push('L' + round(stroke[i] as number) + ' ' + round(stroke[i + 1] as number));
+
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let i = 0; i + 1 < stroke.length; i += 2) {
+      xs.push(stroke[i] as number);
+      ys.push(stroke[i + 1] as number);
     }
+
+    parts.push('M' + round(xs[0] as number) + ' ' + round(ys[0] as number));
+
     // A single tap is a dot, which needs a zero-length segment to be visible at all.
-    if (stroke.length === 2) parts.push('l0.01 0');
+    if (xs.length === 1) {
+      parts.push('l0.01 0');
+      continue;
+    }
+    if (xs.length === 2) {
+      parts.push('L' + round(xs[1] as number) + ' ' + round(ys[1] as number));
+      continue;
+    }
+
+    for (let i = 1; i < xs.length - 1; i++) {
+      const midX = ((xs[i] as number) + (xs[i + 1] as number)) / 2;
+      const midY = ((ys[i] as number) + (ys[i + 1] as number)) / 2;
+      parts.push(
+        'Q' + round(xs[i] as number) + ' ' + round(ys[i] as number) +
+        ' ' + round(midX) + ' ' + round(midY),
+      );
+    }
+    // The last sampled point is where the pen actually left the glass, so end there exactly.
+    parts.push(
+      'L' + round(xs[xs.length - 1] as number) + ' ' + round(ys[ys.length - 1] as number),
+    );
   }
   return parts.join(' ');
 }
