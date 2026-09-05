@@ -3,6 +3,7 @@ import {
   ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
   useWindowDimensions,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { money, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
@@ -199,18 +200,23 @@ function SafeArea({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" backgroundColor={C.card} />
-      <ShopProvider>
-        <SafeArea>
-          <Shell />
-        </SafeArea>
-      </ShopProvider>
-    </SafeAreaProvider>
+    // Gesture handler needs a root of its own, and it has to be the outermost view or the
+    // writing strip never receives a touch.
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <StatusBar barStyle="dark-content" backgroundColor={C.card} />
+        <ShopProvider>
+          <SafeArea>
+            <Shell />
+          </SafeArea>
+        </ShopProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: C.bg },
   safe: { flex: 1, minHeight: 0, backgroundColor: C.bg },
   shell: { flex: 1, backgroundColor: C.bg },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },

@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Gesture, GestureDetector, PointerType } from 'react-native-gesture-handler';
 import Svg, { Line, Path } from 'react-native-svg';
 import { INK_LIMITS, inkToSvgPath, type Ink } from '@shridhar/shared';
 import { Button } from './ui';
@@ -18,11 +19,13 @@ type Point = { x: number; y: number };
  * pen path is captured rather than a picture of it, so the same handwriting redraws crisply here
  * and at the print head's dots.
  *
- * Palm rejection here is weaker than the browser's. A browser says whether a pointer was a pen
- * or a finger; Android tells React Native where each contact is but not what it is. So the rule
- * is that a line belongs to the contact that began it and no other -- a hand settling on the
- * glass afterwards cannot move or end it. A palm that lands first can still start a line, and
- * only the tool type could prevent that.
+ * Palm rejection is the real thing here, not a heuristic. Android knows whether a contact came
+ * from a stylus or from skin, and react-native-gesture-handler passes that through as
+ * `pointerType`. So the rule is the same one the browser version uses: the first time a stylus
+ * is seen, this strip stops accepting fingers for good. A hand can then rest anywhere on the
+ * glass and leave nothing behind.
+ *
+ * Devices with no stylus keep working: until one is seen, touch draws as before.
  */
 /** What a slip row can ask of the strip it contains. */
 export type InkPadHandle = { undo: () => void; clear: () => void };
@@ -94,66 +97,71 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
     return { x: Math.min(Math.max(x, 0), w), y: Math.min(Math.max(y, 0), h) };
   }, []);
 
-  const responder = useMemo(
+  /**
+   * Once a stylus has been seen, skin is not a drawing implement any more.
+   *
+   * Kept in a ref rather than state so it takes effect on the very next event, without waiting
+   * for a render -- a palm can land a millisecond after the pen.
+   */
+  const sawStylus = useRef(false);
+  const [usingStylus, setUsingStylus] = useState(false);
+
+  const startStroke = useCallback((x: number, y: number) => {
+    if (strokesRef.current.length >= INK_LIMITS.maxStrokes) return;
+    const p = clamp(x, y);
+    currentRef.current = [p];
+    setCurrent([p]);
+  }, [clamp]);
+
+  const extendStroke = useCallback((x: number, y: number) => {
+    const stroke = currentRef.current;
+    if (stroke.length === 0 || stroke.length >= INK_LIMITS.maxPointsPerStroke) return;
+    const p = clamp(x, y);
+    const last = stroke[stroke.length - 1]!;
+    if (Math.hypot(p.x - last.x, p.y - last.y) < MIN_STEP) return;
+    stroke.push(p);
+    setCurrent([...stroke]);
+  }, [clamp]);
+
+  const endStroke = useCallback(() => {
+    const stroke = currentRef.current;
+    currentRef.current = [];
+    setCurrent([]);
+    if (stroke.length === 0) return;
+    commit([...strokesRef.current, stroke]);
+  }, [commit]);
+
+  /** True when this contact must be ignored: skin, on a strip that has met a stylus. */
+  const rejected = useCallback((pointerType: PointerType) => {
+    if (pointerType === PointerType.STYLUS) {
+      if (!sawStylus.current) {
+        sawStylus.current = true;
+        setUsingStylus(true);
+      }
+      return false;
+    }
+    return sawStylus.current;
+  }, []);
+
+  const gesture = useMemo(
     () =>
-      PanResponder.create({
-        /*
-         * The line belongs to whichever contact started it.
-         *
-         * Android tells React Native where each finger is but not what it is, so a palm and a
-         * stylus are indistinguishable. What can be done is to follow one contact and ignore the
-         * rest: the first touch down owns the stroke, and a palm settling afterwards is not
-         * allowed to move it or end it.
-         *
-         * An earlier attempt refused to draw at all while more than one contact was on the glass,
-         * which was worse than the problem -- a hand resting on the tablet stopped the pen
-         * working entirely.
-         *
-         * A palm that lands *before* the pen still starts the line. Nothing here can prevent
-         * that; only the tool type can, and Android does not pass it through. Samsung's own
-         * digitiser suppresses palm contact while the S Pen is near the glass, which is what makes
-         * this workable on the shop's tablet.
-         */
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (e) => {
-          if (strokesRef.current.length >= INK_LIMITS.maxStrokes) return;
-          ownerRef.current = e.nativeEvent.identifier;
-          const p = clamp(e.nativeEvent.locationX, e.nativeEvent.locationY);
-          currentRef.current = [p];
-          setCurrent([p]);
-        },
-        onPanResponderMove: (e) => {
-          const stroke = currentRef.current;
-          if (stroke.length === 0 || stroke.length >= INK_LIMITS.maxPointsPerStroke) return;
-
-          // Follow the contact that started the line, wherever it is in the list now.
-          const owner = ownerRef.current;
-          const touches = e.nativeEvent.touches ?? [];
-          const mine = touches.find((touch) => touch.identifier === owner);
-          if (touches.length > 1 && !mine) return; // the pen lifted; the palm is not a substitute
-
-          const p = mine
-            ? clamp(mine.locationX, mine.locationY)
-            : clamp(e.nativeEvent.locationX, e.nativeEvent.locationY);
-          const last = stroke[stroke.length - 1]!;
-          if (Math.hypot(p.x - last.x, p.y - last.y) < MIN_STEP) return;
-          stroke.push(p);
-          setCurrent([...stroke]);
-        },
-        onPanResponderRelease: () => {
-          const stroke = currentRef.current;
-          currentRef.current = [];
-          setCurrent([]);
-          if (stroke.length === 0) return;
-          commit([...strokesRef.current, stroke]);
-        },
-        onPanResponderTerminate: () => {
-          currentRef.current = [];
-          setCurrent([]);
-        },
-      }),
-    [clamp, commit],
+      Gesture.Pan()
+        // Zero, so a single dot of a Kannada conjunct registers rather than being taken for a tap.
+        .minDistance(0)
+        // The slip scrolls; without this a stroke that starts with a downward flick would be
+        // stolen by the scroll view before a single point was recorded.
+        .shouldCancelWhenOutside(false)
+        .onBegin((e) => {
+          if (rejected(e.pointerType)) return;
+          startStroke(e.x, e.y);
+        })
+        .onUpdate((e) => {
+          if (rejected(e.pointerType)) return;
+          extendStroke(e.x, e.y);
+        })
+        .onEnd(() => endStroke())
+        .onFinalize(() => endStroke()),
+    [rejected, startStroke, extendStroke, endStroke],
   );
 
   /**
@@ -189,49 +197,40 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
     sizeRef.current = { w: Math.max(1, width), h: Math.max(1, h) };
   };
 
-  const asPath = (points: Point[]) =>
-    inkToSvgPath({ w: sizeRef.current.w, h: sizeRef.current.h, strokes: [points.flatMap((p) => [p.x, p.y])] });
-
-  const surface = (
-    <View
-      style={[variant === 'line' ? styles.line : styles.pad, { height }]}
-      onLayout={onLayout}
-      accessibilityLabel={label}
-      {...responder.panHandlers}
-    >
-      <Svg style={StyleSheet.absoluteFill}>
-        <Line x1={8} y1={height * 0.72} x2="98%" y2={height * 0.72} stroke={C.line} strokeWidth={1} />
-        {[...strokes, current].map((stroke, i) =>
-          stroke.length > 0 ? (
-            <Path
-              key={i}
-              d={asPath(stroke)}
-              stroke="#000"
-              strokeWidth={STROKE_WIDTH}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          ) : null,
-        )}
-      </Svg>
-    </View>
+  const asPath = useCallback(
+    (points: Point[]) =>
+      inkToSvgPath({
+        w: sizeRef.current.w,
+        h: sizeRef.current.h,
+        strokes: [points.flatMap((p) => [p.x, p.y])],
+      }),
+    [],
   );
 
-  if (variant === 'line') return surface;
+  /**
+   * Finished strokes are turned into paths once and reused.
+   *
+   * Kannada is a great many short strokes, and rebuilding every one of them on every sampled
+   * point of the stroke in progress is what makes writing feel like it is dragging. Only the
+   * live stroke changes between frames now.
+   */
+  const finishedPaths = useMemo(() => strokes.map(asPath), [strokes, asPath]);
+  const livePath = current.length > 0 ? asPath(current) : null;
 
-  return (
-    <View>
-      <Text style={styles.label}>{label}</Text>
-      <View style={[styles.pad, { height }]} onLayout={onLayout} {...responder.panHandlers}>
+  const surface = (
+    <GestureDetector gesture={gesture}>
+      <View
+        style={[variant === 'line' ? styles.line : styles.pad, { height }]}
+        onLayout={onLayout}
+        accessibilityLabel={label}
+      >
         <Svg style={StyleSheet.absoluteFill}>
-          {/* A baseline to write along, so the handwriting comes out level enough to read at 58mm. */}
           <Line x1={8} y1={height * 0.72} x2="98%" y2={height * 0.72} stroke={C.line} strokeWidth={1} />
-          {[...strokes, current].map((stroke, i) =>
-            stroke.length > 0 ? (
+          {[...finishedPaths, ...(livePath ? [livePath] : [])].map((d, i) =>
+            d ? (
               <Path
                 key={i}
-                d={asPath(stroke)}
+                d={d}
                 stroke="#000"
                 strokeWidth={STROKE_WIDTH}
                 strokeLinecap="round"
@@ -242,6 +241,18 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
           )}
         </Svg>
       </View>
+    </GestureDetector>
+  );
+
+  if (variant === 'line') return surface;
+
+  return (
+    <View>
+      <Text style={styles.label}>
+        {label}
+        {usingStylus ? <Text style={styles.penNote}>{'  ·  pen detected, palm ignored'}</Text> : null}
+      </Text>
+      {surface}
       <View style={styles.row}>
         <Button
           label={undoLabel}
@@ -271,6 +282,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, color: C.soft, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 },
   pad: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10, overflow: 'hidden' },
   line: { backgroundColor: 'transparent', borderRadius: R.sm, overflow: 'hidden' },
+  penNote: { fontSize: 11, color: C.accent, textTransform: 'none', letterSpacing: 0 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   slim: { minHeight: 40, paddingVertical: 8, paddingHorizontal: 12 },
   count: { flex: 1, textAlign: 'right', color: C.soft, fontSize: 12 },
