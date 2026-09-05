@@ -116,7 +116,9 @@ function Start-Tunnel {
         if ($m.Success) {
             $url = $m.Value
             $previous = if (Test-Path $urlFile) { (Get-Content $urlFile -Raw).Trim() } else { '' }
-            Set-Content -Path $urlFile -Value $url -Encoding utf8
+            # WriteAllText, not Set-Content: PowerShell's utf8 writes a byte-order mark, and the
+            # first thing to read this file pasted an invisible character into a URL.
+            [System.IO.File]::WriteAllText($urlFile, $url)
             if ($previous -and $previous -ne $url) {
                 Write-Host ''
                 Write-Host '  !! THE PUBLIC ADDRESS CHANGED !!' -ForegroundColor Yellow
