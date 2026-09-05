@@ -20,7 +20,6 @@ export type CustomerInput = { id?: string; name: string; phone: string };
 export type Repo = {
   kind: 'mongo' | 'file';
 
-  listItems(): Promise<Item[]>;
   /**
    * Fill an empty shop with its starter catalogue, in one write.
    *
@@ -31,9 +30,6 @@ export type Repo = {
    *
    * Returns how many were inserted -- zero when the shop already had items.
    */
-  seedItems(items: Item[]): Promise<number>;
-  upsertItem(item: Item): Promise<Item>;
-  deleteItem(id: string): Promise<boolean>;
 
   getSettings(): Promise<Settings>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;

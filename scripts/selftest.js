@@ -383,7 +383,7 @@ async function main() {
     if (!up) return;
 
     eq('health needs no token', (await call('/api/health')).status, 200);
-    eq('items are behind auth', (await call('/api/items')).status, 401);
+    eq('bills are behind auth', (await call('/api/bills')).status, 401);
     eq('customers are behind auth', (await call('/api/customers')).status, 401);
     const wrongPin = await call('/api/auth/login', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: 'nope' }),
@@ -399,14 +399,6 @@ async function main() {
     eq('the right PIN issues a token', login.status, 200);
     const auth = { authorization: 'Bearer ' + login.body.token, 'content-type': 'application/json' };
     const post = (p, body) => call(p, { method: 'POST', headers: auth, body: JSON.stringify(body) });
-
-    const items = await call('/api/items', { headers: auth });
-    eq('items load', items.status, 200);
-    check('the shop is seeded', items.body.length >= 20, items.body.length + ' items');
-    eq('the whole starter catalogue is there, not part of it', items.body.length, 24);
-    check('the slip items are seeded at their real rates',
-      items.body.some((i) => i.id === 'gana-enne' && i.rate === 110) &&
-      items.body.some((i) => i.id === 'menasinakayi' && i.rate === 123));
 
     console.log('\nAPI: bills, totals and validation');
     // The server owns the total. A browser that sends a wrong one must not be able to record it.
@@ -524,20 +516,12 @@ async function main() {
       method: 'PUT', headers: auth, body: JSON.stringify({ inactiveAfterDays: 0 }),
     })).status, 400);
 
-    console.log('\nAPI: items and settings');
-    const newItem = await post('/api/items', { nameKn: 'ಹಾಲು', nameEn: 'Milk', rate: 28, unit: 'ltr' });
-    eq('an item can be added', newItem.status, 201);
-    check('the id is derived from the name', String(newItem.body.id).startsWith('milk-'), newItem.body.id);
-    eq('an item can be edited', (await call('/api/items/' + newItem.body.id, {
-      method: 'PUT', headers: auth,
-      body: JSON.stringify({ nameKn: 'ಹಾಲು', nameEn: 'Milk', rate: 30, unit: 'ltr' }),
-    })).body.rate, 30);
-    eq('an item with a zero rate is rejected',
-      (await post('/api/items', { nameEn: 'Free stuff', rate: 0 })).status, 400);
-    eq('an item can be removed',
-      (await call('/api/items/' + newItem.body.id, { method: 'DELETE', headers: auth })).status, 204);
-    eq('removing it twice is a 404',
-      (await call('/api/items/' + newItem.body.id, { method: 'DELETE', headers: auth })).status, 404);
+    console.log('\nAPI: settings');
+    // The catalogue is gone: every line of a bill is written by hand now, so there is no item
+    // endpoint left. What matters is that the routes that did exist are truly gone rather than
+    // quietly still answering.
+    eq('the item list is gone', (await call('/api/items', { headers: auth })).status, 404);
+    eq('adding an item is gone', (await post('/api/items', { nameEn: 'Milk', rate: 28 })).status, 404);
 
     eq('the paper size can be changed', (await call('/api/settings', {
       method: 'PUT', headers: auth, body: JSON.stringify({ paper: '80mm' }),
@@ -549,7 +533,7 @@ async function main() {
       method: 'PUT', headers: auth, body: JSON.stringify({ shopName: '   ' }),
     })).status, 400);
     eq('a forged token is refused',
-      (await call('/api/items', { headers: { authorization: 'Bearer not.a.token' } })).status, 401);
+      (await call('/api/bills', { headers: { authorization: 'Bearer not.a.token' } })).status, 401);
 
     const customerRemoved = await call('/api/customers/' + created.body.id, { method: 'DELETE', headers: auth });
     eq('a customer can be removed', customerRemoved.status, 204);

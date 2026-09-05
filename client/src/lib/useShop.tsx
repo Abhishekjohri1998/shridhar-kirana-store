@@ -8,7 +8,7 @@ import { ApiError, api, getToken, setToken } from './api';
 
 const CACHE_KEY = 'shridhar.cache';
 
-type Cache = { items: Item[]; settings: Settings };
+type Cache = { settings: Settings };
 
 /** The item list and shop name are cached so the billing screen still draws when the counter's
  *  wifi drops. Writing a bill still needs the server -- that is said plainly in the UI. */
@@ -35,7 +35,6 @@ type Shop = {
   ready: boolean;
   signedIn: boolean;
   offline: boolean;
-  items: Item[];
   settings: Settings;
   bills: Bill[];
   today: TodaySummary;
@@ -79,8 +78,6 @@ type Shop = {
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
 
-  saveItem: (item: Omit<Item, 'id'> & { id?: string }) => Promise<void>;
-  removeItem: (id: string) => Promise<void>;
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
 };
 
@@ -91,7 +88,6 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(() => getToken() != null);
   const [offline, setOffline] = useState(false);
-  const [items, setItems] = useState<Item[]>(cached?.items ?? []);
   const [settings, setSettings] = useState<Settings>(cached?.settings ?? DEFAULT_SETTINGS);
   const [bills, setBills] = useState<Bill[]>([]);
   const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
@@ -139,19 +135,17 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const [loadedItems, loadedSettings, loadedBills, loadedToday] = await Promise.all([
-        api.listItems(),
+      const [loadedSettings, loadedBills, loadedToday] = await Promise.all([
         api.getSettings(),
         api.listBills(100),
         api.today(),
       ]);
-      setItems(loadedItems);
       setSettings(loadedSettings);
       setBills(loadedBills);
       setToday(loadedToday);
       setOffline(false);
       setSignedIn(true);
-      writeCache({ items: loadedItems, settings: loadedSettings });
+      writeCache({ settings: loadedSettings });
       void refreshInactive();
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -297,22 +291,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     return saved;
   }, []);
 
-  const saveItem = useCallback(async (item: Omit<Item, 'id'> & { id?: string }) => {
-    const saved = item.id
-      ? await api.updateItem(item.id, { nameKn: item.nameKn, nameEn: item.nameEn, rate: item.rate, unit: item.unit })
-      : await api.createItem(item);
-    setItems((prev) => {
-      const next = prev.some((i) => i.id === saved.id)
-        ? prev.map((i) => (i.id === saved.id ? saved : i))
-        : [...prev, saved];
-      return next.sort((a, b) => a.nameEn.localeCompare(b.nameEn));
-    });
-  }, []);
 
-  const removeItem = useCallback(async (id: string) => {
-    await api.deleteItem(id);
-    setItems((prev) => prev.filter((i) => i.id !== id));
-  }, []);
 
   const saveSettings = useCallback(async (patch: Partial<Settings>) => {
     const next = await api.updateSettings(patch);
@@ -323,22 +302,22 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Shop>(
     () => ({
-      ready, signedIn, offline, items, settings, bills, today, cart,
+      ready, signedIn, offline, settings, bills, today, cart,
       cartTotal: billTotal(cart),
       customer, inactive, paidInput, printBalance, printBalanceTouched,
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setCustomer, saveCustomer, setPaidInput, setPrintBalance,
-      saveItem, removeItem, saveSettings,
+      saveSettings,
     }),
     [
-      ready, signedIn, offline, items, settings, bills, today, cart, customer, inactive,
+      ready, signedIn, offline, settings, bills, today, cart, customer, inactive,
       paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setCustomer, saveCustomer, setPrintBalance,
-      saveItem, removeItem, saveSettings,
+      saveSettings,
     ],
   );
 

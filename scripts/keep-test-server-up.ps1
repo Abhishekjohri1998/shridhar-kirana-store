@@ -36,16 +36,44 @@ function Test-Api {
 
 function Start-Api {
     Write-Host "[$(Get-Date -Format HH:mm:ss)] starting API on 4000"
-    Start-Process -FilePath 'node' -ArgumentList 'dist/index.js' `
-        -WorkingDirectory $serverDir `
-        -RedirectStandardOutput (Join-Path $logDir 'server-out.log') `
-        -RedirectStandardError  (Join-Path $logDir 'server-err.log') `
-        -WindowStyle Hidden
+    # A fresh pair of log files each time. Reusing one name fails outright when the previous
+    # node process still holds the handle, and Start-Process reports that as a red error nobody
+    # is watching for.
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    try {
+        Start-Process -FilePath 'node' -ArgumentList 'dist/index.js' `
+            -WorkingDirectory $serverDir `
+            -RedirectStandardOutput (Join-Path $logDir "server-$stamp.out.log") `
+            -RedirectStandardError  (Join-Path $logDir "server-$stamp.err.log") `
+            -WindowStyle Hidden
+    } catch {
+        Write-Host "[$(Get-Date -Format HH:mm:ss)] could not start the API: $_" -ForegroundColor Red
+    }
     Start-Sleep -Seconds 6
 }
 
 function Get-TunnelProcess {
     Get-Process cloudflared -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+
+<#
+    Is this watchdog already running?
+
+    Answered with a lock file holding a process id, not by searching command lines. Command-line
+    matching failed twice here for the same reason: any process that merely mentions this script
+    -- the shell that launched it, a tool checking on it -- carries the search text inside its own
+    command line, so the search finds a stranger and reports success while nothing is watching.
+    A pid either belongs to a live process or it does not.
+#>
+function Test-AlreadyRunning {
+    param([string] $LockFile)
+    if (-not (Test-Path $LockFile)) { return $false }
+    $recorded = (Get-Content $LockFile -Raw -ErrorAction SilentlyContinue)
+    if (-not $recorded) { return $false }
+    $recorded = $recorded.Trim()
+    if ($recorded -notmatch '^\d+$') { return $false }
+    if ([int]$recorded -eq $PID) { return $false }
+    return $null -ne (Get-Process -Id ([int]$recorded) -ErrorAction SilentlyContinue)
 }
 
 function Start-Tunnel {
@@ -81,11 +109,23 @@ function Start-Tunnel {
     Write-Host "[$(Get-Date -Format HH:mm:ss)] tunnel did not report a URL; will retry" -ForegroundColor Red
 }
 
+$lock = Join-Path $logDir 'watchdog.pid'
+if (Test-AlreadyRunning -LockFile $lock) {
+    Write-Host 'Another watchdog is already running. Nothing to do.' -ForegroundColor Yellow
+    exit 0
+}
+Set-Content -Path $lock -Value $PID -Encoding utf8
+
 Write-Host 'Keeping the test server up. Leave this window open. Ctrl+C to stop.'
 Write-Host ''
+
+# A heartbeat on disk, so "is it running?" can be answered by looking rather than by guessing at
+# process lists.
+$beat = Join-Path $logDir 'watchdog-heartbeat.txt'
 
 while ($true) {
     if (-not (Test-Api)) { Start-Api }
     if (-not (Get-TunnelProcess)) { Start-Tunnel }
+    Set-Content -Path $beat -Value "alive $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') pid $PID" -Encoding utf8
     Start-Sleep -Seconds 20
 }

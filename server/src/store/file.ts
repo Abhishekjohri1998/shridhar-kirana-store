@@ -65,39 +65,6 @@ export async function createFileRepo(dir: string): Promise<Repo> {
   return {
     kind: 'file',
 
-    async listItems() {
-      return [...db.items].sort((a, b) => a.nameEn.localeCompare(b.nameEn));
-    },
-
-    seedItems(items) {
-      return serial(async () => {
-        if (db.items.length > 0) return 0;
-        db.items = [...items];
-        // A single flush: the file on disk goes from empty to complete with nothing in between.
-        await flush();
-        return db.items.length;
-      });
-    },
-
-    upsertItem(item) {
-      return serial(async () => {
-        const at = db.items.findIndex((i) => i.id === item.id);
-        if (at >= 0) db.items[at] = item;
-        else db.items.push(item);
-        await flush();
-        return item;
-      });
-    },
-
-    deleteItem(id) {
-      return serial(async () => {
-        const before = db.items.length;
-        db.items = db.items.filter((i) => i.id !== id);
-        if (db.items.length === before) return false;
-        await flush();
-        return true;
-      });
-    },
 
     async getSettings() {
       return { ...DEFAULT_SETTINGS, ...db.settings };

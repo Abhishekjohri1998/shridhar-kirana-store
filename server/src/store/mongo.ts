@@ -145,33 +145,6 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
   return {
     kind: 'mongo',
 
-    async listItems() {
-      const docs = await Items.find().sort({ nameEn: 1 }).lean();
-      return docs.map((d) => strip(d as unknown as Item));
-    },
-
-    async seedItems(items) {
-      if ((await Items.countDocuments()) > 0) return 0;
-      // One insertMany command rather than a loop of upserts. `ordered: false` means a retry
-      // after a partial insert fills the gaps instead of stopping on the first duplicate id.
-      const res = await Items.insertMany(items, { ordered: false }).catch((err: unknown) => {
-        const duplicateKey = (err as { code?: number })?.code === 11000;
-        if (!duplicateKey) throw err;
-        return [];
-      });
-      return Array.isArray(res) ? res.length : 0;
-    },
-
-    async upsertItem(item) {
-      const doc = await Items.findOneAndUpdate({ id: item.id }, item, { upsert: true, new: true }).lean();
-      return strip(doc as unknown as Item);
-    },
-
-    async deleteItem(id) {
-      const res = await Items.deleteOne({ id });
-      return res.deletedCount > 0;
-    },
-
     async getSettings() {
       const doc = await SettingsModel.findOneAndUpdate(
         { key: 'shop' },

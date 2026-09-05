@@ -5,13 +5,6 @@ import { issueToken, pinMatches, requireAuth } from './auth';
 import { HttpError, handler } from './http';
 import { getRepo } from './store';
 
-const itemBody = z.object({
-  id: z.string().trim().min(1).max(80).optional(),
-  nameKn: z.string().trim().max(120).default(''),
-  nameEn: z.string().trim().max(120).default(''),
-  rate: z.coerce.number().finite().positive().max(1_000_000),
-  unit: z.string().trim().max(16).default('pc'),
-});
 
 /** Handwriting arrives as pen paths. Capped so one bill cannot carry a megabyte of scribble. */
 const inkBody = z
@@ -56,10 +49,6 @@ const customerBody = z.object({
 });
 
 /** Readable ids, so the data stays legible if anyone ever looks at the collection directly. */
-function makeId(nameEn: string, nameKn: string): string {
-  const base = (nameEn || nameKn).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return (base || 'item') + '-' + Date.now().toString(36).slice(-4);
-}
 
 export const api = Router();
 
@@ -74,44 +63,6 @@ api.post('/auth/login', handler(async (req, res) => {
 }));
 
 api.use(requireAuth);
-
-// ---------------------------------------------------------------------------- items
-
-api.get('/items', handler(async (_req, res) => {
-  res.json(await getRepo().listItems());
-}));
-
-api.post('/items', handler(async (req, res) => {
-  const body = itemBody.parse(req.body);
-  if (!body.nameKn && !body.nameEn) throw new HttpError(400, 'Give the item at least one name');
-  res.status(201).json(await getRepo().upsertItem({
-    id: body.id ?? makeId(body.nameEn, body.nameKn),
-    // Either name falls back to the other, so a half-filled item still bills and prints.
-    nameKn: body.nameKn || body.nameEn,
-    nameEn: body.nameEn || body.nameKn,
-    rate: body.rate,
-    unit: body.unit || 'pc',
-  }));
-}));
-
-api.put('/items/:id', handler(async (req, res) => {
-  const id = z.string().trim().min(1).parse(req.params.id);
-  const body = itemBody.parse({ ...req.body, id });
-  if (!body.nameKn && !body.nameEn) throw new HttpError(400, 'Give the item at least one name');
-  res.json(await getRepo().upsertItem({
-    id,
-    nameKn: body.nameKn || body.nameEn,
-    nameEn: body.nameEn || body.nameKn,
-    rate: body.rate,
-    unit: body.unit || 'pc',
-  }));
-}));
-
-api.delete('/items/:id', handler(async (req, res) => {
-  const removed = await getRepo().deleteItem(String(req.params.id));
-  if (!removed) throw new HttpError(404, 'No such item');
-  res.status(204).end();
-}));
 
 // ---------------------------------------------------------------------------- settings
 
