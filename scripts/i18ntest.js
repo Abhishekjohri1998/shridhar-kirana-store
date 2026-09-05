@@ -14,7 +14,13 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const BUILD = path.join(ROOT, '.i18ntest-build');
-const SRC = path.join(ROOT, 'client', 'src');
+// One dictionary serves both apps, so usage has to be counted across both. Scanning only the
+// web client made any key the phone alone uses look dead.
+const SRC_DIRS = [
+  path.join(ROOT, 'client', 'src'),
+  path.join(ROOT, 'mobile', 'src'),
+  path.join(ROOT, 'mobile', 'App.tsx'),
+];
 
 let failures = 0;
 function check(name, ok, detail) {
@@ -80,7 +86,8 @@ function walk(dir) {
   }
   return out;
 }
-const sources = walk(SRC).map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+const sourceFiles = SRC_DIRS.flatMap((p) => (fs.statSync(p).isDirectory() ? walk(p) : [p]));
+const sources = sourceFiles.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
 const used = new Set(
   [...sources.matchAll(/(?<![A-Za-z0-9_$])t\(\s*'([\w.]+)'/g)].map((m) => m[1]),
 );

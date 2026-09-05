@@ -39,6 +39,7 @@ type Shop = {
   saveServerUrl: (url: string) => Promise<void>;
   signIn: (pin: string) => Promise<void>;
   signOut: () => void;
+  forgetServer: () => void;
   reload: () => Promise<void>;
   refreshInactive: () => Promise<void>;
 
@@ -202,6 +203,21 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     resetDraft();
   }, [resetDraft]);
 
+  /**
+   * Forget where the server is, sending the app back to its first screen.
+   *
+   * Without this the address entered on day one is the address for ever: a shop that moves its
+   * server, or a test build pointed at a tunnel whose URL rotates, would leave the operator
+   * staring at "cannot reach" with no way out but reinstalling.
+   */
+  const forgetServer = useCallback(() => {
+    void setToken(null);
+    void setServerUrl('');
+    setServerUrlState('');
+    setSignedIn(false);
+    resetDraft();
+  }, [resetDraft]);
+
   const addItemToCart = useCallback((item: Item, qty = 1) => {
     setCart((prev) => {
       const at = prev.findIndex((l) => l.itemId === item.id && l.rate === item.rate && !l.ink);
@@ -306,7 +322,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       items, settings, bills, today, cart, cartTotal: billTotal(cart),
       customer, inactive, paidInput, printBalance, printBalanceTouched,
       lang, t, receiptLabels,
-      saveServerUrl, signIn, signOut, reload, refreshInactive,
+      saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, removeLine, clearCart, commitBill,
       setCustomer, saveCustomer, setPaidInput, setPrintBalance,
       saveItem, removeItem, saveSettings,
@@ -314,7 +330,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     [
       ready, serverUrl, signedIn, offline, items, settings, bills, today, cart,
       customer, inactive, paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
-      saveServerUrl, signIn, signOut, reload, refreshInactive,
+      saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, removeLine, clearCart, commitBill,
       setCustomer, saveCustomer, setPrintBalance, saveItem, removeItem, saveSettings,
     ],

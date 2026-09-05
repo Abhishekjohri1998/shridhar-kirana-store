@@ -61,6 +61,7 @@ export function SettingsScreen() {
   const [saved, setSaved] = useState<MsgKey | null>(null);
   const [picker, setPicker] = useState<PairedPrinter[] | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [confirmServer, setConfirmServer] = useState(false);
 
   useEffect(() => {
     setShopName(shop.settings.shopName);
@@ -233,7 +234,31 @@ export function SettingsScreen() {
         <Text style={styles.hint}>{shop.serverUrl}</Text>
         <View style={{ height: 10 }} />
         <Button label={t('set.signOut')} tone="plain" onPress={shop.signOut} />
+        <View style={{ height: 8 }} />
+        <Button label={t('set.changeServer')} tone="plain" onPress={() => setConfirmServer(true)} />
+        <Text style={styles.hint}>{t('set.changeServerHint')}</Text>
       </Card>
+
+      <Dialog
+        visible={confirmServer}
+        title={t('set.changeServer')}
+        onClose={() => setConfirmServer(false)}
+        footer={
+          <>
+            <Button label={t('common.cancel')} tone="plain" onPress={() => setConfirmServer(false)} style={{ flex: 1 }} />
+            <Button
+              label={t('set.changeServer')}
+              onPress={() => {
+                setConfirmServer(false);
+                shop.forgetServer();
+              }}
+              style={{ flex: 1 }}
+            />
+          </>
+        }
+      >
+        <Text style={styles.hint}>{t('set.changeServerHint')}</Text>
+      </Dialog>
 
       <Dialog
         visible={picker != null}
