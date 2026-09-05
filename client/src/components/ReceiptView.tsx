@@ -132,7 +132,7 @@ export function ReceiptView({
           if (row.t === 'ink') {
             return (
               <div key={i} className="r-item" style={textStyle(24)}>
-                <span>{row.qty}</span>
+                <span>{row.no}</span>
                 <span className="r-name">
                   <InkMark ink={row.ink} paperDots={doc.width} alt={inkAlt} />
                   {row.note ? (
@@ -148,7 +148,7 @@ export function ReceiptView({
 
           return (
             <div key={i} className="r-item" style={textStyle(24)}>
-              <span>{row.qty}</span>
+              <span>{row.no}</span>
               <span className="r-name">
                 {row.name}
                 {row.note ? (

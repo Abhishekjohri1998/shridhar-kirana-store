@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   buildReceipt,
   checkCustomer,
@@ -11,7 +11,7 @@ import {
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
-import { InkPad } from '../components/InkPad';
+import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
@@ -35,6 +35,8 @@ export function BillPage() {
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
+  /** One writing strip per line, so a row's undo button can reach its own strokes. */
+  const pads = useRef<Record<string, InkPadHandle | null>>({});
 
   /**
    * Keep one empty line at the foot, always. The shopkeeper should never have to ask for
@@ -180,6 +182,7 @@ export function BillPage() {
 
                   <div className="slip-write">
                     <InkPad
+                      ref={(handle) => { pads.current[line.itemId] = handle; }}
                       variant="line"
                       height={62}
                       value={line.ink ?? null}
@@ -202,6 +205,16 @@ export function BillPage() {
                     value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
                   />
+
+                  <button
+                    className="slip-undo"
+                    aria-label={t('bill.undoLine', { n: index + 1 })}
+                    title={t('bill.undoLine', { n: index + 1 })}
+                    disabled={!line.ink}
+                    onClick={() => pads.current[line.itemId]?.undo()}
+                  >
+                    ⟲
+                  </button>
 
                   <button
                     className="slip-remove"

@@ -1,5 +1,5 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
-import { lineAmount, money, qtyText, round2 } from './money';
+import { lineAmount, money, round2 } from './money';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 
@@ -32,9 +32,9 @@ export const RASTER = {
 export type Row =
   | { t: 'center'; text: string; size?: number; bold?: boolean }
   | { t: 'kv'; left: string; right: string; size?: number; bold?: boolean }
-  | { t: 'item'; qty: string; name: string; amount: string; note?: string }
+  | { t: 'item'; no: string; name: string; amount: string; note?: string }
   /** A handwritten description in the item column, with the price beside it. */
-  | { t: 'ink'; qty: string; ink: Ink; amount: string; note?: string }
+  | { t: 'ink'; no: string; ink: Ink; amount: string; note?: string }
   | { t: 'sep' }
   | { t: 'space'; h: number };
 
@@ -78,16 +78,19 @@ export function buildReceipt(
 
   rows.push({ t: 'sep' });
 
-  for (const line of bill.lines) {
+  bill.lines.forEach((line, index) => {
     const shared = {
-      qty: qtyText(line.qty),
+      // The line's place on the slip, not its quantity. Quantity is part of what the shopkeeper
+      // writes by hand -- "2 kg rice" -- so a separate column of ones told nobody anything, while
+      // a serial number matches the numbering on screen and makes a line easy to point at.
+      no: String(index + 1),
       amount: money(lineAmount(line.qty, line.rate)),
       note: settings.showRate ? '@ ' + money(line.rate) : undefined,
     };
     // Handwriting wins over the typed names: it is what the shopkeeper actually wrote.
     if (line.ink && line.ink.strokes.length > 0) rows.push({ t: 'ink', ink: line.ink, ...shared });
     else rows.push({ t: 'item', name: line.nameKn || line.nameEn, ...shared });
-  }
+  });
 
   rows.push(
     { t: 'sep' },

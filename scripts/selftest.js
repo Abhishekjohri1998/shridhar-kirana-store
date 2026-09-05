@@ -176,7 +176,12 @@ async function main() {
   eq('one row per line', itemRows.length, 4);
   eq('first row prints the Kannada name', itemRows[0].name, 'ಗಾಣದ ಎಣ್ಣೆ');
   eq('first row amount is the line total', itemRows[0].amount, '550');
-  eq('the quantity prints even when it is 1', itemRows[2].qty, '1');
+  // The left column is the line's place on the slip, not its quantity: quantity is part of what
+  // the shopkeeper writes by hand, so a column of ones told nobody anything.
+  eq('the first line is numbered 1', itemRows[0].no, '1');
+  eq('the third line is numbered 3', itemRows[2].no, '3');
+  check('the numbering runs 1..n in order',
+    itemRows.every((r, i) => r.no === String(i + 1)), itemRows.map((r) => r.no).join(','));
   check('no rate note when showRate is off', itemRows.every((r) => r.note === undefined));
   const totalRow = receipt.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL');
   eq('total row reads 1370', totalRow && totalRow.right, '1370');

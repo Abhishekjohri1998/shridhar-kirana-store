@@ -130,7 +130,7 @@ export function rasterize(doc: ReceiptDoc): Raster {
     const amountW = meas.measureText(row.amount).width;
     const nameX = PAD + RASTER.qtyCol;
     const nameMax = Math.max(40, W - PAD - amountW - 12 - nameX);
-    ops.push({ op: 'text', text: row.qty, x: PAD, y, size: ITEM, bold: false, align: 'left' });
+    ops.push({ op: 'text', text: row.no, x: PAD, y, size: ITEM, bold: false, align: 'left' });
     ops.push({ op: 'text', text: row.amount, x: W - PAD, y, size: ITEM, bold: false, align: 'right' });
 
     if (row.t === 'ink') {

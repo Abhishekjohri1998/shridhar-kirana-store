@@ -48,7 +48,7 @@ export function ReceiptView({ doc, width = 300 }: { doc: ReceiptDoc; width?: num
         const st = { fontSize: size, lineHeight: size * 1.5 };
         return (
           <View key={i} style={styles.item}>
-            <Text style={[styles.text, st, { width: px(RASTER.qtyCol) }]}>{row.qty}</Text>
+            <Text style={[styles.text, st, { width: px(RASTER.qtyCol) }]}>{row.no}</Text>
             <View style={styles.middle}>
               {row.t === 'ink' ? (
                 <InkView

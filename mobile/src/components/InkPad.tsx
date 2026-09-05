@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Line, Path } from 'react-native-svg';
 import { INK_LIMITS, inkToSvgPath, type Ink } from '@shridhar/shared';
@@ -22,10 +22,10 @@ type Point = { x: number; y: number };
  * not carry Android's tool type, so a finger and a stylus look the same to it. Undo covers the
  * accident instead.
  */
-export function InkPad({
-  onChange, height = 150, label, undoLabel, clearLabel, hint, strokeCount,
-  variant = 'pad', value,
-}: {
+/** What a slip row can ask of the strip it contains. */
+export type InkPadHandle = { undo: () => void; clear: () => void };
+
+type InkPadProps = {
   onChange: (ink: Ink | null) => void;
   height?: number;
   label: string;
@@ -40,7 +40,12 @@ export function InkPad({
   variant?: 'pad' | 'line';
   /** Ink to start from, so a line already written can be written on again. */
   value?: Ink | null;
-}) {
+};
+
+export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
+  onChange, height = 150, label, undoLabel, clearLabel, hint, strokeCount,
+  variant = 'pad', value,
+}, ref) {
   /**
    * The ref is the source of truth and state only mirrors it for repaints. Reading the finished
    * strokes out of the render closure loses them when two lifts land in one React batch, which is
@@ -138,6 +143,16 @@ export function InkPad({
     setStrokes(restored);
   }, [value]);
 
+  // A slip row draws no buttons of its own, so it reaches in for these.
+  useImperativeHandle(ref, () => ({
+    undo: () => commit(strokesRef.current.slice(0, -1)),
+    clear: () => {
+      currentRef.current = [];
+      setCurrent([]);
+      commit([]);
+    },
+  }));
+
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height: h } = e.nativeEvent.layout;
     sizeRef.current = { w: Math.max(1, width), h: Math.max(1, h) };
@@ -219,7 +234,7 @@ export function InkPad({
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   label: { fontSize: 12, color: C.soft, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 },

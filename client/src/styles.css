@@ -465,7 +465,7 @@ button, input, select, textarea {
 
 .slip-head {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 104px 40px;
+  grid-template-columns: 34px minmax(0, 1fr) 104px 36px 36px;
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
@@ -485,7 +485,7 @@ button, input, select, textarea {
 
 .slip-line {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 104px 40px;
+  grid-template-columns: 34px minmax(0, 1fr) 104px 36px 36px;
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
@@ -549,6 +549,24 @@ button, input, select, textarea {
   border-color: var(--brand-500);
   box-shadow: 0 0 0 3px var(--brand-wash);
 }
+
+/* Undo takes back the last stroke; the cross removes the whole line. Kept apart because one is
+   recoverable and the other is not. */
+.slip-undo {
+  width: 32px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-400);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+
+.slip-undo:hover:not(:disabled) { color: var(--brand-700); background: var(--brand-wash); }
+.slip-undo:disabled { opacity: 0.25; cursor: default; }
 
 .slip-remove {
   width: 34px;
@@ -1419,7 +1437,7 @@ select.input {
   .cart > * { max-width: 820px; margin-left: auto; margin-right: auto; }
 
   .slip-line,
-  .slip-head { grid-template-columns: 40px minmax(0, 1fr) 130px 44px; }
+  .slip-head { grid-template-columns: 40px minmax(0, 1fr) 130px 40px 40px; }
 
   .page { max-width: 940px; }
 }

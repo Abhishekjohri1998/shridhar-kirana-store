@@ -177,7 +177,7 @@ export const RASTER_SCRIPT = `
         var amtW = meas.measureText(row.amount).width;
         var nameX = PAD + QTY_COL;
         var nameMax = Math.max(40, (W - PAD - amtW - 12) - nameX);
-        ops.push({ op: 'text', text: row.qty, x: PAD, y: y, size: ITEM, bold: false, align: 'left' });
+        ops.push({ op: 'text', text: row.no, x: PAD, y: y, size: ITEM, bold: false, align: 'left' });
         ops.push({ op: 'text', text: row.amount, x: W - PAD, y: y, size: ITEM, bold: false, align: 'right' });
 
         if (row.t === 'ink') {

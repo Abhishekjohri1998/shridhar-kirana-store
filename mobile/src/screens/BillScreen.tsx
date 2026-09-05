@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
@@ -7,7 +7,7 @@ import {
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
-import { InkPad } from '../components/InkPad';
+import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
 import { Button, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
@@ -38,6 +38,8 @@ export function BillScreen() {
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
+  /** One writing strip per line, so a row's undo button can reach its own strokes. */
+  const pads = useRef<Record<string, InkPadHandle | null>>({});
 
   /** Keep one empty line at the foot, always: on paper the next line is simply there. */
   useEffect(() => {
@@ -172,7 +174,8 @@ export function BillScreen() {
             <Text style={[styles.slipHeadText, styles.colNo]} />
             <Text style={[styles.slipHeadText, { flex: 1 }]}>{t('bill.whatWasSold')}</Text>
             <Text style={[styles.slipHeadText, styles.colPrice, { textAlign: 'right' }]}>{t('bill.price')}</Text>
-            <View style={styles.colRemove} />
+            <View style={styles.colIcon} />
+            <View style={styles.colIcon} />
           </View>
 
           {shop.cart.map((line, index) => {
@@ -183,6 +186,7 @@ export function BillScreen() {
 
                 <View style={styles.slipWrite}>
                   <InkPad
+                    ref={(handle) => { pads.current[line.itemId] = handle; }}
                     variant="line"
                     height={64}
                     value={line.ink ?? null}
@@ -207,7 +211,16 @@ export function BillScreen() {
                 />
 
                 <Pressable
-                  style={styles.colRemove}
+                  style={styles.colIcon}
+                  disabled={!line.ink}
+                  accessibilityLabel={t('bill.undoLine', { n: index + 1 })}
+                  onPress={() => pads.current[line.itemId]?.undo()}
+                >
+                  <Text style={[styles.slipUndo, !line.ink && styles.slipRemoveOff]}>⟲</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.colIcon}
                   disabled={blank}
                   accessibilityLabel={t('bill.clearLine', { n: index + 1 })}
                   onPress={() => shop.removeLine(index)}
@@ -329,7 +342,7 @@ const styles = StyleSheet.create({
   slipHeadText: { ...TYPE.label, fontSize: 10 },
   colNo: { width: 22 },
   colPrice: { width: 92 },
-  colRemove: { width: 30, alignItems: 'center', justifyContent: 'center' },
+  colIcon: { width: 34, alignItems: 'center', justifyContent: 'center' },
 
   slipLine: {
     flexDirection: 'row',
@@ -361,6 +374,9 @@ const styles = StyleSheet.create({
     borderColor: C.line,
     borderRadius: R.sm,
   },
+  /* Undo takes back the last stroke; the cross removes the whole line. Kept apart because one is
+     recoverable and the other is not. */
+  slipUndo: { fontSize: 19, color: C.accent },
   slipRemove: { fontSize: 20, color: C.faint },
   slipRemoveOff: { opacity: 0.25 },
 

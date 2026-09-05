@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { INK_LIMITS, type Ink } from '@shridhar/shared';
 
 /** Ink coordinates are CSS pixels of the pad, so the stored box is whatever the pad measured. */
@@ -15,18 +15,10 @@ type Point = { x: number; y: number };
  * than to type on a phone keypad. This captures the pen path rather than a picture of it, so the
  * same handwriting can be redrawn crisply on screen and at the print head's 384 dots.
  */
-export function InkPad({
-  onChange,
-  height = 140,
-  label,
-  penNotice,
-  undoLabel,
-  clearLabel,
-  hint,
-  strokeCount,
-  variant = 'pad',
-  value,
-}: {
+/** What a slip row can ask of the strip it contains. */
+export type InkPadHandle = { undo: () => void; clear: () => void };
+
+type InkPadProps = {
   onChange: (ink: Ink | null) => void;
   height?: number;
   label: string;
@@ -43,7 +35,20 @@ export function InkPad({
   variant?: 'pad' | 'line';
   /** Ink to start from, so a line already written can be written on again. */
   value?: Ink | null;
-}) {
+};
+
+export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
+  onChange,
+  height = 140,
+  label,
+  penNotice,
+  undoLabel,
+  clearLabel,
+  hint,
+  strokeCount,
+  variant = 'pad',
+  value,
+}, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /**
    * The ref is the source of truth, the state is only there to trigger a repaint. Reading the
@@ -218,6 +223,9 @@ export function InkPad({
     commit([]);
   };
 
+  // A slip row draws no buttons of its own, so it reaches in for these.
+  useImperativeHandle(ref, () => ({ undo, clear }));
+
   if (variant === 'line') {
     return (
       <canvas
@@ -266,4 +274,4 @@ export function InkPad({
       </div>
     </div>
   );
-}
+});
