@@ -84,11 +84,19 @@ npm run build && npm start     # production: one process on port 4000 serving AP
 
 ### The database
 
-**Paste the connection string into `MONGO_URI` in `server/.env` when you have it** and restart — the
-app switches to MongoDB with no other change. Until then it keeps its data in
-`server/.data/db.json` so you can build and demo without waiting; the server prints which one it is
-using on startup, and `GET /api/health` reports it too. The JSON file is a development stand-in, not
-something to run a shop on.
+**MongoDB is connected.** `MONGO_URI` is set in `server/.env` (gitignored, so it does not travel to
+a deployment — the server there needs its own). The URI names a database explicitly,
+`/simple-sales-book`, because a connection string ending in `/` lands in Atlas's default `test`
+bucket; it also carries `w=majority`, so a bill is acknowledged only once a majority of the replica
+set holds it. The point of a billing record is that it is still there tomorrow.
+
+Without a `MONGO_URI` the server falls back to `server/.data/db.json` so the app can be built and
+demonstrated before a database exists. That file is a development stand-in, not something to run a
+shop on. The server prints which store it chose on startup, and `GET /api/health` reports it.
+
+The test suite is insulated from the live database: `selftest` forces `MONGO_URI: ''` on the server
+it spawns, and `seedtest` drives the file store directly. Verified rather than assumed — a full
+`npm test` run leaves Atlas byte for byte as it was.
 
 Both sit behind one interface in [`server/src/store/types.ts`](server/src/store/types.ts), so the
 routes cannot tell them apart.
