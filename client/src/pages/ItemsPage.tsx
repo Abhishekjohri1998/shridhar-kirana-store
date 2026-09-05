@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   checkItemNames,
   checkUnit,
+  findNameClashes,
   money,
   parseRate,
   type Item,
@@ -21,6 +22,8 @@ export function ItemsPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Item | null>(null);
+  // Items that already carry this name. Held rather than acted on: the shopkeeper decides.
+  const [clashes, setClashes] = useState<Item[] | null>(null);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -28,7 +31,10 @@ export function ItemsPage() {
     return shop.items.filter((i) => i.nameEn.toLowerCase().includes(q) || i.nameKn.includes(query.trim()));
   }, [query, shop.items]);
 
-  const save = async () => {
+  // The first clash carries the wording; the rest are listed underneath.
+  const clash = clashes && clashes.length > 0 ? clashes[0] : null;
+
+  const save = async (force = false) => {
     if (!draft) return;
     const names = checkItemNames(draft.nameKn, draft.nameEn);
     if (!names.ok) {
@@ -45,14 +51,29 @@ export function ItemsPage() {
       setError(unit.error);
       return;
     }
+    // Loose sugar and packet sugar at different rates is a real thing, so a repeated name is a
+    // warning and not a refusal -- but saving it silently leaves two rows that read identically
+    // on the slip with nothing to tell them apart.
+    if (!force) {
+      const found = findNameClashes(shop.items, {
+        id: draft.id, nameKn: names.nameKn, nameEn: names.nameEn,
+      });
+      if (found.length > 0) {
+        setClashes(found);
+        return;
+      }
+    }
+
     try {
       await shop.saveItem({
         id: draft.id, nameKn: names.nameKn, nameEn: names.nameEn,
         rate: rate.value, unit: unit.value,
       });
+      setClashes(null);
       setDraft(null);
       setError(null);
     } catch (e) {
+      setClashes(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -119,7 +140,7 @@ export function ItemsPage() {
           footer={
             <>
               <button className="btn plain" onClick={() => setDraft(null)}>{t('common.cancel')}</button>
-              <button className="btn" onClick={save}>{t('common.save')}</button>
+              <button className="btn" onClick={() => void save()}>{t('common.save')}</button>
             </>
           }
         >
@@ -173,6 +194,39 @@ export function ItemsPage() {
                 {t('items.removeItem')}
               </button>
             ) : null}
+          </div>
+        </Dialog>
+      ) : null}
+
+      {clash ? (
+        <Dialog
+          title={t('items.duplicateTitle', { name: clash.nameEn || clash.nameKn })}
+          onClose={() => setClashes(null)}
+          footer={
+            <>
+              <button className="btn plain" onClick={() => setClashes(null)}>{t('common.cancel')}</button>
+              <button className="btn" onClick={() => void save(true)}>{t('items.saveAnyway')}</button>
+            </>
+          }
+        >
+          <p className="small" style={{ margin: 0 }}>
+            {(clashes ?? []).length === 1
+              ? t('items.duplicateBody', { rate: money(clash.rate), unit: clash.unit })
+              : t('items.duplicateBodyMany', { n: (clashes ?? []).length })}
+          </p>
+          <div className="list" style={{ marginTop: 12 }}>
+            {(clashes ?? []).map((c) => (
+              <div key={c.id} className="list-row" style={{ cursor: 'default' }}>
+                <span className="grow">
+                  <span style={{ display: 'block' }}>{c.nameKn}</span>
+                  <span className="muted small">{c.nameEn}</span>
+                </span>
+                <span>
+                  <strong>{money(c.rate)}</strong>
+                  <span className="muted small" style={{ fontWeight: 400 }}> /{c.unit}</span>
+                </span>
+              </div>
+            ))}
           </div>
         </Dialog>
       ) : null}

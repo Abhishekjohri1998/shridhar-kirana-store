@@ -9,3 +9,4 @@ export * from './text';
 export * from './receiptLabels';
 export * from './i18n';
 export * from './fields';
+export * from './items';

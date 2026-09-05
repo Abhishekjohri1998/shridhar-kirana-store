@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { checkItemNames, checkUnit, money, parseRate, type Item } from '@shridhar/shared';
+import { checkItemNames, checkUnit, findNameClashes, money, parseRate, type Item } from '@shridhar/shared';
 import { Dialog } from '../components/Dialog';
 import { KannadaInput } from '../components/KannadaInput';
 import { Button, ErrorText, Field } from '../components/ui';
 import { useShop } from '../lib/useShop';
-import { C } from '../theme';
+import { C, R } from '../theme';
 
 type Draft = { id?: string; nameKn: string; nameEn: string; rate: string; unit: string };
 
@@ -17,6 +17,8 @@ export function ItemsScreen() {
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirm, setConfirm] = useState<Item | null>(null);
+  // Items that already carry this name. Held rather than acted on: the shopkeeper decides.
+  const [clashes, setClashes] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const results = useMemo(() => {
@@ -25,7 +27,7 @@ export function ItemsScreen() {
     return shop.items.filter((i) => i.nameEn.toLowerCase().includes(q) || i.nameKn.includes(query.trim()));
   }, [query, shop.items]);
 
-  const save = async () => {
+  const save = async (force = false) => {
     if (!draft) return;
     const names = checkItemNames(draft.nameKn, draft.nameEn);
     if (!names.ok) return setError(names.error);
@@ -33,14 +35,33 @@ export function ItemsScreen() {
     if (!rate.ok) return setError(rate.error);
     const unit = checkUnit(draft.unit);
     if (!unit.ok) return setError(unit.error);
+
+    // Loose sugar and packet sugar at different rates is a real thing, so a repeated name is a
+    // warning and not a refusal -- but saving it silently leaves two rows that read identically
+    // on the slip with nothing to tell them apart.
+    if (!force) {
+      const found = findNameClashes(shop.items, {
+        id: draft.id, nameKn: names.nameKn, nameEn: names.nameEn,
+      });
+      if (found.length > 0) {
+        setClashes(found);
+        return;
+      }
+    }
+
     try {
       await shop.saveItem({ id: draft.id, nameKn: names.nameKn, nameEn: names.nameEn, rate: rate.value, unit: unit.value });
+      setClashes(null);
       setDraft(null);
       setError(null);
     } catch (e) {
+      setClashes(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  // The first clash carries the wording; the rest are listed underneath.
+  const clash = clashes && clashes.length > 0 ? clashes[0] : null;
 
   const remove = async (item: Item) => {
     try {
@@ -128,6 +149,36 @@ export function ItemsScreen() {
       </Dialog>
 
       <Dialog
+        visible={clash != null}
+        title={clash ? t('items.duplicateTitle', { name: clash.nameEn || clash.nameKn }) : ''}
+        onClose={() => setClashes(null)}
+        footer={
+          <>
+            <Button label={t('common.cancel')} tone="plain" onPress={() => setClashes(null)} style={{ flex: 1 }} />
+            <Button label={t('items.saveAnyway')} onPress={() => void save(true)} style={{ flex: 1 }} />
+          </>
+        }
+      >
+        <Text style={styles.note}>
+          {clash && (clashes ?? []).length === 1
+            ? t('items.duplicateBody', { rate: money(clash.rate), unit: clash.unit })
+            : t('items.duplicateBodyMany', { n: (clashes ?? []).length })}
+        </Text>
+        {(clashes ?? []).map((c) => (
+          <View key={c.id} style={styles.clashRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.kn}>{c.nameKn}</Text>
+              <Text style={styles.en}>{c.nameEn}</Text>
+            </View>
+            <Text style={styles.rate}>
+              {money(c.rate)}
+              <Text style={styles.unit}> /{c.unit}</Text>
+            </Text>
+          </View>
+        ))}
+      </Dialog>
+
+      <Dialog
         visible={confirm != null}
         title={confirm ? t('items.removeTitle', { name: confirm.nameEn }) : ''}
         onClose={() => setConfirm(null)}
@@ -161,5 +212,10 @@ const styles = StyleSheet.create({
   en: { fontSize: 12, color: C.soft, marginTop: 1 },
   rate: { fontSize: 17, fontWeight: '700', color: C.ink },
   unit: { fontSize: 12, fontWeight: '400', color: C.soft },
+  clashRow: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: C.well,
+    borderRadius: R.sm, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 6,
+    borderWidth: 1, borderColor: C.line,
+  },
   twoCol: { flexDirection: 'row', gap: 10 },
 });
