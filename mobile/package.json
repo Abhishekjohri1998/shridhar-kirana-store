@@ -9,7 +9,8 @@
     "prebuild": "expo prebuild --platform android --clean",
     "apk": "eas build --platform android --profile preview",
     "apk:local": "eas build --platform android --profile preview --local",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.2",

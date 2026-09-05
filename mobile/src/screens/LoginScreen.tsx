@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Mark } from '../components/Icons';
 import { Button, ErrorText, Fade, Field } from '../components/ui';
 import { useShop } from '../lib/useShop';
@@ -57,7 +57,14 @@ export function LoginScreen() {
         </View>
       </Fade>
 
-      <Text style={styles.server}>{shop.serverUrl}</Text>
+      {/* The address, and a way out of it.
+          A wrong address saved on the first screen leaves the operator here for ever: signing in
+          is impossible because the server cannot be reached, and the only control that could fix
+          it used to live in Settings, on the far side of this login. */}
+      <Pressable style={styles.serverRow} onPress={shop.forgetServer}>
+        <Text style={styles.server}>{shop.serverUrl}</Text>
+        <Text style={styles.serverChange}>{shop.t('set.changeServer')}</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -78,5 +85,10 @@ const styles = StyleSheet.create({
   lede: { fontSize: 14, color: C.soft, marginBottom: 20, lineHeight: 20, textAlign: 'center' },
   /* Widely spaced dots, so the operator can count what they typed without unmasking it. */
   pin: { textAlign: 'center', fontSize: 22, letterSpacing: 10 },
-  server: { fontSize: 12, color: C.faint, textAlign: 'center', marginTop: 16 },
+  serverRow: { alignItems: 'center', marginTop: 18, paddingVertical: 8 },
+  server: { fontSize: 12, color: C.faint, textAlign: 'center' },
+  serverChange: {
+    fontSize: 13, color: C.accent, fontWeight: '700', marginTop: 6,
+    textDecorationLine: 'underline',
+  },
 });

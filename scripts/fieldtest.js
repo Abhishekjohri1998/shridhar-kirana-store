@@ -285,6 +285,39 @@ check('normalising is idempotent',
   I.normaliseItemName(I.normaliseItemName('  Chana   Dal ')) === 'chana dal');
 check('normalising survives a null', I.normaliseItemName(null) === '');
 
+/* ------------------------------------------------------------------ *
+ * The server address the phone is given                               *
+ *                                                                     *
+ * Android has blocked cleartext by default since API 28, so guessing  *
+ * http for a public hostname produced a request the phone refused and  *
+ * an error that blamed the wifi.                                       *
+ * ------------------------------------------------------------------ */
+const U = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'serverUrl.js'));
+const url = (x) => U.normaliseServerUrl(x);
+
+console.log('');
+console.log('Server address');
+check('a shop LAN address stays http', url('192.168.1.5:4000') === 'http://192.168.1.5:4000', url('192.168.1.5:4000'));
+check('10.x is a LAN too', url('10.0.0.9:4000') === 'http://10.0.0.9:4000', url('10.0.0.9:4000'));
+check('172.16-31 is a LAN too', url('172.20.5.4:4000') === 'http://172.20.5.4:4000', url('172.20.5.4:4000'));
+check('172.32 is not a LAN', url('172.32.5.4:4000') === 'https://172.32.5.4:4000', url('172.32.5.4:4000'));
+check('localhost stays http', url('localhost:4000') === 'http://localhost:4000', url('localhost:4000'));
+check('loopback stays http', url('127.0.0.1:4000') === 'http://127.0.0.1:4000', url('127.0.0.1:4000'));
+check('a .local name stays http', url('counter.local:4000') === 'http://counter.local:4000', url('counter.local:4000'));
+check('a public hostname becomes https',
+  url('performing-minimum-ghz-nine.trycloudflare.com') === 'https://performing-minimum-ghz-nine.trycloudflare.com',
+  url('performing-minimum-ghz-nine.trycloudflare.com'));
+check('a public IP becomes https', url('13.234.1.9') === 'https://13.234.1.9', url('13.234.1.9'));
+check('an explicit http is respected', url('http://example.com') === 'http://example.com');
+check('an explicit https is respected', url('https://example.com') === 'https://example.com');
+check('a trailing slash is dropped', url('https://example.com/') === 'https://example.com');
+check('several trailing slashes go too', url('https://example.com///') === 'https://example.com');
+check('surrounding space is ignored', url('  192.168.1.5:4000  ') === 'http://192.168.1.5:4000');
+check('blank stays blank', url('') === '' && url('   ') === '');
+check('a null does not throw', url(null) === '');
+check('normalising twice changes nothing', url(url('192.168.1.5:4000')) === 'http://192.168.1.5:4000');
+check('and twice on a public host too', url(url('shop.example.com')) === 'https://shop.example.com');
+
 fs.rmSync(BUILD, { recursive: true, force: true });
 
 console.log('');

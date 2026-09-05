@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Bill, BillLine, Customer, Item, Settings, TodaySummary } from '@shridhar/shared';
+import { normaliseServerUrl, type Bill, type BillLine, type Customer, type Item, type Settings, type TodaySummary } from '@shridhar/shared';
 
 const TOKEN_KEY = 'shridhar.token';
 const SERVER_KEY = 'shridhar.server';
@@ -13,14 +13,6 @@ const SERVER_KEY = 'shridhar.server';
  */
 let baseUrl = '';
 let token: string | null = null;
-
-/** Accepts "192.168.1.5:4000" as readily as a full URL, and drops a trailing slash. */
-export function normaliseServerUrl(raw: string): string {
-  let url = raw.trim();
-  if (!url) return '';
-  if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
-  return url.replace(/\/+$/, '');
-}
 
 export function getBaseUrl(): string {
   return baseUrl;
@@ -61,6 +53,8 @@ export async function setToken(next: string | null): Promise<void> {
     /* the session simply will not be remembered */
   }
 }
+
+export { normaliseServerUrl };
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
