@@ -15,7 +15,10 @@ import { C } from '../theme';
  */
 export function ServerScreen() {
   const shop = useShop();
-  const [url, setUrl] = useState(shop.serverUrl || 'http://192.168.1.5:4000');
+  // Deliberately empty. A pre-filled example address looks like a setting that is already
+  // correct, and the first tester saved it unchanged from a phone that had never been on
+  // that network.
+  const [url, setUrl] = useState(shop.serverUrl);
   const [error, setError] = useState<string | null>(null);
   const [found, setFound] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,7 +46,7 @@ export function ServerScreen() {
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Shridhar Billing</Text>
+      <Text style={styles.title}>Simple Sales Book</Text>
       <Text style={styles.lede}>
         This phone needs the address of the billing server before it can do anything else.
       </Text>
@@ -59,10 +62,11 @@ export function ServerScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
-          placeholder="192.168.1.5:4000"
+          placeholder="shop.example.com  or  192.168.1.20:4000"
           hint={
-            'On the shop wifi this is the counter computer: run `ipconfig` there and use its IPv4 ' +
-            'address with port 4000. Once the app is hosted, use its https address instead.'
+            'A hosted server is a web address, and works from anywhere: type the name on its own, ' +
+            'with no https:// in front. A counter computer on the shop wifi is its IPv4 address ' +
+            'and port 4000 instead, and then the phone must be on that same wifi.'
           }
         />
 
@@ -76,8 +80,10 @@ export function ServerScreen() {
       </Card>
 
       <Text style={styles.note}>
-        The phone and the computer have to be on the same wifi. If the check fails, the usual causes
-        are a typed digit, the server not running, or Windows Firewall blocking port 4000.
+        Use Check connection before saving: it says whether the address answers. If it fails on a
+        web address, check the spelling and that the phone has internet. If it fails on a shop
+        address, the usual causes are a mistyped digit, the server not running, or Windows Firewall
+        blocking port 4000.
       </Text>
     </ScrollView>
   );
