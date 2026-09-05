@@ -2,10 +2,14 @@
 
 Billing for Shridhar Kirani Stores.
 
-A MERN billing app for a kirana counter. It replaces a handwritten slip: the shopkeeper writes or
-taps items, quantities total themselves, and a receipt prints in the same shape as the paper one —
-Kannada item names included, handwritten if that's quicker. Works on a phone, a tablet or a counter
-PC from the same URL.
+A MERN billing app for a kirana counter, and it keeps the shape of the thing it replaces. The slip
+is a ruled sheet: each line is written by hand in Kannada — the quantity and the item, in the
+shopkeeper's own writing — with the price typed beside it in digits, and the total added up
+underneath. It then prints on the thermal roll looking like the paper slip it came from. Works on a
+phone, a tablet or a counter PC from the same URL.
+
+There is no product catalogue. An early version had one, with search and a stock list; the shop does
+not keep such a list, and maintaining one was the software's idea rather than the shop's.
 
 Built from two things the client supplied: a photo of the shop's paper slip (9/3/26), and a
 three-page written spec.
@@ -29,10 +33,9 @@ three-page written spec.
 | From the note | Where it is |
 | --- | --- |
 | Receipt has two main columns: item description and price | [`shared/src/doc.ts`](shared/src/doc.ts) builds every receipt; price is right-aligned beside the description |
-| **The item column must support handwriting**, because customers prefer regional language | [`InkPad.tsx`](client/src/components/InkPad.tsx) captures stylus strokes; they print as vectors |
-| Regional language when typing, not just writing | The device keyboard works, and [`KannadaInput.tsx`](client/src/components/KannadaInput.tsx) transliterates `akki` into ಅಕ್ಕಿ for tablets with no Kannada layout installed |
-| Price in digital format, used to compute the total | Digits only, validated server-side; the server recomputes every total |
-| "Sometimes it should calculate the total of price entered without items" | A line may have no description at all — `Write / price`, leave both blank |
+| **The item column must support handwriting**, because customers prefer regional language | [`InkPad.tsx`](client/src/components/InkPad.tsx) captures stylus strokes; they print as vectors. Every line of the slip is one of these |
+| Price in digital format, used to compute the total | Typed digits, validated server-side; the server recomputes every total. Digits are typed rather than written because a total can only be added up from numbers the machine can read |
+| "Sometimes it should calculate the total of price entered without items" | A line may carry a price and no writing at all, and still counts towards the total |
 | Customer details at the top: name, contact no. | [`CustomerBar.tsx`](client/src/components/CustomerBar.tsx); they print above the item table |
 | Those details should "appear in suggestion if they are already there" | Typing either field searches saved customers and offers them |
 | Customer total transaction | Customers page: total billed, paid, balance, bill count, and their bills |
@@ -48,7 +51,7 @@ own paper slip does ("5 ಗಾಣ  550"). Handwritten lines can still include it
 
 | Part | What |
 | --- | --- |
-| **M**ongoDB | Mongoose models for items, bills, customers, settings, and an atomic bill-number counter |
+| **M**ongoDB | Mongoose models for bills, customers, settings, and an atomic bill-number counter |
 | **E**xpress | REST API on `/api`, PIN login with JWT, Zod validation on every request body |
 | **R**eact | Vite + TypeScript, React Router, mobile-first CSS with no UI framework |
 | **N**ode | One process serves the API and, in production, the built React app |
@@ -77,8 +80,8 @@ npm run apk      # build an installable .apk (needs an Expo account)
 ```
 
 ```bash
-npm test     # typecheck, then 606 checks: 284 field-rule, 48 translation,
-             # 27 rasteriser-parity, 85 printer/Bluetooth, 6 seeding, 156 pipeline/API
+npm test     # typecheck, then 591 checks: 284 field-rule, 43 translation,
+             # 27 rasteriser-parity, 85 printer/Bluetooth, 152 pipeline/API
 npm run build && npm start     # production: one process on port 4000 serving API + app
 ```
 
@@ -95,7 +98,7 @@ demonstrated before a database exists. That file is a development stand-in, not 
 shop on. The server prints which store it chose on startup, and `GET /api/health` reports it.
 
 The test suite is insulated from the live database: `selftest` forces `MONGO_URI: ''` on the server
-it spawns, and `seedtest` drives the file store directly. Verified rather than assumed — a full
+it spawns. Verified rather than assumed — a full
 `npm test` run leaves Atlas byte for byte as it was.
 
 Both sit behind one interface in [`server/src/store/types.ts`](server/src/store/types.ts), so the
@@ -117,7 +120,7 @@ than asking for typing:
 - Handwriting is scaled to a fixed row height on the receipt and capped in width, so a long bill
   stays a sensible length of roll.
 
-A line can be a catalogue item, handwriting, or a bare price. All three can sit on one bill.
+A line is handwriting, a bare price, or both. Any mixture can sit on one bill.
 
 ## Kannada support, end to end
 
@@ -125,11 +128,9 @@ Verified on paper, not just on screen. Kannada works in every place text can app
 
 | Where | Verified |
 | --- | --- |
-| Item names | Typed, and printed on the slip |
-| Handwritten descriptions | Pen strokes have no script, so anything written prints as written |
+| Handwritten descriptions | Pen strokes have no script, so anything written prints as written — which is how every line of the slip carries its Kannada |
 | Customer name | Stored, searched by Kannada prefix, printed at the top of the slip |
 | Shop name and footer | Both save and print (ಧನ್ಯವಾದಗಳು, ಮತ್ತೆ ಬನ್ನಿ!) |
-| Search | Matches Kannada as well as English, on both the bill and the items page |
 | Line breaking | A long word too wide for the paper breaks where Kannada allows — see below |
 
 **Line breaking was the subtle one.** A description that will not fit has to break somewhere, and
@@ -162,24 +163,6 @@ code; corrections go into the `KN` block of `shared/src/i18n.ts` and the sheet i
 `npm run i18ntest` guards the pair: both languages carry the same keys, no placeholder like `{n}`
 is lost in translation, no string was left as English by accident, every key is actually used, and
 no slip label is long enough to push the amount off the paper.
-
-## Typing Kannada
-
-Handwriting needs none of this -- a pen stroke has no script, so anything the shopkeeper writes
-prints exactly as written. Typed item names are the case that needs help: a name is typed once into
-the catalogue and searched hundreds of times after, and a tablet that has never had Gboard's Kannada
-layout added cannot produce ಅಕ್ಕಿ at all.
-
-So the Kannada field takes input two ways. The device keyboard works directly (the field is marked
-`lang="kn"`, which is what prompts an Indic keyboard where one exists). Underneath it, **"No Kannada
-keyboard? Type in English letters"** opens a box where `akki` becomes ಅಕ್ಕಿ
-and `sakkare` becomes ಸಕ್ಕರೆ as you type.
-
-The scheme is the usual ITRANS one: doubled vowels are the long ones (`oo` -> ೋ), capitals are
-the retroflex consonants (`T D N L` -> ಟ ಡ ಣ ಳ), `M` -> ಂ. No scheme guesses
-every word -- `godhi` gives ಗೊಧಿ where the shop wants ಗೋಧಿ
-from `gOdhi` -- which is exactly why the result is shown as it is built and stays editable. There
-are 15 checks over the mapping in the test suite.
 
 ## Printing
 
@@ -386,8 +369,8 @@ up in a typecheck.
 10. **A first boot interrupted part-way left the shop permanently half-stocked.** The starter
     catalogue was written one item at a time; a restart after the fourth left four items on disk,
     and because the "is this shop empty?" check then passed, the other twenty were never written.
-    Seeding is now a single write, so the outcome is all of them or none — and none is retried on
-    the next boot. `npm run seedtest` covers it.
+    Fixed by making seeding a single write — and later made moot entirely, when the catalogue
+    itself was removed.
 11. **Long Kannada words broke mid-conjunct on paper.** The print rasteriser sliced over-long
     words by code unit, leaving a fragment starting with a bare virama. Now broken at grapheme
     clusters, with conjuncts kept whole.
@@ -419,8 +402,6 @@ Everything except `/api/health` and `/api/auth/login` needs `Authorization: Bear
 | --- | --- | --- |
 | `POST` | `/api/auth/login` | `{ pin }` → `{ token }`, valid 30 days |
 | `GET` | `/api/health` | `{ ok, storage: "mongo" \| "file" }` |
-| `GET` `POST` | `/api/items` | List, or create (id derived from the name if omitted) |
-| `PUT` `DELETE` | `/api/items/:id` | Edit or remove |
 | `GET` `PUT` | `/api/settings` | Shop name, footer, print rates, quiet-days window |
 | `GET` `POST` | `/api/customers` | List with running totals, or create/merge |
 | `GET` | `/api/customers/search?q=` | Prefix match on name or number — the suggestions |
@@ -432,8 +413,8 @@ Everything except `/api/health` and `/api/auth/login` needs `Authorization: Bear
 | `POST` | `/api/bills` | `{ lines, customerId?, paid?, showBalance? }`. **The server assigns the number and computes the total and the balance** — figures sent by the browser are ignored |
 | `GET` | `/api/summary/today` | `{ count, total }` |
 
-Bills store their own copy of every name, stroke, rate and customer detail, so editing an item or
-renaming a customer never rewrites a bill that has already been printed.
+Bills store their own copy of every stroke, rate and customer detail, so renaming a customer never
+rewrites a bill that has already been printed.
 
 A customer's running figures live on their record and move when a bill is written; if the bill
 insert then fails, the move is rolled back. That is safe because bills are never edited or deleted
@@ -443,7 +424,7 @@ in this app — if that ever changes, the totals would need recomputing from the
 
 ```
 shared/src/doc.ts           the one description of what a receipt looks like
-      |                     (shop name, customer, item/ink lines, total, paid, balance, footer)
+      |                     (shop name, customer, written lines, total, paid, balance, footer)
       +--> components/ReceiptView.tsx   the same rows on screen, and through a portal
       |                                 into #print-root, on paper (handwriting as SVG)
       +--> print/raster.ts              the same rows drawn on a canvas, thresholded to dots
@@ -461,12 +442,7 @@ cannot tell you whether the Kannada glyphs look right; only paper can.
 
 ## Before going live
 
-1. **Confirm the four Kannada names.** The first four items in
-   [`server/src/seed.ts`](server/src/seed.ts) were read off the photo of the paper slip and are a
-   **best guess at the handwriting** — I read them as ಗಾಣದ ಎಣ್ಣೆ and ಮೆಣಸಿನಕಾಯಿ. Their rates are
-   exact (550 ÷ 5 = 110, 615 ÷ 5 = 123, 50, 155). Everything after those four is ordinary kirana
-   stock at placeholder rates, there only so the app isn't empty on day one.
-2. **Change `AUTH_PIN` and set a long random `JWT_SECRET`** in the production `server/.env`. Both
+1. **Change `AUTH_PIN` and set a long random `JWT_SECRET`** in the production `server/.env`. Both
    were changed for this development machine on 2026-09-05, but `.env` is gitignored and does not
    travel -- the deployed server needs its own, generated fresh:
 
@@ -476,11 +452,11 @@ cannot tell you whether the Kannada glyphs look right; only paper can.
 
    The server prints a warning every boot while either is still at its default. Rotating
    `JWT_SECRET` signs every phone and tablet out at once, which is how a lost device is revoked.
-3. **Set `CORS_ORIGIN`** to the real site once hosted, and serve over https — Web Bluetooth and
+2. **Set `CORS_ORIGIN`** to the real site once hosted, and serve over https — Web Bluetooth and
    saved logins both need a secure context.
-4. **Write a few bills by hand on the tablet and print them**, to check the handwriting is legible
+3. **Write a few bills by hand on the tablet and print them**, to check the handwriting is legible
    at 58mm before the staff rely on it.
-5. **On the phone app, set the server address to the hosted URL** rather than a LAN address, or it
+4. **On the phone app, set the server address to the hosted URL** rather than a LAN address, or it
    stops working the moment the phone leaves the shop wifi.
 
 ## Notes
