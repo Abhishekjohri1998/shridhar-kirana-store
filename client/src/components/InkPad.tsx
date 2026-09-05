@@ -24,6 +24,8 @@ export function InkPad({
   clearLabel,
   hint,
   strokeCount,
+  variant = 'pad',
+  value,
 }: {
   onChange: (ink: Ink | null) => void;
   height?: number;
@@ -34,6 +36,13 @@ export function InkPad({
   hint: string;
   /** Called with the stroke count so the caller supplies the wording. */
   strokeCount: (n: number) => string;
+  /**
+   * 'pad' is the standalone writing box with its own label and buttons. 'line' is one ruled line
+   * of the slip: the canvas alone, with the controls left to the row around it.
+   */
+  variant?: 'pad' | 'line';
+  /** Ink to start from, so a line already written can be written on again. */
+  value?: Ink | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /**
@@ -112,6 +121,27 @@ export function InkPad({
     }
   }, [strokes]);
 
+  /**
+   * Seed from ink that already exists, once.
+   *
+   * A line of the slip keeps its strokes in the bill, not in this component, so a pad that
+   * mounted fresh -- after switching tabs and back, say -- would show an empty strip over
+   * handwriting the bill still holds. Restoring it keeps what is on screen and what will print
+   * the same thing.
+   */
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !value || value.strokes.length === 0) return;
+    seeded.current = true;
+    const restored: Point[][] = value.strokes.map((flat) => {
+      const points: Point[] = [];
+      for (let i = 0; i + 1 < flat.length; i += 2) points.push({ x: flat[i]!, y: flat[i + 1]! });
+      return points;
+    });
+    strokesRef.current = restored;
+    setStrokes(restored);
+  }, [value]);
+
   useEffect(() => {
     redraw();
   }, [redraw]);
@@ -187,6 +217,23 @@ export function InkPad({
     current.current = null;
     commit([]);
   };
+
+  if (variant === 'line') {
+    return (
+      <canvas
+        ref={canvasRef}
+        className="inkline"
+        style={{ height }}
+        aria-label={label}
+        role="img"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={finishStroke}
+        onPointerCancel={finishStroke}
+        onPointerLeave={finishStroke}
+      />
+    );
+  }
 
   return (
     <div className="field">

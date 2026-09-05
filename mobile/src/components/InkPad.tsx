@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Line, Path } from 'react-native-svg';
 import { INK_LIMITS, inkToSvgPath, type Ink } from '@shridhar/shared';
 import { Button } from './ui';
-import { C } from '../theme';
+import { C, R } from '../theme';
 
 /** Points closer together than this are dropped: a finger reports far more than a line needs. */
 const MIN_STEP = 1.5;
@@ -24,6 +24,7 @@ type Point = { x: number; y: number };
  */
 export function InkPad({
   onChange, height = 150, label, undoLabel, clearLabel, hint, strokeCount,
+  variant = 'pad', value,
 }: {
   onChange: (ink: Ink | null) => void;
   height?: number;
@@ -32,6 +33,13 @@ export function InkPad({
   clearLabel: string;
   hint: string;
   strokeCount: (n: number) => string;
+  /**
+   * 'pad' is the standalone writing box with its own label and buttons. 'line' is one ruled line
+   * of the slip: the writing surface alone, with the controls left to the row around it.
+   */
+  variant?: 'pad' | 'line';
+  /** Ink to start from, so a line already written can be written on again. */
+  value?: Ink | null;
 }) {
   /**
    * The ref is the source of truth and state only mirrors it for repaints. Reading the finished
@@ -112,6 +120,24 @@ export function InkPad({
     [clamp, commit],
   );
 
+  /**
+   * Seed from ink that already exists, once. A line of the slip keeps its strokes in the bill,
+   * not in this component, so a pad that mounted fresh would show an empty strip over
+   * handwriting the bill still holds.
+   */
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !value || value.strokes.length === 0) return;
+    seeded.current = true;
+    const restored: Point[][] = value.strokes.map((flat) => {
+      const points: Point[] = [];
+      for (let i = 0; i + 1 < flat.length; i += 2) points.push({ x: flat[i]!, y: flat[i + 1]! });
+      return points;
+    });
+    strokesRef.current = restored;
+    setStrokes(restored);
+  }, [value]);
+
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height: h } = e.nativeEvent.layout;
     sizeRef.current = { w: Math.max(1, width), h: Math.max(1, h) };
@@ -119,6 +145,34 @@ export function InkPad({
 
   const asPath = (points: Point[]) =>
     inkToSvgPath({ w: sizeRef.current.w, h: sizeRef.current.h, strokes: [points.flatMap((p) => [p.x, p.y])] });
+
+  const surface = (
+    <View
+      style={[variant === 'line' ? styles.line : styles.pad, { height }]}
+      onLayout={onLayout}
+      accessibilityLabel={label}
+      {...responder.panHandlers}
+    >
+      <Svg style={StyleSheet.absoluteFill}>
+        <Line x1={8} y1={height * 0.72} x2="98%" y2={height * 0.72} stroke={C.line} strokeWidth={1} />
+        {[...strokes, current].map((stroke, i) =>
+          stroke.length > 0 ? (
+            <Path
+              key={i}
+              d={asPath(stroke)}
+              stroke="#000"
+              strokeWidth={STROKE_WIDTH}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          ) : null,
+        )}
+      </Svg>
+    </View>
+  );
+
+  if (variant === 'line') return surface;
 
   return (
     <View>
@@ -170,6 +224,7 @@ export function InkPad({
 const styles = StyleSheet.create({
   label: { fontSize: 12, color: C.soft, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 },
   pad: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10, overflow: 'hidden' },
+  line: { backgroundColor: 'transparent', borderRadius: R.sm, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   slim: { minHeight: 40, paddingVertical: 8, paddingHorizontal: 12 },
   count: { flex: 1, textAlign: 'right', color: C.soft, fontSize: 12 },

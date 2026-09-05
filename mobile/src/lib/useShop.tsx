@@ -46,6 +46,9 @@ type Shop = {
   addItemToCart: (item: Item, qty?: number) => void;
   addLooseLine: (input: { name?: string; ink?: Ink | null; rate: number; qty: number }) => void;
   setLineQty: (index: number, qty: number) => void;
+  setLineInk: (index: number, ink: Ink | null) => void;
+  addBlankLine: () => void;
+  setLineRate: (index: number, rate: number) => void;
   removeLine: (index: number) => void;
   clearCart: () => void;
   commitBill: (options?: CommitOptions) => Promise<Bill>;
@@ -260,6 +263,36 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /** Replace what was written on one line of the slip. */
+  const setLineInk = useCallback((index: number, ink: Ink | null) => {
+    setCart((prev) => {
+      const next = [...prev];
+      const existing = next[index];
+      if (!existing) return prev;
+      const { ink: _drop, ...rest } = existing;
+      next[index] = ink && ink.strokes.length > 0 ? { ...rest, ink } : rest;
+      return next;
+    });
+  }, []);
+
+  const setLineRate = useCallback((index: number, rate: number) => {
+    setCart((prev) => {
+      const next = [...prev];
+      const existing = next[index];
+      if (!existing) return prev;
+      next[index] = { ...existing, rate };
+      return next;
+    });
+  }, []);
+
+  /** An empty line at the foot of the slip, so there is always somewhere to write next. */
+  const addBlankLine = useCallback(() => {
+    setCart((prev) => [
+      ...prev,
+      { itemId: 'line-' + Date.now() + '-' + prev.length, nameKn: '', nameEn: '', qty: 1, rate: 0 },
+    ]);
+  }, []);
+
   const removeLine = useCallback((index: number) => {
     setCart((prev) => prev.filter((_, i) => i !== index));
   }, []);
@@ -268,9 +301,12 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const commitBill = useCallback(
     async (options: CommitOptions = {}) => {
-      if (cart.length === 0) throw new Error(t('bill.nothingYet'));
+      // The slip always carries one empty line so there is somewhere to write next. It is
+      // scaffolding, not something the customer bought, so it never reaches the printer.
+      const lines = cart.filter((l) => l.ink || l.rate > 0 || l.nameKn.trim().length > 0);
+      if (lines.length === 0) throw new Error(t('bill.nothingYet'));
       const bill = await api.createBill({
-        lines: cart,
+        lines,
         ...(customer ? { customerId: customer.id } : {}),
         ...(options.paid == null ? {} : { paid: options.paid }),
         showBalance: Boolean(options.showBalance && customer),
@@ -323,7 +359,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, paidInput, printBalance, printBalanceTouched,
       lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
-      addItemToCart, addLooseLine, setLineQty, removeLine, clearCart, commitBill,
+      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setCustomer, saveCustomer, setPaidInput, setPrintBalance,
       saveItem, removeItem, saveSettings,
     }),
@@ -331,7 +367,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       ready, serverUrl, signedIn, offline, items, settings, bills, today, cart,
       customer, inactive, paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
-      addItemToCart, addLooseLine, setLineQty, removeLine, clearCart, commitBill,
+      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setCustomer, saveCustomer, setPrintBalance, saveItem, removeItem, saveSettings,
     ],
   );

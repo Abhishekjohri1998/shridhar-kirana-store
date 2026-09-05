@@ -7,13 +7,11 @@ import { useShop } from './lib/useShop';
 import { BillPage } from './pages/BillPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { HistoryPage } from './pages/HistoryPage';
-import { ItemsPage } from './pages/ItemsPage';
 import { LoginPage } from './pages/LoginPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 const TABS = [
   { to: '/bill', key: 'nav.bill' },
-  { to: '/items', key: 'nav.items' },
   { to: '/customers', key: 'nav.customers' },
   { to: '/history', key: 'nav.history' },
   { to: '/settings', key: 'nav.settings' },
@@ -47,7 +45,6 @@ export function App() {
         <main className="main">
           <Routes>
             <Route path="/bill" element={<BillPage />} />
-            <Route path="/items" element={<ItemsPage />} />
             <Route path="/customers" element={<CustomersPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/settings" element={<SettingsPage />} />

@@ -1,46 +1,48 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   buildReceipt,
-  lineAmount,
   money,
   parsePaid,
   parsePrice,
-  parseQty,
   round2,
   type Bill,
-  type Ink,
-  type Item,
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
 import { InkPad } from '../components/InkPad';
-import { InkThumb } from '../components/InkThumb';
-import { KannadaInput } from '../components/KannadaInput';
 import { ReceiptView } from '../components/ReceiptView';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
-import { Empty } from '../components/Empty';
-import { ItemsIcon } from '../components/Icons';
 
-type LooseDraft = { name: string; ink: Ink | null; rate: string; qty: string };
-
-const BLANK_LOOSE: LooseDraft = { name: '', ink: null, rate: '', qty: '1' };
-
+/**
+ * The slip.
+ *
+ * This is the shop's paper receipt, on glass. Each line is written by hand -- the quantity and
+ * the item, in Kannada, the way the shopkeeper already writes them -- and the price is typed
+ * beside it in digits. Typed, because a total can only be added up from numbers the machine can
+ * read; handwriting a price would mean guessing at it.
+ *
+ * There is no product catalogue and no search. The shop does not keep one, and asking it to
+ * maintain one was the software's idea rather than the shop's.
+ */
 export function BillPage() {
   const shop = useShop();
   const printer = usePrint();
-  const [query, setQuery] = useState('');
+  const t = shop.t;
   const [error, setError] = useState<string | null>(null);
-  const [qtyFor, setQtyFor] = useState<{ index: number; value: string } | null>(null);
-  const [loose, setLoose] = useState<LooseDraft | null>(null);
   const [preview, setPreview] = useState<Bill | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
+  /** Price text per line, so half-typed values like "12." survive keystrokes. */
+  const [priceText, setPriceText] = useState<Record<string, string>>({});
 
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return shop.items;
-    return shop.items.filter((i) => i.nameEn.toLowerCase().includes(q) || i.nameKn.includes(query.trim()));
-  }, [query, shop.items]);
+  /**
+   * Keep one empty line at the foot, always. The shopkeeper should never have to ask for
+   * somewhere to write -- on paper the next line is simply there.
+   */
+  useEffect(() => {
+    const last = shop.cart[shop.cart.length - 1];
+    const lastIsBlank = last && !last.ink && last.rate === 0;
+    if (!lastIsBlank) shop.addBlankLine();
+  }, [shop]);
 
   const paid = shop.paidInput;
   const showBalance = shop.printBalance;
@@ -52,23 +54,24 @@ export function BillPage() {
     : 0;
 
   // Suggest printing the balance when there is one -- but stop suggesting once the shopkeeper has
-  // made the choice themselves, otherwise changing a quantity would silently re-tick the box.
+  // made the choice themselves, otherwise editing a price would silently re-tick the box.
   useEffect(() => {
     if (shop.printBalanceTouched) return;
     shop.setPrintBalance(shop.customer != null && balanceAfter !== 0, false);
   }, [shop, balanceAfter]);
 
-  const add = (item: Item) => {
-    shop.addItemToCart(item, 1);
-    setQuery('');
-    searchRef.current?.focus();
-  };
+  /** Lines that carry something. The trailing blank is scaffolding, not a purchase. */
+  const written = shop.cart.filter((l) => l.ink || l.rate > 0);
+  const hasSomething = written.length > 0;
 
-  /** Enter bills the top match, so a counter with a keyboard never needs the mouse. */
-  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter') return;
-    const first = results[0];
-    if (first) add(first);
+  const onPrice = (index: number, key: string, text: string) => {
+    setPriceText((prev) => ({ ...prev, [key]: text }));
+    if (text.trim() === '') {
+      shop.setLineRate(index, 0);
+      return;
+    }
+    const parsed = parsePrice(text);
+    if (parsed.ok) shop.setLineRate(index, parsed.value);
   };
 
   const draft = (): Bill => ({
@@ -77,7 +80,7 @@ export function BillPage() {
     ...(shop.customer
       ? { customer: { id: shop.customer.id, name: shop.customer.name, phone: shop.customer.phone } }
       : {}),
-    lines: shop.cart,
+    lines: written,
     total: shop.cartTotal,
     paid: paidValid ? paidAmount : shop.cartTotal,
     balance: balanceAfter,
@@ -97,151 +100,89 @@ export function BillPage() {
       setError(e instanceof Error ? e.message : String(e));
       return;
     }
+    setPriceText({});
     try {
       await printer.printBill(bill, shop.settings);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
-      setError(shop.t('bill.savedNotPrinted', { no: bill.no, reason }));
+      setError(t('bill.savedNotPrinted', { no: bill.no, reason }));
     }
-  };
-
-  const commitQty = () => {
-    if (!qtyFor) return;
-    const parsed = parseQty(qtyFor.value);
-    if (!parsed.ok) {
-      setError(parsed.error);
-      return;
-    }
-    setError(null);
-    shop.setLineQty(qtyFor.index, parsed.value);
-    setQtyFor(null);
-  };
-
-  const commitLoose = () => {
-    if (!loose) return;
-    const price = parsePrice(loose.rate);
-    if (!price.ok) {
-      setError(price.error);
-      return;
-    }
-    const qty = parseQty(loose.qty);
-    if (!qty.ok) {
-      setError(qty.error);
-      return;
-    }
-    setError(null);
-    // Name and handwriting are both optional: the shop does ring up bare prices.
-    shop.addLooseLine({ name: loose.name, ink: loose.ink, rate: price.value, qty: qty.value });
-    setLoose(null);
-    setQuery('');
   };
 
   return (
     <div className="bill-layout">
-      <div className="picker">
-        {shop.offline ? (
-          <p className="error" style={{ marginTop: 0 }}>
-            {shop.t('bill.offline')}
-          </p>
-        ) : null}
-        {error ? (
-          <p className="error" style={{ marginTop: 0 }} role="alert">
-            {error}
-          </p>
-        ) : null}
+      <div className="slip-pane">
+        {error ? <p className="error" role="alert">{error}</p> : null}
+        {shop.offline ? <p className="notice">{t('bill.offline')}</p> : null}
 
         <CustomerBar />
 
-        <div className="search-row">
-          <input
-            ref={searchRef}
-            className="input"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onSearchKey}
-            placeholder={shop.t('bill.searchPlaceholder')}
-            aria-label={shop.t('bill.searchAria')}
-            autoComplete="off"
-          />
-          <button
-            className="btn"
-            style={{ flex: '0 0 auto', paddingInline: 14 }}
-            onClick={() => setLoose({ ...BLANK_LOOSE, name: query })}
-          >
-            {shop.t('bill.writePrice')}
-          </button>
-        </div>
-
-        {results.length === 0 ? (
-          <Empty icon={<ItemsIcon />}>{shop.t('bill.noMatch')}</Empty>
-        ) : (
-          <div className="items-grid">
-            {results.map((item) => (
-              <button key={item.id} className="item-btn" onClick={() => add(item)}>
-                <span className="grow">
-                  <span className="kn" style={{ display: 'block' }}>{item.nameKn}</span>
-                  <span className="en">{item.nameEn}</span>
-                </span>
-                <span className="rate">
-                  {money(item.rate)}
-                  <span className="unit"> /{item.unit}</span>
-                </span>
-              </button>
-            ))}
+        <div className="slip">
+          <div className="slip-head">
+            <span className="slip-head-desc">{t('bill.whatWasSold')}</span>
+            <span className="slip-head-price">{t('bill.price')}</span>
           </div>
-        )}
+
+          <ol className="slip-lines">
+            {shop.cart.map((line, index) => {
+              const blank = !line.ink && line.rate === 0;
+              return (
+                <li className="slip-line" key={line.itemId}>
+                  <span className="slip-no">{index + 1}</span>
+
+                  <div className="slip-write">
+                    <InkPad
+                      variant="line"
+                      height={62}
+                      value={line.ink ?? null}
+                      onChange={(ink) => shop.setLineInk(index, ink)}
+                      label={t('bill.writeLine', { n: index + 1 })}
+                      penNotice=""
+                      undoLabel=""
+                      clearLabel=""
+                      hint=""
+                      strokeCount={() => ''}
+                    />
+                    {!line.ink ? <span className="slip-ghost">{t('bill.writeHint')}</span> : null}
+                  </div>
+
+                  <input
+                    className="slip-price"
+                    inputMode="decimal"
+                    aria-label={t('bill.priceOfLine', { n: index + 1 })}
+                    placeholder="—"
+                    value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
+                    onChange={(e) => onPrice(index, line.itemId, e.target.value)}
+                  />
+
+                  <button
+                    className="slip-remove"
+                    aria-label={t('bill.clearLine', { n: index + 1 })}
+                    disabled={blank}
+                    onClick={() => shop.removeLine(index)}
+                  >
+                    &times;
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       </div>
 
       <div className="cart">
         <div className="cart-head">
           <span className="cart-title">
-            {shop.t('bill.currentBill')}
-            {shop.cart.length > 0 ? <span className="cart-count">{shop.cart.length}</span> : null}
+            {t('bill.currentBill')}
+            {written.length > 0 ? <span className="cart-count">{written.length}</span> : null}
           </span>
-          {shop.cart.length > 0 ? (
-            <button className="btn plain slim" onClick={shop.clearCart}>{shop.t('bill.clear')}</button>
+          {hasSomething ? (
+            <button className="btn plain slim" onClick={shop.clearCart}>{t('bill.clear')}</button>
           ) : null}
         </div>
 
-        <div className="cart-lines">
-          {shop.cart.length === 0 ? (
-            <p className="cart-empty">{shop.t('bill.emptyCart')}</p>
-          ) : (
-            shop.cart.map((line, index) => (
-              <div className="cart-line" key={line.itemId + '-' + index}>
-                <button
-                  className="qty-btn"
-                  onClick={() => setQtyFor({ index, value: String(line.qty) })}
-                  aria-label={shop.t('bill.changeQty', { n: index + 1 })}
-                >
-                  {line.qty}
-                </button>
-                <span className="grow">
-                  {line.ink ? (
-                    <span style={{ display: 'block' }}><InkThumb ink={line.ink} alt={shop.t('ink.alt')} /></span>
-                  ) : line.nameKn ? (
-                    <span style={{ display: 'block' }}>{line.nameKn}</span>
-                  ) : (
-                    <span style={{ display: 'block' }} className="muted">{shop.t('bill.priceOnly')}</span>
-                  )}
-                  <span className="muted small">@ {money(line.rate)}</span>
-                </span>
-                <span className="row" style={{ gap: 6 }}>
-                  <button className="step" onClick={() => shop.setLineQty(index, line.qty - 1)} aria-label={shop.t('bill.oneLess')}>
-                    &minus;
-                  </button>
-                  <button className="step" onClick={() => shop.setLineQty(index, line.qty + 1)} aria-label={shop.t('bill.oneMore')}>
-                    +
-                  </button>
-                </span>
-                <span className="cart-amount">{money(lineAmount(line.qty, line.rate))}</span>
-              </div>
-            ))
-          )}
-        </div>
-
         <div className="total-row">
-          <span className="label">{shop.t('bill.total')}</span>
+          <span className="label">{t('bill.total')}</span>
           {/* Keyed on the amount so React replaces the node whenever the number moves, which is
               what restarts the CSS pop. Cheaper than a counter animation and it never lands on a
               value that was not real. */}
@@ -253,19 +194,17 @@ export function BillPage() {
           <div className="pay-box">
             <div className="row">
               <label className="field grow" style={{ marginBottom: 0 }}>
-                <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--soft)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  {shop.t('bill.paidNow')}
-                </span>
+                <span className="pay-label">{t('bill.paidNow')}</span>
                 <input
                   className="input"
                   inputMode="decimal"
                   value={paid}
                   onChange={(e) => shop.setPaidInput(e.target.value)}
-                  placeholder={shop.t('bill.paidPlaceholder', { amount: money(shop.cartTotal) })}
+                  placeholder={t('bill.paidPlaceholder', { amount: money(shop.cartTotal) })}
                 />
               </label>
               <span style={{ textAlign: 'right', minWidth: 96 }}>
-                <span className="muted small" style={{ display: 'block' }}>{shop.t('bill.balanceAfter')}</span>
+                <span className="muted small" style={{ display: 'block' }}>{t('bill.balanceAfter')}</span>
                 <strong style={{ fontSize: '1.1rem' }}>{paidValid ? money(balanceAfter) : '—'}</strong>
               </span>
             </div>
@@ -274,121 +213,39 @@ export function BillPage() {
                 type="checkbox"
                 checked={showBalance}
                 onChange={(e) => shop.setPrintBalance(e.target.checked)}
-                style={{ width: 18, height: 18 }}
               />
-              <span className="small">{shop.t('bill.printBalance')}</span>
+              <span className="small">{t('bill.printBalance')}</span>
             </label>
           </div>
         ) : null}
 
         <div className="cart-actions">
-          <button className="btn plain" disabled={shop.cart.length === 0} onClick={() => setPreview(draft())}>
-            {shop.t('bill.preview')}
+          <button className="btn plain" disabled={!hasSomething} onClick={() => setPreview(draft())}>
+            {t('bill.preview')}
           </button>
           <button
             className={printer.busy ? 'btn busy' : 'btn'}
-            disabled={shop.cart.length === 0 || printer.busy}
+            disabled={!hasSomething || printer.busy}
             onClick={onPrint}
           >
-            {printer.busy ? shop.t('bill.printing') : shop.t('bill.print')}
+            {printer.busy ? t('bill.printing') : t('bill.print')}
           </button>
         </div>
       </div>
 
-      {qtyFor ? (
-        <Dialog
-          title={shop.t('bill.qtyTitle')}
-          onClose={() => setQtyFor(null)}
-          footer={
-            <>
-              <button className="btn plain" onClick={() => setQtyFor(null)}>{shop.t('common.cancel')}</button>
-              <button className="btn" onClick={commitQty}>{shop.t('common.set')}</button>
-            </>
-          }
-        >
-          <div className="field">
-            <label htmlFor="qty">{shop.t('bill.qtyTitle')}</label>
-            <input
-              id="qty"
-              className="input"
-              inputMode="decimal"
-              autoFocus
-              value={qtyFor.value}
-              onChange={(e) => setQtyFor({ ...qtyFor, value: e.target.value })}
-              onKeyDown={(e) => e.key === 'Enter' && commitQty()}
-            />
-          </div>
-          <p className="muted small">{shop.t('bill.qtyHint')}</p>
-        </Dialog>
-      ) : null}
-
-      {loose ? (
-        <Dialog
-          title={shop.t('bill.addLine')}
-          onClose={() => setLoose(null)}
-          footer={
-            <>
-              <button className="btn plain" onClick={() => setLoose(null)}>{shop.t('common.cancel')}</button>
-              <button className="btn" onClick={commitLoose}>{shop.t('bill.addToBill')}</button>
-            </>
-          }
-        >
-          <div className="stack">
-            <InkPad
-              onChange={(ink) => setLoose((s) => (s ? { ...s, ink } : s))}
-              label={shop.t('ink.label')}
-              penNotice={shop.t('ink.penDetected')}
-              undoLabel={shop.t('ink.undo')}
-              clearLabel={shop.t('ink.clear')}
-              hint={shop.t('ink.hint')}
-              strokeCount={(n) => shop.t('ink.strokes', { n })}
-            />
-            <KannadaInput
-              id="l-name"
-              label={shop.t('bill.orType')}
-              value={loose.name}
-              onChange={(name) => setLoose((s) => (s ? { ...s, name } : s))}
-              placeholder={shop.t('bill.leaveBlank')}
-            />
-            <div className="row">
-              <div className="field grow">
-                <label htmlFor="l-rate">{shop.t('bill.price')}</label>
-                <input
-                  id="l-rate"
-                  className="input"
-                  inputMode="decimal"
-                  autoFocus
-                  value={loose.rate}
-                  onChange={(e) => setLoose({ ...loose, rate: e.target.value })}
-                />
-              </div>
-              <div className="field grow">
-                <label htmlFor="l-qty">{shop.t('bill.qtyShort')}</label>
-                <input
-                  id="l-qty"
-                  className="input"
-                  inputMode="decimal"
-                  value={loose.qty}
-                  onChange={(e) => setLoose({ ...loose, qty: e.target.value })}
-                />
-              </div>
-            </div>
-            <p className="muted small" style={{ margin: 0 }}>
-              {shop.t('bill.looseHint')}
-            </p>
-          </div>
-        </Dialog>
-      ) : null}
-
       {preview ? (
         <Dialog
-          title={shop.t('bill.receiptPreview')}
+          title={t('bill.receiptPreview')}
           onClose={() => setPreview(null)}
-          footer={<button className="btn plain" style={{ gridColumn: '1 / -1' }} onClick={() => setPreview(null)}>{shop.t('common.close')}</button>}
+          footer={
+            <button className="btn plain" style={{ gridColumn: '1 / -1' }} onClick={() => setPreview(null)}>
+              {t('common.close')}
+            </button>
+          }
         >
-          <ReceiptView doc={buildReceipt(preview, shop.settings, shop.receiptLabels)} inkAlt={shop.t('ink.alt')} />
+          <ReceiptView doc={buildReceipt(preview, shop.settings, shop.receiptLabels)} />
           <p className="muted small center" style={{ marginBottom: 0 }}>
-            {shop.t('bill.provisional')}
+            {t('bill.provisional')}
           </p>
         </Dialog>
       ) : null}

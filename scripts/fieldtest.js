@@ -234,58 +234,6 @@ check('a unit is trimmed', F.checkUnit(' kg ').value === 'kg');
 rejects(F.checkUnit, 'unit', 'x'.repeat(17));
 
 /* ------------------------------------------------------------------ *
- * Duplicate item names                                                *
- *                                                                     *
- * A repeated name is allowed -- loose sugar and packet sugar at        *
- * different rates is a real thing -- but it has to be noticed, because *
- * on the printed slip the two lines are indistinguishable.             *
- * ------------------------------------------------------------------ */
-const I = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'items.js'));
-
-const STOCK = [
-  { id: 'sakkare', nameKn: 'ಸಕ್ಕರೆ', nameEn: 'Sugar', rate: 45, unit: 'kg' },
-  { id: 'akki', nameKn: 'ಅಕ್ಕಿ', nameEn: 'Rice', rate: 62, unit: 'kg' },
-  { id: 'ot', nameKn: 'OT', nameEn: 'OT', rate: 50, unit: 'pc' },
-  { id: 'blank-kn', nameKn: '', nameEn: 'Loose item', rate: 10, unit: 'pc' },
-];
-const clashes = (candidate) => I.findNameClashes(STOCK, candidate).map((i) => i.id);
-
-console.log('');
-console.log('Duplicate item names');
-check('the same Kannada name is a clash',
-  clashes({ nameKn: 'ಸಕ್ಕರೆ', nameEn: 'Cheap sugar' }).join() === 'sakkare');
-check('the same English name is a clash',
-  clashes({ nameKn: 'ಬೇರೆ', nameEn: 'Sugar' }).join() === 'sakkare');
-check('a genuinely new item is not a clash',
-  clashes({ nameKn: 'ಗೋಧಿ', nameEn: 'Wheat' }).length === 0);
-check('editing an item does not clash with itself',
-  clashes({ id: 'sakkare', nameKn: 'ಸಕ್ಕರೆ', nameEn: 'Sugar' }).length === 0);
-check('but renaming onto another item does clash',
-  clashes({ id: 'akki', nameKn: 'ಸಕ್ಕರೆ', nameEn: 'Rice' }).join() === 'sakkare');
-check('surrounding space does not hide a duplicate',
-  clashes({ nameKn: '  ಸಕ್ಕರೆ  ', nameEn: '' }).join() === 'sakkare');
-check('doubled inner space does not hide a duplicate',
-  clashes({ nameKn: '', nameEn: 'Loose  item' }).join() === 'blank-kn');
-check('case does not hide a duplicate',
-  clashes({ nameKn: '', nameEn: 'sUGAR' }).join() === 'sakkare');
-check('a Latin name stored in the Kannada field still matches',
-  clashes({ nameKn: 'ot', nameEn: '' }).join() === 'ot');
-check('an empty Kannada name does not match the item that also has none',
-  clashes({ nameKn: '', nameEn: 'Wheat' }).length === 0);
-check('a blank candidate matches nothing at all',
-  clashes({ nameKn: '', nameEn: '' }).length === 0);
-check('closing the gap makes it a different product',
-  clashes({ nameKn: '', nameEn: 'Looseitem' }).length === 0);
-check('one candidate can clash with several items',
-  I.findNameClashes(
-    [...STOCK, { id: 'sakkare-2', nameKn: 'ಸಕ್ಕರೆ', nameEn: 'Sugar', rate: 46, unit: 'kg' }],
-    { nameKn: 'ಸಕ್ಕರೆ', nameEn: 'Sugar' },
-  ).length === 2);
-check('normalising is idempotent',
-  I.normaliseItemName(I.normaliseItemName('  Chana   Dal ')) === 'chana dal');
-check('normalising survives a null', I.normaliseItemName(null) === '');
-
-/* ------------------------------------------------------------------ *
  * The server address the phone is given                               *
  *                                                                     *
  * Android has blocked cleartext by default since API 28, so guessing  *
