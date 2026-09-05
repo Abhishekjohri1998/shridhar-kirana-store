@@ -100,11 +100,40 @@ function Test-AlreadyRunning {
     return $null -ne (Get-Process -Id ([int]$recorded) -ErrorAction SilentlyContinue)
 }
 
+<#
+    A named tunnel if one has been set up, a quick one otherwise.
+
+    The difference that matters is the address: a named tunnel keeps its hostname for good, and a
+    quick tunnel invents a new one every restart -- which means telling the shopkeeper to re-enter
+    it, every time. See scripts/setup-named-tunnel.ps1.
+#>
+function Get-NamedTunnel {
+    $config = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.cloudflared\config.yml'
+    if (-not (Test-Path $config)) { return $null }
+    $text = Get-Content $config -Raw
+    $host_ = [regex]::Match($text, '(?m)^\s*-?\s*hostname:\s*(\S+)').Groups[1].Value
+    if (-not $host_) { return $null }
+    return @{ Config = $config; Hostname = $host_ }
+}
+
 function Start-Tunnel {
-    Write-Host "[$(Get-Date -Format HH:mm:ss)] starting tunnel"
     $out = Join-Path $logDir 'tunnel-out.log'
     $err = Join-Path $logDir 'tunnel-err.log'
     Remove-Item $out, $err -Force -ErrorAction SilentlyContinue
+
+    $named = Get-NamedTunnel
+    if ($named) {
+        Write-Host "[$(Get-Date -Format HH:mm:ss)] starting the named tunnel for $($named.Hostname)"
+        Start-Process -FilePath $cf `
+            -ArgumentList "tunnel --config `"$($named.Config)`" --no-autoupdate run" `
+            -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden
+        # The hostname is fixed, so it is known before the tunnel has finished connecting.
+        [System.IO.File]::WriteAllText($urlFile, "https://$($named.Hostname)")
+        Start-Sleep -Seconds 8
+        return
+    }
+
+    Write-Host "[$(Get-Date -Format HH:mm:ss)] starting a quick tunnel (no named one configured)"
     Start-Process -FilePath $cf `
         -ArgumentList 'tunnel --url http://localhost:4000 --no-autoupdate' `
         -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden
