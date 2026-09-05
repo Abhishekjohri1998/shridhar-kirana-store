@@ -12,3 +12,5 @@ dist/
 .i18nreview-build/
 .rastertest-build/
 .printertest-build/
+mobile/android/
+mobile/ios/

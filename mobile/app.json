@@ -4,11 +4,21 @@
     "slug": "shridhar-billing",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f6f3ec"
+    },
     "newArchEnabled": false,
     "android": {
       "package": "com.shridhar.billing",
       "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d6847"
+      },
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.BLUETOOTH",
