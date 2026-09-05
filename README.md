@@ -458,8 +458,16 @@ cannot tell you whether the Kannada glyphs look right; only paper can.
    **best guess at the handwriting** — I read them as ಗಾಣದ ಎಣ್ಣೆ and ಮೆಣಸಿನಕಾಯಿ. Their rates are
    exact (550 ÷ 5 = 110, 615 ÷ 5 = 123, 50, 155). Everything after those four is ordinary kirana
    stock at placeholder rates, there only so the app isn't empty on day one.
-2. **Change `AUTH_PIN` and set a long random `JWT_SECRET`.** The server warns on startup while
-   either is still at its default.
+2. **Change `AUTH_PIN` and set a long random `JWT_SECRET`** in the production `server/.env`. Both
+   were changed for this development machine on 2026-09-05, but `.env` is gitignored and does not
+   travel -- the deployed server needs its own, generated fresh:
+
+   ```bash
+   node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+   ```
+
+   The server prints a warning every boot while either is still at its default. Rotating
+   `JWT_SECRET` signs every phone and tablet out at once, which is how a lost device is revoked.
 3. **Set `CORS_ORIGIN`** to the real site once hosted, and serve over https — Web Bluetooth and
    saved logins both need a secure context.
 4. **Write a few bills by hand on the tablet and print them**, to check the handwriting is legible
