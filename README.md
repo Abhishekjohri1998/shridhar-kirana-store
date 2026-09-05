@@ -276,6 +276,25 @@ slip labels, a part payment, a bare price with no description, and a long Kannad
 break. A slip printed from the phone is the same paper as one printed at the counter, or that test
 fails.
 
+### Palm rejection, and the runtime split it caused
+
+Android knows whether a contact came from a stylus or from skin, and
+`react-native-gesture-handler` passes that through as `pointerType`. So the phone app uses the
+same rule the browser has always used: **the first time a stylus touches a writing strip, skin
+stops drawing on it.** A hand can then rest anywhere on the glass. Devices with no stylus are
+unaffected -- until one is seen, touch draws as before.
+
+Two earlier attempts were worse and are worth remembering. Ignoring every contact while more than
+one was on the glass stopped the pen working whenever a hand rested on the tablet. Letting the
+line belong to the contact that started it was better, but a palm landing first still drew.
+Neither could work: without the tool type they were guessing.
+
+That library is native code, so **builds 1-4 cannot run this JavaScript**. `runtimeVersion`
+follows `expo.version`, so the version moved to `1.1.0`: older builds stay on runtime `1.0.0` and
+are never sent an update expecting a library they do not contain. Sending one would have crashed
+them on launch. `react-native-reanimated` is *not* needed -- gesture-handler ships a
+`noreanimated` Android source set, and its callbacks run on the JS thread without it.
+
 ### Building the .apk
 
 Two routes, both already configured. The app cannot be built on a machine with no Android
