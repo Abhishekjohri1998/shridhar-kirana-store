@@ -18,9 +18,11 @@ type Point = { x: number; y: number };
  * pen path is captured rather than a picture of it, so the same handwriting redraws crisply here
  * and at the print head's dots.
  *
- * Unlike the browser version this cannot reject a resting palm: React Native's gesture events do
- * not carry Android's tool type, so a finger and a stylus look the same to it. Undo covers the
- * accident instead.
+ * Palm rejection here is weaker than the browser's. A browser says whether a pointer was a pen
+ * or a finger; Android tells React Native where each contact is but not what it is. So the rule
+ * is that a line belongs to the contact that began it and no other -- a hand settling on the
+ * glass afterwards cannot move or end it. A palm that lands first can still start a line, and
+ * only the tool type could prevent that.
  */
 /** What a slip row can ask of the strip it contains. */
 export type InkPadHandle = { undo: () => void; clear: () => void };
@@ -53,6 +55,8 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
    */
   const strokesRef = useRef<Point[][]>([]);
   const currentRef = useRef<Point[]>([]);
+  /** Which contact is drawing the current line. Everything else on the glass is ignored. */
+  const ownerRef = useRef<string | null>(null);
   const sizeRef = useRef({ w: 1, h: 1 });
   const [strokes, setStrokes] = useState<Point[][]>([]);
   const [current, setCurrent] = useState<Point[]>([]);
@@ -93,14 +97,28 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   const responder = useMemo(
     () =>
       PanResponder.create({
-        // A palm resting on the glass is a second touch. Once more than one finger is down there
-        // is no way to tell which is the pen, so nothing is drawn until the screen is down to one
-        // contact again -- a resting hand stops leaving a trail, which is the whole complaint.
-        onStartShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) <= 1,
-        onMoveShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) <= 1,
+        /*
+         * The line belongs to whichever contact started it.
+         *
+         * Android tells React Native where each finger is but not what it is, so a palm and a
+         * stylus are indistinguishable. What can be done is to follow one contact and ignore the
+         * rest: the first touch down owns the stroke, and a palm settling afterwards is not
+         * allowed to move it or end it.
+         *
+         * An earlier attempt refused to draw at all while more than one contact was on the glass,
+         * which was worse than the problem -- a hand resting on the tablet stopped the pen
+         * working entirely.
+         *
+         * A palm that lands *before* the pen still starts the line. Nothing here can prevent
+         * that; only the tool type can, and Android does not pass it through. Samsung's own
+         * digitiser suppresses palm contact while the S Pen is near the glass, which is what makes
+         * this workable on the shop's tablet.
+         */
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: (e) => {
           if (strokesRef.current.length >= INK_LIMITS.maxStrokes) return;
-          if ((e.nativeEvent.touches?.length ?? 1) > 1) return;
+          ownerRef.current = e.nativeEvent.identifier;
           const p = clamp(e.nativeEvent.locationX, e.nativeEvent.locationY);
           currentRef.current = [p];
           setCurrent([p]);
@@ -108,13 +126,16 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
         onPanResponderMove: (e) => {
           const stroke = currentRef.current;
           if (stroke.length === 0 || stroke.length >= INK_LIMITS.maxPointsPerStroke) return;
-          // A palm landing mid-word abandons the stroke rather than dragging it across the line.
-          if ((e.nativeEvent.touches?.length ?? 1) > 1) {
-            currentRef.current = [];
-            setCurrent([]);
-            return;
-          }
-          const p = clamp(e.nativeEvent.locationX, e.nativeEvent.locationY);
+
+          // Follow the contact that started the line, wherever it is in the list now.
+          const owner = ownerRef.current;
+          const touches = e.nativeEvent.touches ?? [];
+          const mine = touches.find((touch) => touch.identifier === owner);
+          if (touches.length > 1 && !mine) return; // the pen lifted; the palm is not a substitute
+
+          const p = mine
+            ? clamp(mine.locationX, mine.locationY)
+            : clamp(e.nativeEvent.locationX, e.nativeEvent.locationY);
           const last = stroke[stroke.length - 1]!;
           if (Math.hypot(p.x - last.x, p.y - last.y) < MIN_STEP) return;
           stroke.push(p);
