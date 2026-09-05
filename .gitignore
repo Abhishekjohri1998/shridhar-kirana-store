@@ -14,3 +14,4 @@ dist/
 .printertest-build/
 mobile/android/
 mobile/ios/
+.testserver/
