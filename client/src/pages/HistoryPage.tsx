@@ -4,6 +4,8 @@ import { Dialog } from '../components/Dialog';
 import { ReceiptView } from '../components/ReceiptView';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
+import { Empty } from '../components/Empty';
+import { HistoryIcon } from '../components/Icons';
 
 export function HistoryPage() {
   const shop = useShop();
@@ -38,7 +40,7 @@ export function HistoryPage() {
       </div>
 
       {shop.bills.length === 0 ? (
-        <p className="muted center small">{t('hist.noBills')}</p>
+        <Empty icon={<HistoryIcon />}>{t('hist.noBills')}</Empty>
       ) : (
         <div className="list">
           {shop.bills.map((bill) => (

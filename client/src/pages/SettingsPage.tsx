@@ -79,7 +79,7 @@ export function SettingsPage() {
       {saved ? <p className="notice" role="status">{t('set.saved', { what: t(saved) })}</p> : null}
 
       <section className="card stack">
-        <h2 style={{ margin: 0, fontSize: '1rem' }}>{t('set.slipSection')}</h2>
+        <h2 className="section-title">{t('set.slipSection')}</h2>
         <div className="field">
           <label htmlFor="s-name">{t('set.shopName')}</label>
           <input
@@ -133,7 +133,7 @@ export function SettingsPage() {
       </section>
 
       <section className="card stack">
-        <h2 style={{ margin: 0, fontSize: '1rem' }}>{t('set.languageSection')}</h2>
+        <h2 className="section-title">{t('set.languageSection')}</h2>
         <div className="field">
           <label htmlFor="s-lang">{t('set.language')}</label>
           <select
@@ -153,7 +153,7 @@ export function SettingsPage() {
       </section>
 
       <section className="card stack">
-        <h2 style={{ margin: 0, fontSize: '1rem' }}>{t('set.paperSection')}</h2>
+        <h2 className="section-title">{t('set.paperSection')}</h2>
         <div className="field">
           <label htmlFor="s-paper">{t('set.rollWidth')}</label>
           <select
@@ -173,7 +173,7 @@ export function SettingsPage() {
       </section>
 
       <section className="card stack">
-        <h2 style={{ margin: 0, fontSize: '1rem' }}>{t('set.customersSection')}</h2>
+        <h2 className="section-title">{t('set.customersSection')}</h2>
         <div className="field">
           <label htmlFor="s-inactive">{t('set.quietDays')}</label>
           <input
@@ -202,7 +202,7 @@ export function SettingsPage() {
       </section>
 
       <section className="card stack">
-        <h2 style={{ margin: 0, fontSize: '1rem' }}>{t('set.printerSection')}</h2>
+        <h2 className="section-title">{t('set.printerSection')}</h2>
 
         <div className="stack">
           <label className="row" style={{ cursor: 'pointer', alignItems: 'flex-start' }}>
@@ -305,7 +305,7 @@ export function SettingsPage() {
       </section>
 
       <section className="card stack">
-        <h2 style={{ margin: 0, fontSize: '1rem' }}>{t('set.deviceSection')}</h2>
+        <h2 className="section-title">{t('set.deviceSection')}</h2>
         <button className="btn plain" onClick={shop.signOut}>{t('set.signOut')}</button>
       </section>
     </div>

@@ -4,6 +4,7 @@ import {
   money,
   type Customer,
 } from '@shridhar/shared';
+import { CustomersIcon } from './Icons';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
 
@@ -23,6 +24,10 @@ export function CustomerBar() {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  // Naming a customer is optional and most bills skip it, so the two fields stay folded away
+  // until asked for. On a phone they were costing a quarter of the screen that the stock list
+  // needed more.
+  const [expanded, setExpanded] = useState(false);
   const seq = useRef(0);
 
   const query = name.trim() || phone.trim();
@@ -53,6 +58,7 @@ export function CustomerBar() {
     shop.setCustomer(customer);
     setMatches([]);
     setOpen(false);
+    setExpanded(false);
     setError(null);
   };
 
@@ -76,6 +82,7 @@ export function CustomerBar() {
     setName('');
     setPhone('');
     setOpen(true);
+    setExpanded(true);
   };
 
   if (shop.customer && !open) {
@@ -96,6 +103,17 @@ export function CustomerBar() {
         </span>
         <button className="btn plain slim" onClick={detach}>{t('cust.change')}</button>
       </div>
+    );
+  }
+
+  // Nothing typed, nobody attached: offer the fields rather than presenting them.
+  if (!shop.customer && !expanded) {
+    return (
+      <button type="button" className="customer-add" onClick={() => setExpanded(true)}>
+        <CustomersIcon className="customer-add-icon" />
+        <span className="grow">{t('cust.addOptional')}</span>
+        <span className="customer-add-plus" aria-hidden="true">+</span>
+      </button>
     );
   }
 

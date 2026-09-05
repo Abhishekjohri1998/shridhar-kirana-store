@@ -19,6 +19,8 @@ import { KannadaInput } from '../components/KannadaInput';
 import { ReceiptView } from '../components/ReceiptView';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
+import { Empty } from '../components/Empty';
+import { ItemsIcon } from '../components/Icons';
 
 type LooseDraft = { name: string; ink: Ink | null; rate: string; qty: string };
 
@@ -171,9 +173,7 @@ export function BillPage() {
         </div>
 
         {results.length === 0 ? (
-          <p className="muted center small">
-            {shop.t('bill.noMatch')}
-          </p>
+          <Empty icon={<ItemsIcon />}>{shop.t('bill.noMatch')}</Empty>
         ) : (
           <div className="items-grid">
             {results.map((item) => (
@@ -194,7 +194,10 @@ export function BillPage() {
 
       <div className="cart">
         <div className="cart-head">
-          <span className="cart-title">{shop.t('bill.currentBill')}</span>
+          <span className="cart-title">
+            {shop.t('bill.currentBill')}
+            {shop.cart.length > 0 ? <span className="cart-count">{shop.cart.length}</span> : null}
+          </span>
           {shop.cart.length > 0 ? (
             <button className="btn plain slim" onClick={shop.clearCart}>{shop.t('bill.clear')}</button>
           ) : null}
@@ -202,7 +205,7 @@ export function BillPage() {
 
         <div className="cart-lines">
           {shop.cart.length === 0 ? (
-            <p className="muted small center">{shop.t('bill.emptyCart')}</p>
+            <p className="cart-empty">{shop.t('bill.emptyCart')}</p>
           ) : (
             shop.cart.map((line, index) => (
               <div className="cart-line" key={line.itemId + '-' + index}>
@@ -239,7 +242,10 @@ export function BillPage() {
 
         <div className="total-row">
           <span className="label">{shop.t('bill.total')}</span>
-          <span className="value">{money(shop.cartTotal)}</span>
+          {/* Keyed on the amount so React replaces the node whenever the number moves, which is
+              what restarts the CSS pop. Cheaper than a counter animation and it never lands on a
+              value that was not real. */}
+          <span className="value" key={shop.cartTotal}>{money(shop.cartTotal)}</span>
         </div>
 
         {/* Part payment and the balance line, which the shop wants optional per bill. */}
@@ -279,7 +285,11 @@ export function BillPage() {
           <button className="btn plain" disabled={shop.cart.length === 0} onClick={() => setPreview(draft())}>
             {shop.t('bill.preview')}
           </button>
-          <button className="btn" disabled={shop.cart.length === 0 || printer.busy} onClick={onPrint}>
+          <button
+            className={printer.busy ? 'btn busy' : 'btn'}
+            disabled={shop.cart.length === 0 || printer.busy}
+            onClick={onPrint}
+          >
             {printer.busy ? shop.t('bill.printing') : shop.t('bill.print')}
           </button>
         </div>

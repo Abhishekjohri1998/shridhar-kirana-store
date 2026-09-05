@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Mark } from '../components/Mark';
 import { useShop } from '../lib/useShop';
 
 export function LoginPage() {
@@ -26,14 +27,19 @@ export function LoginPage() {
   };
 
   return (
-    <div className="page" style={{ display: 'grid', placeItems: 'center', minHeight: '100%' }}>
-      <form className="card stack" style={{ width: '100%', maxWidth: 360 }} onSubmit={submit}>
-        <h1 style={{ margin: 0, fontSize: '1.15rem' }}>{shop.settings.shopName}</h1>
-        <p className="muted small" style={{ margin: 0 }}>{shop.t('login.prompt')}</p>
+    <div className="signin">
+      <form className="signin-card" onSubmit={submit}>
+        <Mark className="signin-mark" />
+        <h1>{shop.settings.shopName}</h1>
+        <p className="signin-sub">{shop.t('login.prompt')}</p>
 
-        {error ? <p className="error" role="alert">{error}</p> : null}
+        {error ? (
+          <p className="error" role="alert" style={{ textAlign: 'left', marginBottom: 14 }}>
+            {error}
+          </p>
+        ) : null}
 
-        <div className="field">
+        <div className="field" style={{ textAlign: 'left', marginBottom: 14 }}>
           <label htmlFor="pin">{shop.t('login.pin')}</label>
           <input
             id="pin"
@@ -47,7 +53,7 @@ export function LoginPage() {
           />
         </div>
 
-        <button className="btn" type="submit" disabled={busy}>
+        <button className={busy ? 'btn busy' : 'btn'} type="submit" disabled={busy} style={{ width: '100%' }}>
           {busy ? shop.t('login.checking') : shop.t('login.signIn')}
         </button>
       </form>

@@ -1,5 +1,7 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { money } from '@shridhar/shared';
+import { SECTION_ICONS } from './components/Icons';
+import { Mark } from './components/Mark';
 import { PrintProvider } from './lib/usePrint';
 import { useShop } from './lib/useShop';
 import { BillPage } from './pages/BillPage';
@@ -32,7 +34,10 @@ export function App() {
     <PrintProvider>
       <div className="app">
         {/* Only shown by the desktop sidebar layout. */}
-        <div className="brand">{shop.t('app.brand')}</div>
+        <div className="brand">
+          <Mark className="brand-mark" />
+          <span>{shop.t('app.brand')}</span>
+        </div>
 
         <header className="topbar">
           <h1>{shop.settings.shopName}</h1>
@@ -52,9 +57,12 @@ export function App() {
 
         {/* One set of links. CSS turns it into a bottom tab bar on phones and a sidebar on desktop. */}
         <nav className="nav" aria-label={shop.t('nav.sections')}>
-          {TABS.map((tab) => (
+          {TABS.map((tab) => {
+            const Icon = SECTION_ICONS[tab.to];
+            return (
             <NavLink key={tab.to} to={tab.to} className={({ isActive }) => (isActive ? 'active' : '')}>
-              {shop.t(tab.key)}
+              <Icon className="nav-icon" />
+              <span className="nav-label">{shop.t(tab.key)}</span>
               {/* Customers who have gone quiet are surfaced here rather than only on their page. */}
               {tab.to === '/customers' && shop.inactive.length > 0 ? (
                 <span className="tab-badge" aria-label={shop.t('nav.quietCount', { n: shop.inactive.length })}>
@@ -62,7 +70,8 @@ export function App() {
                 </span>
               ) : null}
             </NavLink>
-          ))}
+            );
+          })}
         </nav>
       </div>
     </PrintProvider>

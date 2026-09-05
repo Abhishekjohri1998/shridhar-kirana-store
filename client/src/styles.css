@@ -1,27 +1,91 @@
-/* Mobile first. The counter phone is the smallest and most important screen; tablet and desktop
-   layouts are progressive enhancements on top of the same markup. */
+/* Simple Sales Book
+   ==================================================================
+   A counter tool, not a dashboard. It is used in daylight, at speed, often one-handed, by someone
+   whose attention is on the customer rather than the screen. Everything below follows from that:
+   the numbers are the loudest thing on the page, the taps are large, the palette is warm paper
+   rather than cold slate, and motion only ever explains a change -- never decorates one.
+
+   Mobile first. The counter phone is the smallest and most important screen; tablet and desktop
+   are the same markup with more room.
+   ================================================================== */
 
 :root {
-  --bg: #f6f4ef;
-  --card: #ffffff;
-  --ink: #17150f;
-  --soft: #6d6a60;
-  --line: #e0dcd2;
-  --accent: #0f7b56;
-  --accent-ink: #ffffff;
-  --accent-wash: #e8f3ee;
-  --danger: #a52a1a;
-  --paper: #fffdf7;
-  --radius: 10px;
-  --pad: 12px;
+  /* ---- paper and ink ------------------------------------------------
+     Warm greys, not blue-greys. A kirana counter is lit by daylight and tube light, and a cold
+     grey UI reads as dead next to actual paper. */
+  --paper-0: #f6f3ec;   /* the desk */
+  --paper-1: #fffefb;   /* a card lying on it */
+  --paper-2: #f1ece2;   /* recessed wells: inputs, steppers */
+  --receipt: #fffdf7;   /* the roll itself */
+
+  --ink-900: #17140f;   /* headings, amounts */
+  --ink-700: #3d3830;   /* body */
+  --ink-500: #6e675c;   /* secondary */
+  --ink-400: #938b7d;   /* hints, units */
+
+  --line: #e4ded2;      /* hairline */
+  --line-strong: #d3cabb;
+
+  /* ---- brand --------------------------------------------------------
+     Green for money and for fresh stock; a marigold accent for the few things that must catch the
+     eye without shouting. Two hues, used sparingly, is what keeps this from looking like a
+     template. */
+  --brand-700: #0a5238;
+  --brand-600: #0d6847;
+  --brand-500: #117f57;
+  --brand-wash: #e7f1ec;
+  --brand-edge: #bcd9cc;
+
+  --gold-600: #a8721a;
+  --gold-wash: #fbf1dc;
+
+  --danger-600: #a3291a;
+  --danger-wash: #fceeec;
+  --danger-edge: #f0c4bd;
+
+  /* ---- shape --------------------------------------------------------
+     Two radii only. More than two and nothing looks intentional. */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+
+  /* ---- depth --------------------------------------------------------
+     Layered and tinted with the ink colour, so shadows look like shadows on warm paper rather
+     than grey smudges. */
+  --sh-1: 0 1px 1px rgba(23, 20, 15, 0.04), 0 1px 3px rgba(23, 20, 15, 0.05);
+  --sh-2: 0 2px 4px rgba(23, 20, 15, 0.05), 0 6px 16px rgba(23, 20, 15, 0.06);
+  --sh-3: 0 10px 34px rgba(23, 20, 15, 0.13), 0 3px 8px rgba(23, 20, 15, 0.07);
+  --sh-brand: 0 2px 5px rgba(10, 82, 56, 0.22), 0 8px 20px rgba(10, 82, 56, 0.18);
+
+  /* ---- rhythm -------------------------------------------------------- */
+  --pad: 14px;
+  --gap: 10px;
+
+  /* ---- motion --------------------------------------------------------
+     One easing for things arriving, one with a little overshoot for things the user summoned.
+     Durations stay short: this screen is used a few hundred times a day, and animation the
+     operator has to wait for becomes a tax within a week. */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --t-tap: 90ms;
+  --t-fast: 150ms;
+  --t-base: 220ms;
+  --t-slow: 320ms;
 
   /* One dot of the 384-dot print head, in screen pixels. The receipt is laid out in dots so the
-     preview and the paper share one set of proportions. */
+     preview and the paper share one set of proportions. Do not touch: the print stylesheet and
+     the canvas rasteriser both depend on it. */
   --dot: 0.78125px;
 
-  font-family: 'Noto Sans Kannada', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color: var(--ink);
-  background: var(--bg);
+  --font-ui: 'Noto Sans Kannada', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+
+  font-family: var(--font-ui);
+  color: var(--ink-700);
+  background: var(--paper-0);
+
+  /* Amounts must never jitter as digits change. */
+  font-variant-numeric: tabular-nums;
 }
 
 * { box-sizing: border-box; }
@@ -29,13 +93,63 @@
 html, body, #root { height: 100%; margin: 0; }
 
 body {
-  background: var(--bg);
+  background:
+    /* A whisper of warmth at the top so the page has a light source and the cards have somewhere
+       to cast from. Two stops, no banding, no cost. */
+    radial-gradient(120% 60% at 50% -10%, #fffdf6 0%, rgba(255, 253, 246, 0) 60%),
+    var(--paper-0);
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
 }
 
-button, input, select {
+button, input, select, textarea {
   font: inherit;
   color: inherit;
+  font-variant-numeric: inherit;
+}
+
+::selection { background: var(--brand-wash); color: var(--brand-700); }
+
+/* ---------------------------------------------------------------- motion kit
+
+   Every keyframe here moves only transform and opacity, so the compositor handles it and the
+   main thread stays free for typing and totalling. Nothing animates width, height, top or
+   box-shadow on a list. */
+
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translate3d(14px, 0, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes pop {
+  0%   { transform: scale(0.94); }
+  60%  { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate3d(0, 16px, 0) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes sweep {
+  from { transform: translate3d(-100%, 0, 0); }
+  to   { transform: translate3d(220%, 0, 0); }
+}
+
+@keyframes shimmer {
+  from { transform: translate3d(-60%, 0, 0); }
+  to   { transform: translate3d(160%, 0, 0); }
 }
 
 /* ---------------------------------------------------------------- app frame */
@@ -50,138 +164,269 @@ button, input, select {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px var(--pad);
-  background: var(--card);
+  gap: 10px;
+  padding: 11px var(--pad);
+  background: rgba(255, 254, 251, 0.9);
   border-bottom: 1px solid var(--line);
+  /* Sticky rather than scrolling away: the shop name and today's takings are the two things the
+     owner glances at without meaning to. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  backdrop-filter: saturate(1.4) blur(6px);
 }
 
 .topbar h1 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.08rem;
   font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .topbar .badge {
-  font-size: 0.7rem;
-  color: var(--soft);
-  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--brand-700);
+  background: var(--brand-wash);
+  border: 1px solid var(--brand-edge);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 4px 11px;
   white-space: nowrap;
 }
 
-.main { overflow: auto; -webkit-overflow-scrolling: touch; }
+.main {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
 
 /* Only the desktop sidebar layout has room for a brand block. */
 .brand { display: none; }
 
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  color: var(--brand-600);
+}
+
+/* ---- bottom tab bar (phone and tablet) ---- */
+
 .nav {
   display: flex;
   border-top: 1px solid var(--line);
-  background: var(--card);
+  background: var(--paper-1);
   padding-bottom: env(safe-area-inset-bottom);
+  position: relative;
+  z-index: 4;
 }
 
 .nav a {
+  position: relative;
   flex: 1;
-  text-align: center;
-  padding: 10px 4px 8px;
-  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 4px 8px;
+  font-size: 0.72rem;
   font-weight: 600;
-  color: var(--soft);
+  color: var(--ink-500);
   text-decoration: none;
-  border-top: 3px solid transparent;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--t-fast) var(--ease);
 }
 
-.nav a.active {
-  color: var(--accent);
-  border-top-color: var(--accent);
+.nav-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  /* The icon lifts a hair on the active tab. One pixel, but it is what makes the bar feel
+     answerable rather than painted on. */
+  transition: transform var(--t-base) var(--ease-pop);
 }
+
+.nav a.active { color: var(--brand-700); font-weight: 700; }
+.nav a.active .nav-icon { transform: translate3d(0, -1px, 0) scale(1.06); }
+.nav a:active .nav-icon { transform: scale(0.9); }
+
+/* The indicator is a scaled pseudo-element, so switching tabs is one compositor transform
+   rather than a repaint of the bar. */
+.nav a::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 32px;
+  height: 3px;
+  margin-left: -16px;
+  border-radius: 0 0 3px 3px;
+  background: var(--brand-500);
+  transform: scaleX(0);
+  opacity: 0;
+  transition: transform var(--t-base) var(--ease-pop), opacity var(--t-fast) var(--ease);
+}
+
+.nav a.active::before { transform: scaleX(1); opacity: 1; }
+
+.nav a:active { color: var(--brand-700); }
 
 /* ---------------------------------------------------------------- shared bits */
 
-.page { padding: var(--pad); }
+.page {
+  padding: var(--pad);
+  animation: rise var(--t-base) var(--ease) both;
+}
 
 .card {
-  background: var(--card);
+  background: var(--paper-1);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 14px;
+  border-radius: var(--r-md);
+  padding: 16px;
+  box-shadow: var(--sh-1);
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
+.row { display: flex; align-items: center; gap: var(--gap); }
 .grow { flex: 1; min-width: 0; }
-
-.muted { color: var(--soft); }
+.muted { color: var(--ink-500); }
 .small { font-size: 0.82rem; }
 .center { text-align: center; }
-.stack > * + * { margin-top: 10px; }
+.stack > * + * { margin-top: var(--gap); }
+
+/* ---- buttons ----
+   Pressed state is a real 1px sink plus a scale, because a tap that does not visibly land feels
+   broken on a slow tablet even when the work happened instantly. */
 
 .btn {
+  position: relative;
   border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: var(--accent-ink);
+  border-radius: var(--r-sm);
+  background: linear-gradient(180deg, var(--brand-500), var(--brand-600));
+  color: #fff;
   font-weight: 700;
-  padding: 12px 16px;
+  letter-spacing: 0.005em;
+  padding: 12px 18px;
   cursor: pointer;
-  min-height: 44px; /* thumb-sized: this gets tapped a few hundred times a day */
+  min-height: 46px; /* thumb-sized: this gets tapped a few hundred times a day */
+  box-shadow: var(--sh-brand);
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--t-tap) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    filter var(--t-fast) var(--ease);
 }
 
-.btn:disabled { opacity: 0.45; cursor: default; }
-.btn.plain { background: var(--card); color: var(--ink); border-color: var(--line); }
-.btn.danger { background: var(--danger); }
-.btn.slim { padding: 8px 12px; min-height: 38px; font-weight: 600; }
+.btn:hover:not(:disabled) { filter: brightness(1.06); }
+
+.btn:active:not(:disabled) {
+  transform: translate3d(0, 1px, 0) scale(0.985);
+  box-shadow: 0 1px 2px rgba(10, 82, 56, 0.25);
+}
+
+.btn:disabled { opacity: 0.42; cursor: default; box-shadow: none; }
+
+.btn.plain {
+  background: var(--paper-1);
+  color: var(--ink-900);
+  border-color: var(--line-strong);
+  box-shadow: var(--sh-1);
+}
+
+.btn.plain:hover:not(:disabled) { background: var(--paper-2); filter: none; }
+.btn.plain:active:not(:disabled) { box-shadow: none; }
+
+.btn.danger {
+  background: linear-gradient(180deg, #b93526, var(--danger-600));
+  box-shadow: 0 2px 5px rgba(163, 41, 26, 0.22), 0 8px 20px rgba(163, 41, 26, 0.16);
+}
+
+.btn.slim { padding: 9px 14px; min-height: 40px; font-weight: 600; }
+
+/* A button that is doing something shows it, rather than only going grey. */
+.btn.busy { overflow: hidden; }
+
+.btn.busy::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  animation: sweep 1.05s linear infinite;
+}
+
+.btn:focus-visible,
+.input:focus-visible,
+.item-btn:focus-visible,
+.list-row:focus-visible,
+.suggestion:focus-visible,
+.step:focus-visible,
+.qty-btn:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+/* ---- inputs ---- */
 
 .input {
   width: 100%;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 11px 12px;
+  background: var(--paper-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 12px 13px;
   font-size: 1rem;
-  min-height: 44px;
+  min-height: 46px;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 
-.input:focus-visible, .btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.input::placeholder { color: var(--ink-400); }
+
+.input:hover { border-color: var(--ink-400); }
+
+.input:focus {
+  outline: none;
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-wash);
 }
 
 .field label {
   display: block;
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--soft);
-  margin-bottom: 4px;
+  color: var(--ink-400);
+  margin-bottom: 5px;
+}
+
+/* ---- messages ---- */
+
+.error,
+.notice {
+  border-radius: var(--r-sm);
+  padding: 11px 13px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  animation: rise var(--t-fast) var(--ease) both;
 }
 
 .error {
-  background: #fdecea;
-  border: 1px solid #f0b8b0;
-  color: var(--danger);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  font-size: 0.9rem;
+  background: var(--danger-wash);
+  border: 1px solid var(--danger-edge);
+  color: var(--danger-600);
+  font-weight: 600;
 }
 
 .notice {
-  background: var(--accent-wash);
-  border: 1px solid #bfdfd2;
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  font-size: 0.85rem;
-  line-height: 1.5;
+  background: var(--brand-wash);
+  border: 1px solid var(--brand-edge);
+  color: var(--brand-700);
 }
 
 /* ---------------------------------------------------------------- bill page */
@@ -192,9 +437,15 @@ button, input, select {
   height: 100%;
 }
 
-.picker { padding: var(--pad); overflow: auto; }
+.picker {
+  padding: var(--pad);
+  overflow: auto;
+  overscroll-behavior-y: contain;
+}
 
-.search-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.search-row .input { flex: 1; min-width: 0; }
+.search-row .btn { flex: 0 0 auto; white-space: nowrap; padding-left: 14px; padding-right: 14px; }
 
 .items-grid {
   display: grid;
@@ -209,89 +460,202 @@ button, input, select {
   gap: 10px;
   width: 100%;
   text-align: left;
-  background: var(--card);
+  background: var(--paper-1);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 12px;
+  border-radius: var(--r-md);
+  padding: 11px 13px;
   cursor: pointer;
-  min-height: 56px;
+  min-height: 60px;
+  box-shadow: var(--sh-1);
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--t-tap) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+  animation: rise var(--t-base) var(--ease) both;
 }
 
-.item-btn:hover { background: var(--accent-wash); }
-.item-btn .kn { font-size: 1.02rem; line-height: 1.3; }
-.item-btn .en { font-size: 0.76rem; color: var(--soft); }
-.item-btn .rate { font-weight: 700; white-space: nowrap; }
-.item-btn .unit { font-weight: 400; font-size: 0.72rem; color: var(--soft); }
+/* A short cascade on first paint. Capped at twenty: past that the eye has stopped reading the
+   sequence and the delay is only a delay. */
+.items-grid .item-btn:nth-child(1)  { animation-delay: 0ms; }
+.items-grid .item-btn:nth-child(2)  { animation-delay: 12ms; }
+.items-grid .item-btn:nth-child(3)  { animation-delay: 24ms; }
+.items-grid .item-btn:nth-child(4)  { animation-delay: 36ms; }
+.items-grid .item-btn:nth-child(5)  { animation-delay: 48ms; }
+.items-grid .item-btn:nth-child(6)  { animation-delay: 60ms; }
+.items-grid .item-btn:nth-child(7)  { animation-delay: 70ms; }
+.items-grid .item-btn:nth-child(8)  { animation-delay: 80ms; }
+.items-grid .item-btn:nth-child(9)  { animation-delay: 90ms; }
+.items-grid .item-btn:nth-child(10) { animation-delay: 100ms; }
+.items-grid .item-btn:nth-child(n + 11) { animation-delay: 110ms; }
+
+.item-btn:hover {
+  border-color: var(--brand-edge);
+  box-shadow: var(--sh-2);
+  transform: translate3d(0, -1px, 0);
+}
+
+.item-btn:active {
+  transform: translate3d(0, 0, 0) scale(0.985);
+  border-color: var(--brand-500);
+  box-shadow: var(--sh-1);
+}
+
+.item-btn .kn { font-size: 1.02rem; line-height: 1.35; color: var(--ink-900); font-weight: 600; }
+.item-btn .en { font-size: 0.75rem; color: var(--ink-400); }
+
+.item-btn .rate {
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--ink-900);
+  font-size: 1.02rem;
+}
+
+.item-btn .unit { font-weight: 500; font-size: 0.7rem; color: var(--ink-400); }
+
+/* ---- the running bill ---- */
 
 .cart {
-  background: var(--card);
+  background: var(--paper-1);
   border-top: 1px solid var(--line);
-  padding: 10px var(--pad) calc(10px + env(safe-area-inset-bottom));
+  padding: 12px var(--pad) calc(12px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 24px rgba(23, 20, 15, 0.05);
 }
 
 .cart-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .cart-title {
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--soft);
+  color: var(--ink-400);
   font-weight: 700;
 }
 
+/* How many lines are on the slip, without the operator counting them. */
+.cart-count {
+  min-width: 19px;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--brand-600);
+  color: #fff;
+  font-size: 0.68rem;
+  line-height: 19px;
+  text-align: center;
+  letter-spacing: 0;
+  animation: pop var(--t-base) var(--ease-pop) both;
+}
+
+/* An empty slip should look like an empty slip, not like a missing component. */
+.cart-empty {
+  margin: 6px 0;
+  padding: 26px 14px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink-400);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background:
+    repeating-linear-gradient(180deg, transparent 0 25px, rgba(23, 20, 15, 0.035) 25px 26px);
+}
+
 .cart-lines {
-  max-height: 34vh;
+  max-height: 31vh;
   overflow: auto;
+  overscroll-behavior-y: contain;
 }
 
 .cart-line {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 7px 0;
+  gap: 9px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--line);
+  /* A line added to the bill slides in from the side, so a mis-tap is visible as it happens
+     rather than discovered at the total. */
+  animation: slide-in var(--t-base) var(--ease) both;
 }
+
+.cart-line:last-child { border-bottom: 0; }
 
 .qty-btn {
-  min-width: 46px;
-  min-height: 38px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  border-radius: 8px;
+  min-width: 48px;
+  min-height: 40px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-2);
+  border-radius: var(--r-sm);
   font-weight: 700;
+  color: var(--ink-900);
   cursor: pointer;
+  transition: transform var(--t-tap) var(--ease), background var(--t-fast) var(--ease);
 }
+
+.qty-btn:hover { background: var(--brand-wash); }
+.qty-btn:active { transform: scale(0.94); }
 
 .step {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  font-size: 1.15rem;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-2);
+  color: var(--ink-900);
+  font-size: 1.2rem;
   line-height: 1;
   cursor: pointer;
+  transition: transform var(--t-tap) var(--ease), background var(--t-fast) var(--ease);
 }
 
-.cart-amount { min-width: 68px; text-align: right; font-weight: 700; }
+.step:hover { background: var(--brand-wash); border-color: var(--brand-edge); }
+.step:active { transform: scale(0.9); }
+
+.cart-amount {
+  min-width: 70px;
+  text-align: right;
+  font-weight: 700;
+  color: var(--ink-900);
+}
 
 .total-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 10px 0;
+  padding: 12px 0 10px;
+  margin-top: 2px;
+  border-top: 2px solid var(--ink-900);
 }
 
-.total-row .label { font-size: 0.8rem; letter-spacing: 0.08em; color: var(--soft); font-weight: 700; }
-.total-row .value { font-size: 1.75rem; font-weight: 800; }
+.total-row .label {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  font-weight: 700;
+}
 
-.cart-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.total-row .value {
+  font-family: var(--font-display);
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink-900);
+  letter-spacing: -0.02em;
+  /* Remounted on every change by a React key, so this fires each time the number moves. */
+  animation: pop var(--t-base) var(--ease-pop) both;
+  transform-origin: right center;
+}
+
+.cart-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 9px; }
 
 /* ---------------------------------------------------------------- lists */
 
@@ -304,68 +668,227 @@ button, input, select {
   gap: 10px;
   width: 100%;
   text-align: left;
-  background: var(--card);
+  background: var(--paper-1);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px;
+  border-radius: var(--r-md);
+  padding: 13px;
   cursor: pointer;
+  box-shadow: var(--sh-1);
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--t-tap) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+  animation: rise var(--t-base) var(--ease) both;
 }
+
+.list-row:hover { border-color: var(--brand-edge); box-shadow: var(--sh-2); }
+.list-row:active { transform: scale(0.99); }
 
 .summary {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
+  position: relative;
+  background: linear-gradient(165deg, var(--brand-700), var(--brand-600) 55%, #0f7350);
+  border: 0;
+  border-radius: var(--r-lg);
+  padding: 22px 18px;
   text-align: center;
   margin-bottom: var(--pad);
+  color: #fff;
+  box-shadow: var(--sh-brand);
+  overflow: hidden;
+  animation: rise var(--t-base) var(--ease) both;
 }
 
-.summary .value { font-size: 2rem; font-weight: 800; }
+/* A single soft highlight so the block reads as a lit surface rather than a flat swatch. */
+.summary::after {
+  content: '';
+  position: absolute;
+  inset: -40% -10% auto -10%;
+  height: 120%;
+  background: radial-gradient(60% 60% at 30% 0%, rgba(255, 255, 255, 0.16), transparent 70%);
+  pointer-events: none;
+}
+
+.summary .label,
+.summary .muted { color: rgba(255, 255, 255, 0.72); }
+
+.summary .value {
+  font-family: var(--font-display);
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  display: block;
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------------------------- settings */
+
+.section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+
+/* A checkbox large enough to hit with a thumb, and coloured like the rest of the app rather
+   than like the operating system. */
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--paper-1);
+  cursor: pointer;
+  position: relative;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+input[type='checkbox']:hover { border-color: var(--brand-500); }
+
+input[type='checkbox']:checked {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+}
+
+/* The tick is drawn with two borders and rotated, so it can be scaled in rather than popped in. */
+input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 4px;
+  width: 6px;
+  height: 11px;
+  border: solid #fff;
+  border-width: 0 2.2px 2.2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform var(--t-fast) var(--ease-pop);
+}
+
+input[type='checkbox']:checked::after { transform: rotate(45deg) scale(1); }
+
+input[type='checkbox']:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
+
+/* Native selects keep their own arrow, but not their own chrome. */
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-500) 50%),
+    linear-gradient(135deg, var(--ink-500) 50%, transparent 50%);
+  background-position: right 18px center, right 12px center;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+/* ---------------------------------------------------------------- empty states */
+
+.empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 40px 20px;
+  margin: 4px 0;
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  background: rgba(255, 254, 251, 0.6);
+  animation: rise var(--t-base) var(--ease) both;
+}
+
+.empty-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-400);
+}
+
+.empty-icon svg { width: 26px; height: 26px; }
+
+.empty-text {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--ink-500);
+}
 
 /* ---------------------------------------------------------------- dialog */
 
 .backdrop {
   position: fixed;
   inset: 0;
-  background: #00000066;
+  background: rgba(23, 20, 15, 0.44);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
   z-index: 20;
+  animation: fade var(--t-fast) var(--ease) both;
 }
 
 .dialog {
-  background: var(--bg);
-  border-radius: 14px;
-  padding: 16px;
+  background: var(--paper-0);
+  border-radius: var(--r-lg);
+  padding: 18px;
   width: 100%;
-  max-width: 420px;
+  max-width: 430px;
   max-height: 88vh;
   overflow: auto;
+  box-shadow: var(--sh-3);
+  animation: dialog-in var(--t-base) var(--ease-pop) both;
 }
 
-.dialog h2 { margin: 0 0 12px; font-size: 1.05rem; }
-.dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+/* The panel takes focus on open so a keyboard user lands inside it, but it is a container rather
+   than a control -- ringing it is the browser being literal, not useful. The controls within it
+   keep their own focus rings. */
+.dialog:focus { outline: none; }
 
-/* ---------------------------------------------------------------- receipt */
+.dialog h2 {
+  margin: 0 0 14px;
+  font-size: 1.12rem;
+  font-weight: 700;
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+}
+
+.dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
+
+/* ---------------------------------------------------------------- receipt
+
+   Everything below is print geometry. It is laid out in print dots rather than CSS pixels so the
+   preview on screen and the paper coming out of the printer are the same shape. Changing these
+   numbers changes what gets printed -- leave them alone. */
 
 /* The container that gets measured. It never carries a width derived from that measurement. */
 .receipt-outer { width: 100%; }
 
 /* The paper. Its chrome is in pixels; the dot grid inside it is not. */
 .receipt-frame {
-  background: var(--paper);
+  background: var(--receipt);
   border: 1px solid var(--line);
-  padding: 10px 6px;
+  border-radius: 4px;
+  padding: 12px 6px;
   margin: 0 auto;
   width: fit-content;
   max-width: 100%;
+  box-shadow: var(--sh-2);
 }
 
 .receipt {
   color: #000;
   margin: 0 auto;
+  font-variant-numeric: normal;
 }
 
 .receipt .r-center { text-align: center; }
@@ -408,30 +931,288 @@ button, input, select {
 
   #print-root .receipt-frame {
     border: 0;
+    border-radius: 0;
     background: #fff;
     padding: 0;
     width: auto;
     max-width: none;
     margin: 0;
+    box-shadow: none;
   }
+}
+
+/* ---------------------------------------------------------------- handwriting */
+
+.inkpad {
+  display: block;
+  width: 100%;
+  background:
+    /* Faint rule lines, like a note pad. They tell the shopkeeper this is a place to write
+       before anyone explains it. */
+    repeating-linear-gradient(180deg, transparent 0 27px, rgba(23, 20, 15, 0.05) 27px 28px),
+    var(--paper-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 2px rgba(23, 20, 15, 0.04);
+  /* Without this the pen and the palm scroll the page instead of drawing on it. */
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* ---------------------------------------------------------------- customer */
+
+.customer-box,
+.customer-chip {
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px;
+  margin-bottom: 10px;
+  box-shadow: var(--sh-1);
+}
+
+.customer-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: slide-in var(--t-fast) var(--ease) both;
+}
+
+.customer-fields { display: grid; grid-template-columns: 1fr; gap: 8px; }
+
+/* The folded state: one slim row that reads as an offer rather than a form. */
+.customer-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 11px 13px;
+  text-align: left;
+  background: var(--paper-1);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--ink-500);
+  font-size: 0.9rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+.customer-add:hover {
+  border-color: var(--brand-edge);
+  background: var(--brand-wash);
+  color: var(--brand-700);
+}
+
+.customer-add:active { transform: scale(0.995); }
+
+.customer-add-icon { width: 19px; height: 19px; flex: 0 0 auto; color: var(--ink-400); }
+.customer-add:hover .customer-add-icon { color: var(--brand-600); }
+
+.customer-add-plus {
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--ink-400);
+  font-weight: 600;
+}
+
+.customer-box { animation: rise var(--t-fast) var(--ease) both; }
+
+.suggestions {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  box-shadow: var(--sh-2);
+  animation: rise var(--t-fast) var(--ease) both;
+}
+
+.suggestions li + li { border-top: 1px solid var(--line); }
+
+.suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: var(--paper-1);
+  border: 0;
+  padding: 11px 13px;
+  cursor: pointer;
+  min-height: 46px;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.suggestion:hover { background: var(--brand-wash); }
+
+.pay-box {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+/* ---------------------------------------------------------------- stats */
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stat {
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px 10px;
+  text-align: center;
+  box-shadow: var(--sh-1);
+  animation: rise var(--t-base) var(--ease) both;
+}
+
+.stat:nth-child(2) { animation-delay: 40ms; }
+.stat:nth-child(3) { animation-delay: 80ms; }
+
+.stat .muted { font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; }
+
+.stat strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--ink-900);
+  margin-top: 4px;
+}
+
+.tab-badge {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger-600);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 18px;
+  vertical-align: 2px;
+  animation: pop var(--t-slow) var(--ease-pop) both;
+}
+
+/* ---------------------------------------------------------------- kannada helper */
+
+.kn-helper {
+  margin-top: 8px;
+  padding: 11px;
+  background: var(--gold-wash);
+  border: 1px solid #ecdcb8;
+  border-radius: var(--r-sm);
+  animation: rise var(--t-fast) var(--ease) both;
+}
+
+.kn-helper code {
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+  color: var(--gold-600);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- sign in */
+
+.signin {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.signin-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 28px 24px 24px;
+  box-shadow: var(--sh-2);
+  text-align: center;
+  animation: dialog-in var(--t-slow) var(--ease-pop) both;
+}
+
+.signin-mark {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 14px;
+  color: var(--brand-600);
+}
+
+.signin-card h1 {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+  color: var(--ink-900);
+}
+
+.signin-card .signin-sub {
+  margin: 0 0 20px;
+  font-size: 0.88rem;
+  color: var(--ink-500);
+}
+
+.signin-card .input {
+  text-align: center;
+  font-size: 1.5rem;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em; /* balances the trailing letter-space so the dots look centred */
+  padding: 14px;
+}
+
+/* ---------------------------------------------------------------- loading */
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper-2);
+  border-radius: var(--r-md);
+  min-height: 60px;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 50%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+  animation: shimmer 1.25s var(--ease) infinite;
 }
 
 /* ---------------------------------------------------------------- tablet */
 
 @media (min-width: 640px) {
-  :root { --pad: 16px; }
+  :root { --pad: 18px; }
 
   .items-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cart-lines { max-height: 30vh; }
-  .total-row .value { font-size: 2rem; }
-  .nav a { font-size: 0.85rem; padding: 12px 6px 10px; }
+  .total-row .value { font-size: 2.4rem; }
+  .nav a { font-size: 0.85rem; padding: 13px 6px 11px; }
+  .customer-fields { grid-template-columns: 2fr 1fr; }
 }
 
 /* ---------------------------------------------------------------- desktop */
 
 @media (min-width: 1024px) {
   .app {
-    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-columns: 232px minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
       'brand topbar'
@@ -447,173 +1228,86 @@ button, input, select {
     flex-direction: column;
     border-top: 0;
     border-right: 1px solid var(--line);
-    padding: 10px 8px;
-    gap: 4px;
+    padding: 12px 10px;
+    gap: 3px;
   }
 
   .nav a {
     flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 11px;
     text-align: left;
-    border-top: 0;
-    border-left: 3px solid transparent;
-    border-radius: 0 var(--radius) var(--radius) 0;
-    padding: 11px 12px;
-    font-size: 0.95rem;
+    border-radius: var(--r-sm);
+    padding: 11px 13px;
+    font-size: 0.93rem;
   }
 
-  .nav a.active { border-left-color: var(--accent); background: var(--accent-wash); }
+  .nav-icon { width: 20px; height: 20px; }
+  .nav a.active .nav-icon { transform: none; }
+
+  /* On the sidebar the indicator runs down the left edge instead of across the top. */
+  .nav a::before {
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 22px;
+    margin: -11px 0 0;
+    border-radius: 0 3px 3px 0;
+    transform: scaleY(0);
+  }
+
+  .nav a.active::before { transform: scaleY(1); }
+  .nav a.active { background: var(--brand-wash); }
+  .nav a:hover { background: var(--paper-2); }
+  .nav a.active:hover { background: var(--brand-wash); }
 
   .brand {
     grid-area: brand;
     display: flex;
     align-items: center;
-    padding: 10px 12px;
-    font-weight: 800;
+    gap: 10px;
+    padding: 12px 14px;
+    font-family: var(--font-display);
+    font-size: 1.02rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--ink-900);
     border-right: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
-    background: var(--card);
+    background: var(--paper-1);
   }
 
   /* Billing goes side by side: goods on the left, the running bill parked on the right. */
   .bill-layout {
     grid-template-rows: minmax(0, 1fr);
-    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-columns: minmax(0, 1fr) 380px;
   }
 
-  .items-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+  .items-grid { grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); }
 
   .cart {
     border-top: 0;
     border-left: 1px solid var(--line);
     overflow: auto;
-    padding-bottom: 16px;
+    padding-bottom: 18px;
+    box-shadow: -8px 0 24px rgba(23, 20, 15, 0.04);
   }
 
   .cart-lines { max-height: none; }
-  .page { max-width: 900px; }
+  .page { max-width: 940px; }
 }
 
 @media (min-width: 1440px) {
-  .bill-layout { grid-template-columns: minmax(0, 1fr) 420px; }
+  .bill-layout { grid-template-columns: minmax(0, 1fr) 440px; }
 }
 
-/* Respect a reduced-motion preference; there is nothing here that needs to move. */
+/* A shop tablet may be old, and someone may simply not want movement. Honour the setting: nothing
+   here carries meaning that the motion alone conveys. */
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
-}
-
-/* ---------------------------------------------------------------- handwriting */
-
-.inkpad {
-  display: block;
-  width: 100%;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  /* Without this the pen and the palm scroll the page instead of drawing on it. */
-  touch-action: none;
-  cursor: crosshair;
-}
-
-/* ---------------------------------------------------------------- customer */
-
-.customer-box,
-.customer-chip {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px;
-  margin-bottom: 10px;
-}
-
-.customer-chip { display: flex; align-items: center; gap: 10px; }
-
-.customer-fields { display: grid; grid-template-columns: 1fr; gap: 8px; }
-
-.suggestions {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.suggestions li + li { border-top: 1px solid var(--line); }
-
-.suggestion {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  background: var(--card);
-  border: 0;
-  padding: 10px 12px;
-  cursor: pointer;
-  min-height: 44px;
-}
-
-.suggestion:hover { background: var(--accent-wash); }
-
-.pay-box {
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px;
-  margin-bottom: 10px;
-}
-
-/* ---------------------------------------------------------------- stats */
-
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.stat {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px;
-  text-align: center;
-}
-
-.stat strong { display: block; font-size: 1.15rem; margin-top: 2px; }
-
-.tab-badge {
-  display: inline-block;
-  min-width: 18px;
-  margin-left: 5px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 0.7rem;
-  line-height: 18px;
-  vertical-align: 2px;
-}
-
-@media (min-width: 640px) {
-  .customer-fields { grid-template-columns: 2fr 1fr; }
-}
-
-/* ---------------------------------------------------------------- kannada helper */
-
-.kn-helper {
-  margin-top: 8px;
-  padding: 10px;
-  background: var(--bg);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-}
-
-.kn-helper code {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 0 4px;
-  font-size: 0.85em;
+  *, *::before, *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

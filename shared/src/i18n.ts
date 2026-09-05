@@ -32,7 +32,7 @@ const EN = {
   'nav.quietCount': '{n} customers not seen recently',
 
   'app.loading': 'Loading…',
-  'app.brand': 'Billing',
+  'app.brand': 'Simple Sales Book',
   'app.today': 'Today {amount}',
 
   'login.prompt': 'Enter the shop PIN to start billing.',
@@ -75,6 +75,7 @@ const EN = {
   'bill.provisional': 'Bill number is provisional until the bill is saved.',
 
   'cust.namePlaceholder': 'Customer name (optional)',
+  'cust.addOptional': 'Add a customer',
   'cust.nameAria': 'Customer name',
   'cust.phonePlaceholder': 'Contact no.',
   'cust.phoneAria': 'Customer contact number',
@@ -241,7 +242,7 @@ const KN: Record<MsgKey, string> = {
   'nav.quietCount': '{n} ಗ್ರಾಹಕರು ಇತ್ತೀಚೆಗೆ ಬಂದಿಲ್ಲ',
 
   'app.loading': 'ಬರುತ್ತಿದೆ…',
-  'app.brand': 'ಬಿಲ್ಲಿಂಗ್',
+  'app.brand': 'ಸಿಂಪಲ್ ಸೇಲ್ಸ್ ಬುಕ್',
   'app.today': 'ಇಂದು {amount}',
 
   'login.prompt': 'ಬಿಲ್ ಮಾಡಲು ಅಂಗಡಿಯ ಪಿನ್ ಹಾಕಿ.',
@@ -284,6 +285,7 @@ const KN: Record<MsgKey, string> = {
   'bill.provisional': 'ಬಿಲ್ ಉಳಿಯುವವರೆಗೆ ಬಿಲ್ ಸಂಖ್ಯೆ ತಾತ್ಕಾಲಿಕ.',
 
   'cust.namePlaceholder': 'ಗ್ರಾಹಕರ ಹೆಸರು (ಬೇಕಿದ್ದರೆ)',
+  'cust.addOptional': 'ಗ್ರಾಹಕರನ್ನು ಸೇರಿಸಿ',
   'cust.nameAria': 'ಗ್ರಾಹಕರ ಹೆಸರು',
   'cust.phonePlaceholder': 'ಸಂಪರ್ಕ ಸಂಖ್ಯೆ',
   'cust.phoneAria': 'ಗ್ರಾಹಕರ ಸಂಪರ್ಕ ಸಂಖ್ಯೆ',

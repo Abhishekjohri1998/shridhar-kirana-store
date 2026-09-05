@@ -9,6 +9,8 @@ import {
 import { Dialog } from '../components/Dialog';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
+import { Empty } from '../components/Empty';
+import { CustomersIcon } from '../components/Icons';
 
 function daysSince(iso: string | null): number | null {
   if (!iso) return null;
@@ -162,9 +164,9 @@ export function CustomersPage() {
       {loading ? (
         <p className="muted center small">{t('cs.loading')}</p>
       ) : results.length === 0 ? (
-        <p className="muted center small">
+        <Empty icon={<CustomersIcon />}>
           {customers.length === 0 ? t('cs.noneYet') : t('cs.nobody')}
-        </p>
+        </Empty>
       ) : (
         <div className="list">
           {results.map((c) => {
