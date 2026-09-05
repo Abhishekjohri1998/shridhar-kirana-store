@@ -17,14 +17,15 @@
     "start": "npm run start --workspace @shridhar/server",
     "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
     "selftest": "npm run build:shared && node scripts/selftest.js",
-    "test": "npm run typecheck && npm run fieldtest && npm run i18ntest && npm run rastertest && npm run printertest && npm run selftest",
+    "test": "npm run typecheck && npm run fieldtest && npm run i18ntest && npm run rastertest && npm run printertest && npm run schematest && npm run selftest",
     "fieldtest": "node scripts/fieldtest.js",
     "i18ntest": "node scripts/i18ntest.js",
     "i18n:review": "node scripts/gen-i18n-review.js",
     "apk": "npm run build:shared && npm run apk --workspace @shridhar/mobile",
     "mobile": "npm run build:shared && npm run start --workspace @shridhar/mobile",
     "rastertest": "node scripts/rastertest.js",
-    "printertest": "node scripts/printertest.js"
+    "printertest": "node scripts/printertest.js",
+    "schematest": "node scripts/schematest.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

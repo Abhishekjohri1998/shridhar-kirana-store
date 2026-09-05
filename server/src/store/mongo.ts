@@ -1,7 +1,7 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
   DEFAULT_SETTINGS, billTotal, round2,
-  type Bill, type BillLine, type Customer, type Ink, type Item, type Settings, type TodaySummary,
+  type Bill, type BillLine, type Customer, type Ink, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
   customerBalance, dayBounds, inactiveCutoff, makeCustomerId, normalisePhone,
@@ -23,17 +23,6 @@ type CustomerDoc = {
 type SettingsDoc = Settings & { key: string };
 type CounterDoc = { key: string; value: number };
 
-const itemSchema = new Schema<Item>(
-  {
-    id: { type: String, required: true, unique: true, index: true },
-    nameKn: { type: String, required: true },
-    nameEn: { type: String, required: true },
-    rate: { type: Number, required: true, min: 0 },
-    unit: { type: String, required: true, default: 'pc' },
-  },
-  { versionKey: false },
-);
-
 const inkSchema = new Schema<Ink>(
   {
     w: { type: Number, required: true },
@@ -47,8 +36,10 @@ const lineSchema = new Schema<BillLine>(
   {
     itemId: { type: String, required: true },
     // Blank on a handwritten line, and blank on a bare price with no description at all.
-    nameKn: { type: String, required: true, default: '' },
-    nameEn: { type: String, required: true, default: '' },
+    // Not required. Every line of the slip is handwriting now, and handwriting has no typed name
+    // -- `required` rejects an empty string, so this schema refused to save any bill at all.
+    nameKn: { type: String, default: '' },
+    nameEn: { type: String, default: '' },
     ink: { type: inkSchema, required: false },
     qty: { type: Number, required: true },
     rate: { type: Number, required: true },
@@ -115,22 +106,30 @@ const counterSchema = new Schema<CounterDoc>(
   { versionKey: false },
 );
 
+/**
+ * Registered when this module loads, not when a connection is made.
+ *
+ * Registration needs no database, and putting it here means the schemas can be validated in a
+ * test that never connects -- which is what `npm run schematest` does. That test exists because a
+ * schema saying `required` on a field the app always leaves empty made every bill unsaveable, and
+ * nothing caught it: the pipeline test drives the JSON file store, which validates nothing.
+ *
+ * The explicit annotations matter. Without them the `??` yields a union TypeScript will not call.
+ */
+const Bills: Model<Bill> =
+  (mongoose.models.Bill as Model<Bill> | undefined) ?? mongoose.model<Bill>('Bill', billSchema);
+const Customers: Model<CustomerDoc> =
+  (mongoose.models.Customer as Model<CustomerDoc> | undefined) ??
+  mongoose.model<CustomerDoc>('Customer', customerSchema);
+const SettingsModel: Model<SettingsDoc> =
+  (mongoose.models.Settings as Model<SettingsDoc> | undefined) ??
+  mongoose.model<SettingsDoc>('Settings', settingsSchema);
+const Counters: Model<CounterDoc> =
+  (mongoose.models.Counter as Model<CounterDoc> | undefined) ??
+  mongoose.model<CounterDoc>('Counter', counterSchema);
+
 export async function createMongoRepo(uri: string): Promise<Repo> {
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
-
-  const Items: Model<Item> =
-    (mongoose.models.Item as Model<Item> | undefined) ?? mongoose.model<Item>('Item', itemSchema);
-  const Bills: Model<Bill> =
-    (mongoose.models.Bill as Model<Bill> | undefined) ?? mongoose.model<Bill>('Bill', billSchema);
-  const Customers: Model<CustomerDoc> =
-    (mongoose.models.Customer as Model<CustomerDoc> | undefined) ??
-    mongoose.model<CustomerDoc>('Customer', customerSchema);
-  const SettingsModel: Model<SettingsDoc> =
-    (mongoose.models.Settings as Model<SettingsDoc> | undefined) ??
-    mongoose.model<SettingsDoc>('Settings', settingsSchema);
-  const Counters: Model<CounterDoc> =
-    (mongoose.models.Counter as Model<CounterDoc> | undefined) ??
-    mongoose.model<CounterDoc>('Counter', counterSchema);
 
   const strip = <T extends object>(doc: T): T => {
     const { _id, __v, ...rest } = doc as Record<string, unknown>;
@@ -227,6 +226,14 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
             { $inc: { totalBilled: -total, totalPaid: -takings, billCount: -1 } },
           ).catch(() => undefined);
         }
+
+        // Give the number back, but only if nobody has taken one since. A shopkeeper reads a gap
+        // in the bill book as a missing bill, and a run of failures burned six numbers before
+        // anyone noticed. The guard on `value: no` is what keeps two tills from ever sharing a
+        // number: if another bill has already advanced the counter, the gap stays and that is the
+        // safe outcome.
+        await Counters.updateOne({ key: 'billNo', value: no }, { $inc: { value: -1 } })
+          .catch(() => undefined);
         throw err;
       }
 

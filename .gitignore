@@ -16,3 +16,4 @@ mobile/android/
 mobile/ios/
 .testserver/
 .expo/
+.schematest-build/

@@ -226,6 +226,20 @@ check('an over-long name is refused', !F.checkCustomer('x'.repeat(81), '').ok);
 check('the phone check is the same one the server uses',
   F.normalisePhone('+91 (98860) 12345') === '9886012345',
   F.normalisePhone('+91 (98860) 12345'));
+check('letters in the phone field are refused rather than silently dropped',
+  !F.checkCustomer('Abhishek', 'abcd').ok, JSON.stringify(F.checkCustomer('Abhishek', 'abcd')));
+check('the same digit ten times is refused', !F.checkCustomer('A', '0000000000').ok);
+check('and so is one repeated across a valid length', !F.checkCustomer('A', '1111111111').ok);
+check('a real mobile is accepted', F.checkCustomer('A', '9876543210').phone === '9876543210');
+check('a landline with its STD code is accepted',
+  F.checkCustomer('A', '080 2345 6789').phone === '8023456789',
+  F.checkCustomer('A', '080 2345 6789').phone);
+check('an international prefix still folds away',
+  F.checkCustomer('A', '0091 98860 12345').phone === '9886012345',
+  F.checkCustomer('A', '0091 98860 12345').phone);
+check('ten zeros are not mangled into eight digits',
+  F.normalisePhone('0000000000') === '0000000000', F.normalisePhone('0000000000'));
+check('a blank phone with a name is still fine', F.checkCustomer('Abhishek', '').ok);
 
 console.log('\nUnit field');
 check('blank unit becomes pc', F.checkUnit('').value === 'pc');

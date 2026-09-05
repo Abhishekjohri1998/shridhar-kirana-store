@@ -11,7 +11,10 @@
  */
 export function normalisePhone(raw: string): string {
   let digits = String(raw ?? '').replace(/\D/g, '');
-  if (digits.startsWith('00')) digits = digits.slice(2); // 0091 98860 12345
+  // "00" is the international prefix, and only when something follows it that looks like a
+  // country code. Stripping it unconditionally turned ten zeros into eight and called the result
+  // a phone number.
+  if (digits.startsWith('00') && digits.length >= 12) digits = digits.slice(2); // 0091 98860 12345
   if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
   if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1); // 0 98860 12345
   return digits;

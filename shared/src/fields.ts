@@ -117,11 +117,24 @@ export { normalisePhone };
 
 export function checkCustomer(rawName: string, rawPhone: string): CustomerFields {
   const name = rawName.trim();
-  const phone = normalisePhone(rawPhone);
+  const typedPhone = String(rawPhone ?? '').trim();
+  const phone = normalisePhone(typedPhone);
+
+  // Something was typed in the phone field and none of it was a digit. Treating that as "no
+  // phone given" loses it silently, and the operator only finds out when the customer cannot be
+  // found again.
+  if (typedPhone.length > 0 && phone.length === 0) {
+    return { ok: false, error: 'That phone number has no digits in it.' };
+  }
   if (!name && !phone) return { ok: false, error: 'Give the customer a name or a phone number.' };
   if (name.length > 80) return { ok: false, error: 'That name is too long (80 characters).' };
+  // Indian mobiles are ten digits. Shorter is accepted down to six for a landline, but not so
+  // short that it cannot be dialled.
   if (phone.length > 0 && (phone.length < 6 || phone.length > 15)) {
     return { ok: false, error: 'That phone number does not look right — check the digits.' };
+  }
+  if (phone.length > 0 && new Set(phone).size === 1) {
+    return { ok: false, error: 'That phone number is the same digit repeated — check it.' };
   }
   return { ok: true, name, phone };
 }
