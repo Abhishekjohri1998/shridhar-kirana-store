@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { checkCustomer, money, stamp, type Bill, type Customer } from '@shridhar/shared';
 import { Dialog } from '../components/Dialog';
-import { Button, ErrorText, Field, Notice } from '../components/ui';
+import { Button, Empty, ErrorText, Field, Notice } from '../components/ui';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
 import { C } from '../theme';
+import { CustomersIcon } from '../components/Icons';
 
 function daysSince(iso: string | null): number | null {
   if (!iso) return null;
@@ -144,7 +145,9 @@ export function CustomersScreen() {
         {loading ? (
           <Text style={styles.empty}>{t('cs.loading')}</Text>
         ) : results.length === 0 ? (
-          <Text style={styles.empty}>{customers.length === 0 ? t('cs.noneYet') : t('cs.nobody')}</Text>
+          <Empty icon={<CustomersIcon size={26} color={C.faint} />}>
+            {customers.length === 0 ? t('cs.noneYet') : t('cs.nobody')}
+          </Empty>
         ) : (
           results.map((c) => {
             const quiet = daysSince(c.lastVisit);

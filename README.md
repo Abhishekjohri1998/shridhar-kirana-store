@@ -1,4 +1,6 @@
-# Shridhar Kirani Stores — Billing
+# Simple Sales Book
+
+Billing for Shridhar Kirani Stores.
 
 A MERN billing app for a kirana counter. It replaces a handwritten slip: the shopkeeper writes or
 taps items, quantities total themselves, and a receipt prints in the same shape as the paper one —

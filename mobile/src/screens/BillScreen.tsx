@@ -10,10 +10,10 @@ import { InkPad } from '../components/InkPad';
 import { InkView } from '../components/InkView';
 import { KannadaInput } from '../components/KannadaInput';
 import { ReceiptView } from '../components/ReceiptView';
-import { Button, ErrorText, Field } from '../components/ui';
+import { Button, ErrorText, Field, Touchable } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
-import { C } from '../theme';
+import { C, R, TYPE, shadow } from '../theme';
 
 type LooseDraft = { name: string; ink: Ink | null; rate: string; qty: string };
 
@@ -137,7 +137,7 @@ export function BillScreen() {
           <Text style={styles.empty}>{t('bill.noMatch')}</Text>
         ) : (
           results.map((item) => (
-            <Pressable key={item.id} style={styles.itemRow} onPress={() => add(item)}>
+            <Touchable key={item.id} style={styles.itemRow} onPress={() => add(item)} scaleTo={0.98}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.itemKn}>{item.nameKn}</Text>
                 <Text style={styles.itemEn}>{item.nameEn}</Text>
@@ -146,7 +146,7 @@ export function BillScreen() {
                 {money(item.rate)}
                 <Text style={styles.itemUnit}> /{item.unit}</Text>
               </Text>
-            </Pressable>
+            </Touchable>
           ))
         )}
       </ScrollView>
@@ -333,44 +333,58 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
   picker: { flex: 1 },
   pickerContent: { padding: 12 },
-  searchRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  searchRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   search: {
-    flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: C.ink, minHeight: 48,
+    flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.lineStrong, borderRadius: R.sm,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: C.ink, minHeight: 50,
   },
   writeBtn: { paddingHorizontal: 14 },
   itemRow: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 6, borderWidth: 1, borderColor: C.line,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: R.md,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8, borderWidth: 1, borderColor: C.line,
+    minHeight: 62, ...shadow(1),
   },
-  itemKn: { fontSize: 18, color: C.ink },
-  itemEn: { fontSize: 12, color: C.soft, marginTop: 1 },
+  itemKn: { fontSize: 17, fontWeight: '600', color: C.ink },
+  itemEn: { fontSize: 12, color: C.faint, marginTop: 1 },
   itemRate: { fontSize: 17, fontWeight: '700', color: C.ink },
-  itemUnit: { fontSize: 12, fontWeight: '400', color: C.soft },
+  itemUnit: { fontSize: 12, fontWeight: '500', color: C.faint },
   empty: { color: C.soft, textAlign: 'center', paddingVertical: 18, paddingHorizontal: 12, lineHeight: 20 },
 
-  cart: { backgroundColor: C.card, borderTopWidth: 1, borderColor: C.line, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 },
-  cartHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  cartTitle: { fontSize: 12, fontWeight: '700', color: C.soft, letterSpacing: 0.8 },
+  cart: {
+    backgroundColor: C.card, borderTopWidth: 1, borderColor: C.line,
+    paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12, ...shadow(2),
+  },
+  cartHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  cartTitle: { ...TYPE.label, letterSpacing: 1.1 },
   clear: { color: C.danger, fontWeight: '700' },
   cartLines: { maxHeight: 190 },
   cartLine: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6,
+    flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth, borderColor: C.line,
   },
-  qtyBox: { minWidth: 42, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg, alignItems: 'center' },
+  qtyBox: {
+    minWidth: 46, paddingHorizontal: 8, paddingVertical: 8, borderRadius: R.sm,
+    backgroundColor: C.well, borderWidth: 1, borderColor: C.lineStrong, alignItems: 'center',
+  },
   qtyText: { fontSize: 16, fontWeight: '700', color: C.ink },
-  cartName: { fontSize: 16, color: C.ink },
+  cartName: { fontSize: 16, color: C.ink, fontWeight: '500' },
   cartRate: { fontSize: 12, color: C.soft },
-  step: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
+  step: {
+    width: 38, height: 38, borderRadius: R.pill, backgroundColor: C.well,
+    borderWidth: 1, borderColor: C.lineStrong, alignItems: 'center', justifyContent: 'center',
+  },
   stepText: { fontSize: 19, color: C.ink, marginTop: -2 },
   cartAmount: { minWidth: 70, textAlign: 'right', fontSize: 16, fontWeight: '700', color: C.ink },
 
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 10 },
-  totalLabel: { fontSize: 14, fontWeight: '700', color: C.soft, letterSpacing: 1 },
-  totalValue: { fontSize: 28, fontWeight: '800', color: C.ink },
+  /* The rule above the total is the heaviest line in the app, because the total is the point. */
+  totalRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
+    paddingTop: 12, paddingBottom: 10, marginTop: 2, borderTopWidth: 2, borderColor: C.ink,
+  },
+  totalLabel: { ...TYPE.label, fontSize: 12, letterSpacing: 1.3 },
+  totalValue: { ...TYPE.display },
 
-  payBox: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 10, marginBottom: 10 },
+  payBox: { backgroundColor: C.well, borderWidth: 1, borderColor: C.line, borderRadius: R.md, padding: 12, marginBottom: 10 },
   payRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
   balanceBox: { minWidth: 92, alignItems: 'flex-end' },
   balanceValue: { fontSize: 18, fontWeight: '700', color: C.ink },
@@ -379,5 +393,5 @@ const styles = StyleSheet.create({
 
   actions: { flexDirection: 'row', gap: 10 },
   twoCol: { flexDirection: 'row', gap: 10 },
-  hint: { fontSize: 12, color: C.soft, lineHeight: 18, marginTop: 4 },
+  hint: { ...TYPE.hint, marginTop: 4 },
 });

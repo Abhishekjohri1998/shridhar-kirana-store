@@ -1,7 +1,10 @@
-import { useState } from 'react';
-import { ActivityIndicator, Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
+} from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { money, type MsgKey } from '@shridhar/shared';
+import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { PrintProvider } from './src/lib/usePrint';
 import { ShopProvider, useShop } from './src/lib/useShop';
 import { BillScreen } from './src/screens/BillScreen';
@@ -11,7 +14,7 @@ import { ItemsScreen } from './src/screens/ItemsScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { ServerScreen } from './src/screens/ServerScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { C } from './src/theme';
+import { C, R, T, TYPE, shadow } from './src/theme';
 
 const TABS = [
   { key: 'bill', label: 'nav.bill' },
@@ -23,14 +26,64 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]['key'];
 
+/**
+ * One tab. The icon lifts a hair when its section is the active one -- a pixel of movement, but
+ * it is what stops the bar reading as a painted-on strip.
+ */
+function Tab({
+  tab, active, badge, label, onPress,
+}: {
+  tab: TabKey;
+  active: boolean;
+  badge: number;
+  label: string;
+  onPress: () => void;
+}) {
+  const Icon = SECTION_ICONS[tab];
+  const lift = useRef(new Animated.Value(active ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(lift, {
+      toValue: active ? 1 : 0,
+      duration: T.base,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [active, lift]);
+
+  return (
+    <Pressable style={styles.tab} onPress={onPress}>
+      <Animated.View
+        style={{
+          transform: [
+            { translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -1] }) },
+            { scale: lift.interpolate({ inputRange: [0, 1], outputRange: [1, 1.07] }) },
+          ],
+        }}
+      >
+        <Icon size={22} color={active ? C.accentDeep : C.soft} />
+      </Animated.View>
+
+      <Text style={[styles.tabLabel, active && styles.tabLabelActive]} numberOfLines={1}>
+        {label}
+      </Text>
+
+      {badge > 0 ? <Text style={styles.tabBadge}>{badge}</Text> : null}
+    </Pressable>
+  );
+}
+
 function Shell() {
   const shop = useShop();
   const [tab, setTab] = useState<TabKey>('bill');
+  const barWidth = useRef(0);
+  const slide = useRef(new Animated.Value(0)).current;
 
   if (!shop.ready) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator color={C.accent} />
+        <Mark size={44} color={C.accentEdge} />
+        <ActivityIndicator color={C.accent} style={{ marginTop: 18 }} />
       </View>
     );
   }
@@ -39,10 +92,26 @@ function Shell() {
   if (!shop.serverUrl) return <ServerScreen />;
   if (!shop.signedIn) return <LoginScreen />;
 
+  const index = TABS.findIndex((t) => t.key === tab);
+
+  const go = (next: TabKey) => {
+    setTab(next);
+    // The indicator slides between tabs rather than jumping, which is the cheapest way to say
+    // "you are still in the same app, one section over".
+    Animated.spring(slide, {
+      toValue: TABS.findIndex((t) => t.key === next),
+      damping: 18,
+      stiffness: 220,
+      mass: 0.7,
+      useNativeDriver: true,
+    }).start();
+  };
+
   return (
     <PrintProvider>
       <View style={styles.shell}>
         <View style={styles.header}>
+          <Mark size={24} color={C.accent} />
           <Text style={styles.headerText} numberOfLines={1}>
             {shop.settings.shopName}
           </Text>
@@ -69,17 +138,41 @@ function Shell() {
           </View>
         </View>
 
-        <View style={styles.tabBar}>
+        <View
+          style={styles.tabBar}
+          onLayout={(e) => {
+            barWidth.current = e.nativeEvent.layout.width;
+            slide.setValue(index);
+          }}
+        >
+          <Animated.View
+            style={[
+              styles.indicator,
+              {
+                width: `${100 / TABS.length}%`,
+                transform: [
+                  {
+                    translateX: slide.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, barWidth.current / TABS.length],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.indicatorInk} />
+          </Animated.View>
+
           {TABS.map((item) => (
-            <Pressable key={item.key} style={styles.tab} onPress={() => setTab(item.key)}>
-              <Text style={[styles.tabLabel, tab === item.key && styles.tabLabelActive]} numberOfLines={1}>
-                {shop.t(item.label as MsgKey)}
-              </Text>
-              {item.key === 'customers' && shop.inactive.length > 0 ? (
-                <Text style={styles.tabBadge}>{shop.inactive.length}</Text>
-              ) : null}
-              <View style={[styles.tabMark, tab === item.key && styles.tabMarkActive]} />
-            </Pressable>
+            <Tab
+              key={item.key}
+              tab={item.key}
+              active={tab === item.key}
+              badge={item.key === 'customers' ? shop.inactive.length : 0}
+              label={shop.t(item.label as MsgKey)}
+              onPress={() => go(item.key)}
+            />
           ))}
         </View>
       </View>
@@ -90,7 +183,7 @@ function Shell() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <StatusBar barStyle="dark-content" backgroundColor={C.card} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <ShopProvider>
           <Shell />
@@ -104,28 +197,61 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   shell: { flex: 1, backgroundColor: C.bg },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
+
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 14, paddingTop: 8, paddingBottom: 8, backgroundColor: C.card,
-    borderBottomWidth: 1, borderColor: C.line, gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: C.card,
+    borderBottomWidth: 1,
+    borderColor: C.line,
+    gap: 10,
   },
-  headerText: { flex: 1, fontSize: 17, fontWeight: '800', color: C.ink },
+  headerText: { ...TYPE.title, flex: 1 },
   badge: {
-    fontSize: 12, color: C.soft, borderWidth: 1, borderColor: C.line,
-    borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3,
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.accentDeep,
+    backgroundColor: C.accentWash,
+    borderWidth: 1,
+    borderColor: C.accentEdge,
+    borderRadius: R.pill,
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    overflow: 'hidden',
   },
+
   body: { flex: 1 },
   visible: { flex: 1 },
   hidden: { display: 'none' },
-  tabBar: { flexDirection: 'row', borderTopWidth: 1, borderColor: C.line, backgroundColor: C.card },
-  tab: { flex: 1, alignItems: 'center', paddingTop: 9 },
-  tabLabel: { fontSize: 12, color: C.soft, fontWeight: '600' },
-  tabLabelActive: { color: C.accent, fontWeight: '800' },
-  tabBadge: {
-    position: 'absolute', top: 2, right: 10, minWidth: 16, textAlign: 'center',
-    backgroundColor: C.danger, color: '#fff', fontSize: 10, borderRadius: 8,
-    paddingHorizontal: 4, overflow: 'hidden',
+
+  tabBar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderColor: C.line,
+    backgroundColor: C.card,
+    ...shadow(2),
   },
-  tabMark: { height: 3, width: 24, borderRadius: 2, marginTop: 6, backgroundColor: 'transparent' },
-  tabMarkActive: { backgroundColor: C.accent },
+  indicator: { position: 'absolute', top: 0, left: 0, alignItems: 'center' },
+  indicatorInk: { width: 32, height: 3, borderRadius: 3, backgroundColor: C.accentBright },
+
+  tab: { flex: 1, alignItems: 'center', paddingTop: 10, paddingBottom: 8, gap: 3 },
+  tabLabel: { fontSize: 11, color: C.soft, fontWeight: '600' },
+  tabLabelActive: { color: C.accentDeep, fontWeight: '800' },
+  tabBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 14,
+    minWidth: 17,
+    textAlign: 'center',
+    backgroundColor: C.danger,
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 17,
+    borderRadius: R.pill,
+    paddingHorizontal: 4,
+    overflow: 'hidden',
+  },
 });

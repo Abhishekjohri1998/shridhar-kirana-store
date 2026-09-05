@@ -3,10 +3,11 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { buildReceipt, money, stamp, type Bill } from '@shridhar/shared';
 import { Dialog } from '../components/Dialog';
 import { ReceiptView } from '../components/ReceiptView';
-import { Button, ErrorText } from '../components/ui';
+import { Button, Empty, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
-import { C } from '../theme';
+import { C, R, shadow } from '../theme';
+import { HistoryIcon } from '../components/Icons';
 
 export function HistoryScreen() {
   const shop = useShop();
@@ -44,7 +45,7 @@ export function HistoryScreen() {
       </View>
 
       {shop.bills.length === 0 ? (
-        <Text style={styles.empty}>{t('hist.noBills')}</Text>
+        <Empty icon={<HistoryIcon size={26} color={C.faint} />}>{t('hist.noBills')}</Empty>
       ) : (
         shop.bills.map((bill) => (
           <Pressable key={bill.no} style={styles.row} onPress={() => setOpen(bill)}>
@@ -85,19 +86,22 @@ export function HistoryScreen() {
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
   content: { padding: 12 },
+  /* The takings block is the one thing on this screen the owner actually looks for, so it is the
+     only surface in the app that is solid brand colour. */
   summary: {
-    backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 12,
-    padding: 16, alignItems: 'center', marginBottom: 12,
+    backgroundColor: C.accent, borderRadius: R.lg,
+    paddingVertical: 22, paddingHorizontal: 18, alignItems: 'center', marginBottom: 14,
+    ...shadow(2),
   },
-  summaryLabel: { fontSize: 12, fontWeight: '700', color: C.soft, letterSpacing: 1.2 },
-  summaryValue: { fontSize: 32, fontWeight: '800', color: C.ink, marginTop: 2 },
-  summaryCount: { fontSize: 13, color: C.soft },
+  summaryLabel: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.75)', letterSpacing: 1.3 },
+  summaryValue: { fontSize: 38, fontWeight: '800', color: '#fff', marginTop: 2, letterSpacing: -0.8 },
+  summaryCount: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
   row: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 6, borderWidth: 1, borderColor: C.line,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: R.md,
+    paddingHorizontal: 14, paddingVertical: 13, marginBottom: 8, borderWidth: 1, borderColor: C.line,
+    ...shadow(1),
   },
   no: { fontSize: 17, fontWeight: '700', color: C.ink },
   when: { fontSize: 13, color: C.soft, marginTop: 1 },
   total: { fontSize: 18, fontWeight: '700', color: C.ink },
-  empty: { color: C.soft, textAlign: 'center', paddingVertical: 24 },
 });

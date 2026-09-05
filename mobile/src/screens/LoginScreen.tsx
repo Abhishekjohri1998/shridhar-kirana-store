@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text } from 'react-native';
-import { Button, Card, ErrorText, Field } from '../components/ui';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Mark } from '../components/Icons';
+import { Button, ErrorText, Fade, Field } from '../components/ui';
 import { useShop } from '../lib/useShop';
-import { C } from '../theme';
+import { C, R, SP, TYPE, shadow } from '../theme';
 
 export function LoginScreen() {
   const shop = useShop();
@@ -29,20 +30,33 @@ export function LoginScreen() {
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Card>
-        <Text style={styles.title}>{shop.settings.shopName}</Text>
-        <Text style={styles.lede}>{shop.t('login.prompt')}</Text>
-        {error ? <ErrorText>{error}</ErrorText> : null}
-        <Field
-          label={shop.t('login.pin')}
-          value={pin}
-          onChangeText={setPin}
-          secureTextEntry
-          keyboardType="number-pad"
-          onSubmitEditing={() => void submit()}
-        />
-        <Button label={busy ? shop.t('login.checking') : shop.t('login.signIn')} onPress={() => void submit()} disabled={busy} />
-      </Card>
+      <Fade offset={14}>
+        <View style={styles.card}>
+          <View style={styles.markRow}>
+            <Mark size={46} color={C.accent} />
+          </View>
+          <Text style={styles.title}>{shop.settings.shopName}</Text>
+          <Text style={styles.lede}>{shop.t('login.prompt')}</Text>
+
+          {error ? <ErrorText>{error}</ErrorText> : null}
+
+          <Field
+            label={shop.t('login.pin')}
+            value={pin}
+            onChangeText={setPin}
+            secureTextEntry
+            keyboardType="number-pad"
+            style={styles.pin}
+            onSubmitEditing={() => void submit()}
+          />
+          <Button
+            label={busy ? shop.t('login.checking') : shop.t('login.signIn')}
+            onPress={() => void submit()}
+            disabled={busy}
+          />
+        </View>
+      </Fade>
+
       <Text style={styles.server}>{shop.serverUrl}</Text>
     </ScrollView>
   );
@@ -50,8 +64,19 @@ export function LoginScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingTop: 48 },
-  title: { fontSize: 19, fontWeight: '800', color: C.ink, marginBottom: 4 },
-  lede: { fontSize: 14, color: C.soft, marginBottom: 12, lineHeight: 20 },
-  server: { fontSize: 12, color: C.soft, textAlign: 'center', marginTop: 14 },
+  content: { padding: 20, paddingTop: 64 },
+  card: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.line,
+    borderRadius: R.lg,
+    padding: 24,
+    ...shadow(2),
+  },
+  markRow: { alignItems: 'center', marginBottom: SP.md },
+  title: { ...TYPE.title, fontSize: 22, textAlign: 'center', marginBottom: 4 },
+  lede: { fontSize: 14, color: C.soft, marginBottom: 20, lineHeight: 20, textAlign: 'center' },
+  /* Widely spaced dots, so the operator can count what they typed without unmasking it. */
+  pin: { textAlign: 'center', fontSize: 22, letterSpacing: 10 },
+  server: { fontSize: 12, color: C.faint, textAlign: 'center', marginTop: 16 },
 });
