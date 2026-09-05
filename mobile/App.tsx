@@ -189,7 +189,7 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg },
+  safe: { flex: 1, minHeight: 0, backgroundColor: C.bg },
   shell: { flex: 1, backgroundColor: C.bg },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
 
@@ -217,8 +217,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  body: { flex: 1 },
-  visible: { flex: 1 },
+  // minHeight 0 so a tall child cannot push the row taller than the screen; without it a
+  // scroll view inside can refuse to shrink and the whole shell grows past the window.
+  body: { flex: 1, minHeight: 0 },
+  visible: { flex: 1, minHeight: 0 },
   hidden: { display: 'none' },
 
   tabBar: {

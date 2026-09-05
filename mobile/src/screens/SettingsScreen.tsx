@@ -286,7 +286,7 @@ export function SettingsScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 12, paddingBottom: 32 },
+  content: { padding: 12, paddingBottom: 32, width: '100%', maxWidth: 820, alignSelf: 'center' },
   card: { marginBottom: 12 },
   label: { fontSize: 12, color: C.soft, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6 },
   hint: { fontSize: 12, color: C.soft, lineHeight: 18, marginTop: 4 },

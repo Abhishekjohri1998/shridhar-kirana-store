@@ -85,7 +85,7 @@ export function HistoryScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 12 },
+  content: { padding: 12, width: '100%', maxWidth: 820, alignSelf: 'center' },
   /* The takings block is the one thing on this screen the owner actually looks for, so it is the
      only surface in the app that is solid brand colour. */
   summary: {

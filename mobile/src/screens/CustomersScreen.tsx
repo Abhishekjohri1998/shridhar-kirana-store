@@ -281,7 +281,8 @@ export function CustomersScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 12, paddingBottom: 24 },
+  // Capped and centred so a tablet does not stretch a list of names across a foot of glass.
+  content: { padding: 12, paddingBottom: 24, width: '100%', maxWidth: 820, alignSelf: 'center' },
   stats: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   stat: {
     flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line,
