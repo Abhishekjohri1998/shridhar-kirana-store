@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import {
-  buildReceipt, money, parsePaid, parsePrice, round2, type Bill,
+  buildReceipt, checkCustomer, money, parsePaid, parsePrice, round2, type Bill, type Customer,
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
@@ -65,12 +65,25 @@ export function BillScreen() {
     if (parsed.ok) shop.setLineRate(index, parsed.value);
   };
 
+  /**
+   * Who the preview should show. The attached customer if there is one; otherwise whatever has
+   * been typed and is valid, because that is who the printed slip will name once Print attaches
+   * them. A preview that differs from the paper is worse than no preview.
+   */
+  const previewCustomer = (): Bill['customer'] | undefined => {
+    if (shop.customer) {
+      return { id: shop.customer.id, name: shop.customer.name, phone: shop.customer.phone };
+    }
+    const { name, phone } = shop.customerDraft;
+    if (!name.trim() && !phone.trim()) return undefined;
+    const checked = checkCustomer(name, phone);
+    return checked.ok ? { id: 'pending', name: checked.name, phone: checked.phone } : undefined;
+  };
+
   const draft = (): Bill => ({
     no: (shop.bills[0]?.no ?? 0) + 1,
     at: new Date().toISOString(),
-    ...(shop.customer
-      ? { customer: { id: shop.customer.id, name: shop.customer.name, phone: shop.customer.phone } }
-      : {}),
+    ...(previewCustomer() ? { customer: previewCustomer() } : {}),
     lines: written,
     total: shop.cartTotal,
     paid: paidValid ? paidAmount : shop.cartTotal,
@@ -78,15 +91,48 @@ export function BillScreen() {
     showBalance: showBalance && shop.customer != null,
   });
 
+  /**
+   * A customer typed in but never attached.
+   *
+   * The fields sit right above the slip, so filling them in and pressing Print is an entirely
+   * reasonable thing to do -- and it used to print a receipt with no customer on it and no word
+   * of explanation. If what was typed is valid, attach it; if it is not, say so rather than
+   * printing something that quietly omits them.
+   */
+  const attachTypedCustomer = async (): Promise<{ ok: boolean; customer?: Customer }> => {
+    const { name, phone } = shop.customerDraft;
+    if (shop.customer || (!name.trim() && !phone.trim())) return { ok: true };
+    const checked = checkCustomer(name, phone);
+    if (!checked.ok) {
+      setError(checked.error);
+      return { ok: false };
+    }
+    try {
+      // Returned rather than only stored: commitBill closed over the customer as it was a moment
+      // ago, so a customer attached in this very click is invisible to it unless handed over.
+      const saved = await shop.saveCustomer({ name: checked.name, phone: checked.phone });
+      return { ok: true, customer: saved };
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return { ok: false };
+    }
+  };
+
   const onPrint = async () => {
     setError(null);
     if (!paidCheck.ok) {
       setError(paidCheck.error);
       return;
     }
+    const attached = await attachTypedCustomer();
+    if (!attached.ok) return;
     let bill: Bill;
     try {
-      bill = await shop.commitBill({ paid: paidAmount, showBalance });
+      bill = await shop.commitBill({
+        paid: paidAmount,
+        showBalance,
+        ...(attached.customer ? { customer: attached.customer } : {}),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       return;

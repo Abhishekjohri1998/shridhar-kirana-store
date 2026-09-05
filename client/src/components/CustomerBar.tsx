@@ -18,8 +18,12 @@ import { useShop } from '../lib/useShop';
 export function CustomerBar() {
   const shop = useShop();
   const t = shop.t;
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  // Held in the shared draft, not here: the bill needs to read it at print time, and switching
+  // tabs used to throw it away.
+  const name = shop.customerDraft.name;
+  const phone = shop.customerDraft.phone;
+  const setName = (next: string) => shop.setCustomerDraft({ name: next, phone });
+  const setPhone = (next: string) => shop.setCustomerDraft({ name, phone: next });
   const [matches, setMatches] = useState<Customer[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);

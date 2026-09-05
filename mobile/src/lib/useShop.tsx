@@ -11,7 +11,14 @@ const CACHE_KEY = 'shridhar.cache';
 
 type Cache = { settings: Settings };
 
-export type CommitOptions = { paid?: number; showBalance?: boolean };
+/**
+ * `customer` overrides whoever is attached in state.
+ *
+ * A customer saved moments earlier is not visible here yet: this callback closed over the old
+ * value, and React has not re-rendered. Passing the fresh one is the only reliable way to bill
+ * someone who was attached in the same click.
+ */
+export type CommitOptions = { paid?: number; showBalance?: boolean; customer?: Customer | null };
 
 type Shop = {
   /** False until the saved address and session have been read off the device. */
@@ -56,6 +63,8 @@ type Shop = {
   saveCustomer: (input: { id?: string; name: string; phone: string }) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
+  customerDraft: { name: string; phone: string };
+  setCustomerDraft: (draft: { name: string; phone: string }) => void;
 
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
 };
@@ -95,9 +104,20 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     setPrintBalanceTouched(false);
   }, []);
 
+  /**
+   * What has been typed into the customer fields but not yet attached to anyone.
+   *
+   * It lives here rather than inside the customer bar for two reasons: switching tabs used to
+   * lose it, and the bill needs to see it. A shopkeeper who has typed a name and a number has
+   * said what they want; printing without it because a button went unpressed is the software
+   * being pedantic with someone else's receipt.
+   */
+  const [customerDraft, setCustomerDraft] = useState<{ name: string; phone: string }>({ name: '', phone: '' });
+
   const resetDraft = useCallback(() => {
     setCart([]);
     setCustomerState(null);
+    setCustomerDraft({ name: '', phone: '' });
     setPaidInput('');
     setPrintBalanceState(false);
     setPrintBalanceTouched(false);
@@ -298,11 +318,12 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       // scaffolding, not something the customer bought, so it never reaches the printer.
       const lines = cart.filter((l) => l.ink || l.rate > 0 || l.nameKn.trim().length > 0);
       if (lines.length === 0) throw new Error(t('bill.nothingYet'));
+      const billTo = options.customer !== undefined ? options.customer : customer;
       const bill = await api.createBill({
         lines,
-        ...(customer ? { customerId: customer.id } : {}),
+        ...(billTo ? { customerId: billTo.id } : {}),
         ...(options.paid == null ? {} : { paid: options.paid }),
-        showBalance: Boolean(options.showBalance && customer),
+        showBalance: Boolean(options.showBalance && billTo),
       });
       resetDraft();
       setBills((prev) => [bill, ...prev].slice(0, 100));
@@ -338,7 +359,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setCustomer, saveCustomer, setPaidInput, setPrintBalance,
+      setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
       saveSettings,
     }),
     [
@@ -346,7 +367,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setCustomer, saveCustomer, setPrintBalance, saveSettings,
+      setCustomer, saveCustomer, setPrintBalance, customerDraft, saveSettings,
     ],
   );
 
