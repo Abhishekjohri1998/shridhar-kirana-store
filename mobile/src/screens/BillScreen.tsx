@@ -141,6 +141,10 @@ export function BillScreen() {
     total: shop.cartTotal,
     paid: paidValid ? paidAmount : shop.cartTotal,
     balance: balanceAfter,
+    // What they owed walking in. `balanceAfter` above is already this plus today's lines less
+    // what is paid, so the preview and the printed slip cannot disagree on any figure.
+    previousBalance: shop.customer ? shop.customer.balance : 0,
+    previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
   });
 
@@ -210,12 +214,10 @@ export function BillScreen() {
         {error ? <ErrorText>{error}</ErrorText> : null}
         {shop.offline ? <Text style={styles.offline}>{t('bill.offline')}</Text> : null}
 
-        <CustomerBar />
-
         <View style={styles.slip}>
           <View style={styles.slipHead}>
-            <Text style={[styles.slipHeadText, styles.colNo]} />
-            <Text style={[styles.slipHeadText, { flex: 1 }]}>{t('bill.whatWasSold')}</Text>
+            <Text style={[styles.slipHeadText, styles.colNo, styles.slipHeadNo]}>{t('bill.no')}</Text>
+            <Text style={[styles.slipHeadText, { flex: 1 }]}>{t('bill.item')}</Text>
             {compact ? null : (
               <>
                 <Text style={[styles.slipHeadText, styles.colPrice, { textAlign: 'right' }]}>
@@ -264,6 +266,10 @@ export function BillScreen() {
                 </View>
 
                 <View style={compact ? styles.slipRowBottom : styles.slipRowWideRight}>
+                {/* The heading for this column lives up in the header row when there is space for
+                    it; in the stacked layout the box has moved down here, so its name comes with
+                    it rather than pointing at the writing strip. */}
+                {compact ? <Text style={styles.slipPriceTag}>{t('bill.price')}</Text> : null}
                 <TextInput
                   ref={(el) => { prices.current[line.itemId] = el; }}
                   style={[styles.slipPrice, styles.colPrice]}
@@ -306,7 +312,12 @@ export function BillScreen() {
         </View>
       </ScrollView>
 
+      {/* Pinned, not scrolling. Forty lines down a bill the customer fields used to be off the
+          top of the screen, so attaching somebody meant scrolling back and losing your place in
+          the writing. */}
       <View style={styles.foot}>
+        <CustomerBar />
+
         <View style={styles.footHead}>
           <Text style={styles.footTitle}>{t('bill.currentBill')}</Text>
           {hasSomething ? (
@@ -411,6 +422,9 @@ const styles = StyleSheet.create({
     borderColor: C.lineStrong,
   },
   slipHeadText: { ...TYPE.label, fontSize: 10 },
+  slipHeadNo: { textAlign: 'center' },
+  /* Sits to the left of the price box on the stacked layout, where the header cannot reach. */
+  slipPriceTag: { ...TYPE.label, fontSize: 10, alignSelf: 'center' },
   colNo: { width: 22 },
   colPrice: { width: 92 },
   colIcon: { width: 34, alignItems: 'center', justifyContent: 'center' },

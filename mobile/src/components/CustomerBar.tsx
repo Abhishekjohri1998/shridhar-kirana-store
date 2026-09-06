@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { checkCustomer, money, type Customer } from '@shridhar/shared';
 import { Button, ErrorText } from './ui';
 import { api } from '../lib/api';
@@ -78,20 +78,21 @@ export function CustomerBar() {
     const c = shop.customer;
     return (
       <View style={styles.chip}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.chipName}>
-            {c.name || t('cust.unnamed')}
-            {c.phone ? <Text style={styles.small}> · {c.phone}</Text> : null}
-          </Text>
-          <Text style={styles.small}>
-            {c.billCount === 0
+        {/* One line, because this strip is pinned above the totals now and every millimetre it
+            takes is a millimetre off the writing area. Who they are on the left, what they owe
+            on the right -- and the bill-count sentence only when there is no balance to say
+            instead, since that is the number the shopkeeper is actually looking for. */}
+        <Text style={styles.chipName} numberOfLines={1}>
+          {c.name || t('cust.unnamed')}
+          {c.phone ? <Text style={styles.small}> · {c.phone}</Text> : null}
+        </Text>
+        <Text style={styles.chipFigure} numberOfLines={1}>
+          {c.balance !== 0
+            ? t('cust.balanceOf', { amount: money(c.balance) })
+            : c.billCount === 0
               ? t('cust.firstBill')
-              : c.billCount === 1
-                ? t('cust.oneBillTotal', { amount: money(c.totalBilled) })
-                : t('cust.billsTotal', { n: c.billCount, amount: money(c.totalBilled) })}
-            {c.balance !== 0 ? t('cust.balanceSuffix', { amount: money(c.balance) }) : ''}
-          </Text>
-        </View>
+              : t('cust.totalOf', { amount: money(c.totalBilled) })}
+        </Text>
         <Button
           label={t('cust.change')}
           tone="plain"
@@ -110,6 +111,29 @@ export function CustomerBar() {
   return (
     <View style={styles.box}>
       {error ? <ErrorText>{error}</ErrorText> : null}
+
+      {/* Above the strip, not inside it. A live-search list in flow would push a pinned footer
+          up over the writing with every keystroke. */}
+      {matches.length > 0 ? (
+        <View style={styles.matches}>
+          <ScrollView keyboardShouldPersistTaps="handled" bounces={false}>
+            {matches.map((m) => (
+              <Pressable key={m.id} style={styles.suggestion} onPress={() => attach(m)}>
+                <Text style={{ flex: 1, color: C.ink }} numberOfLines={1}>
+                  {m.name || t('cust.unnamed')}
+                  {m.phone ? <Text style={styles.small}> · {m.phone}</Text> : null}
+                </Text>
+                <Text style={styles.small}>
+                  {m.balance !== 0
+                    ? t('cust.balanceOf', { amount: money(m.balance) })
+                    : t('cust.totalOf', { amount: money(m.totalBilled) })}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
       <View style={styles.fields}>
         <TextInput
           style={[styles.input, { flex: 2 }]}
@@ -126,50 +150,43 @@ export function CustomerBar() {
           placeholderTextColor={C.soft}
           keyboardType="phone-pad"
         />
+
+        {query.length > 0 ? (
+          <Button
+            label={searching ? t('cust.looking') : t('cust.addToBill')}
+            tone="plain"
+            onPress={() => void saveNew()}
+            style={styles.slim}
+          />
+        ) : null}
       </View>
-
-      {matches.map((m) => (
-        <Pressable key={m.id} style={styles.suggestion} onPress={() => attach(m)}>
-          <Text style={{ flex: 1, color: C.ink }}>
-            {m.name || t('cust.unnamed')}
-            {m.phone ? <Text style={styles.small}> · {m.phone}</Text> : null}
-          </Text>
-          <Text style={styles.small}>
-            {m.balance !== 0
-              ? t('cust.balanceOf', { amount: money(m.balance) })
-              : t('cust.totalOf', { amount: money(m.totalBilled) })}
-          </Text>
-        </Pressable>
-      ))}
-
-      {query.length > 0 ? (
-        <Button
-          label={searching ? t('cust.looking') : t('cust.addToBill')}
-          tone="plain"
-          onPress={() => void saveNew()}
-          style={styles.slim}
-        />
-      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  box: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 10, marginBottom: 10 },
+  box: { marginBottom: 10 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.card,
-    borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 10, marginBottom: 10,
+    borderWidth: 1, borderColor: C.line, borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 8, marginBottom: 10,
   },
-  chipName: { fontSize: 15, fontWeight: '700', color: C.ink },
+  chipName: { flex: 1, fontSize: 15, fontWeight: '700', color: C.ink },
+  chipFigure: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
   small: { fontSize: 12, color: C.soft, fontWeight: '400' },
-  fields: { flexDirection: 'row', gap: 8 },
+  fields: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  /* Capped and scrolling, so a long list of Rameshes cannot grow the footer without limit. */
+  matches: {
+    maxHeight: 150, marginBottom: 8, backgroundColor: C.card,
+    borderWidth: 1, borderColor: C.lineStrong, borderRadius: 10, overflow: 'hidden',
+  },
   input: {
     backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: C.ink, minHeight: 46,
   },
   suggestion: {
     flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 11, paddingHorizontal: 10,
-    borderTopWidth: 1, borderColor: C.line,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderColor: C.line,
   },
-  slim: { minHeight: 40, paddingVertical: 8, marginTop: 8 },
+  slim: { minHeight: 46, paddingVertical: 8, paddingHorizontal: 14 },
 });

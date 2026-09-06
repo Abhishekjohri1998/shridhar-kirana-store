@@ -95,9 +95,20 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         const takings = round2(paid ?? total);
 
         let row: CustomerRow | undefined;
+        let previousBalance = 0;
+        let previousBalanceAt: string | null = null;
         if (customerId) {
           row = db.customers.find((c) => c.id === customerId);
           if (row) {
+            // Both read before the figures move: this store mutates the row in place, so there
+            // is no "before" to go back to afterwards. The mongo store reaches the same number
+            // by subtracting this bill back out of the after state.
+            previousBalance = customerBalance(row);
+            const owing = db.bills
+              .filter((b) => b.customer?.id === customerId && b.paid < b.total)
+              .sort((a, b) => b.no - a.no)[0];
+            previousBalanceAt = owing ? owing.at : null;
+
             // Roll the running figures forward first, so the balance on the slip is the balance
             // after this bill.
             row.totalBilled = round2(row.totalBilled + total);
@@ -116,6 +127,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           total,
           paid: takings,
           balance: row ? customerBalance(row) : round2(total - takings),
+          previousBalance,
+          previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
           showBalance: showBalance ?? false,
         };
         db.bills.push(bill);

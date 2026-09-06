@@ -41,6 +41,13 @@ export type Row =
 
 export type ReceiptDoc = { width: number; rows: Row[] };
 
+/** "03/09/26" -- day-first, and short enough to sit beside a label inside the item column. */
+export function dateStamp(iso: string): string {
+  const d = new Date(iso);
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2);
+}
+
 /** "03/09/26 9:06 am" -- day-first, the way it is written everywhere else in India. */
 export function stamp(iso: string): string {
   const d = new Date(iso);
@@ -48,10 +55,7 @@ export function stamp(iso: string): string {
   const h24 = d.getHours();
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   const ampm = h24 < 12 ? 'am' : 'pm';
-  return (
-    p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2) +
-    ' ' + h12 + ':' + p2(d.getMinutes()) + ' ' + ampm
-  );
+  return dateStamp(iso) + ' ' + h12 + ':' + p2(d.getMinutes()) + ' ' + ampm;
 }
 
 /**
@@ -77,7 +81,13 @@ export function buildReceipt(
     if (bill.customer.phone) rows.push({ t: 'kv', left: labels.phone, right: bill.customer.phone, size: 20 });
   }
 
-  rows.push({ t: 'sep' });
+  rows.push(
+    { t: 'sep' },
+    // The columns, named. An `item` row rather than a type of its own: all four renderers
+    // already draw one, so the headings cost nothing and cannot fall out of step between the
+    // counter PC and the phone.
+    { t: 'item', no: labels.no, name: labels.item, amount: labels.price },
+  );
 
   // One scale for the whole slip. Worked out before any row is built, because it depends on
   // every line at once: sizing each line to its own box made a short word print as large as a
@@ -104,9 +114,39 @@ export function buildReceipt(
     else rows.push({ t: 'item', name: line.nameKn || line.nameEn, ...shared });
   });
 
+  /*
+   * What they already owed, printed as the last line of the table rather than as a footnote.
+   * It is part of what is being asked for, so it is added up with everything else -- which is
+   * what makes TOTAL - Paid = Balance true on the paper. Before this, a slip could read
+   * "TOTAL 150, Paid 100, Balance 500" and a customer had no way to see where 500 came from.
+   *
+   * Gated on showBalance: without the Paid and Balance lines under it, a larger TOTAL has
+   * nothing to explain it, and a cash customer would be handed a slip demanding more than they
+   * just bought. Never printed when it is negative -- a customer in credit would make TOTAL
+   * smaller than the lines above it, which reads as a fault.
+   */
+  const carried =
+    bill.showBalance && bill.previousBalance != null && bill.previousBalance > 0
+      ? round2(bill.previousBalance)
+      : 0;
+
+  if (carried > 0) {
+    rows.push({
+      t: 'item',
+      // Carries on from the written lines: the column is a line's place on the paper, and a gap
+      // or a dash there reads as a printing fault.
+      no: String(bill.lines.length + 1),
+      name: bill.previousBalanceAt
+        ? labels.oldBalance + ' ' + dateStamp(bill.previousBalanceAt)
+        : labels.oldBalance,
+      amount: money(carried),
+    });
+  }
+
   rows.push(
     { t: 'sep' },
-    { t: 'kv', left: labels.total, right: money(bill.total), size: 30, bold: true },
+    // bill.total is the shop's own figure and is left alone; only what the paper says changes.
+    { t: 'kv', left: labels.total, right: money(round2(bill.total + carried)), size: 30, bold: true },
   );
 
   if (bill.showBalance) {

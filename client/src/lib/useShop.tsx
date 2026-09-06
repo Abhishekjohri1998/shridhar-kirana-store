@@ -81,6 +81,8 @@ type Shop = {
   commitBill: (options?: CommitOptions) => Promise<Bill>;
 
   setCustomer: (customer: Customer | null) => void;
+  /** ISO date the attached customer's balance was last added to, or null. */
+  customerBalanceAt: string | null;
   saveCustomer: (input: { id?: string; name: string; phone: string }) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
@@ -102,6 +104,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
   const [cart, setCart] = useState<BillLine[]>([]);
   const [customer, setCustomerState] = useState<Customer | null>(null);
+  /** The date their balance was last added to. Held beside the customer, not on them: only this
+   *  screen needs it, and only the customer-detail endpoint can answer it honestly. */
+  const [customerBalanceAt, setCustomerBalanceAt] = useState<string | null>(null);
   const [inactive, setInactive] = useState<Customer[]>([]);
   // These live here, not in the Bill page, because the page unmounts whenever the shopkeeper
   // looks at another tab. A part payment typed and then forgotten would otherwise be silently
@@ -118,9 +123,21 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   /** Changing who the bill is for resets the payment, which belonged to the previous customer. */
   const setCustomer = useCallback((next: Customer | null) => {
     setCustomerState(next);
+    setCustomerBalanceAt(null);
     setPaidInput('');
     setPrintBalanceState(false);
     setPrintBalanceTouched(false);
+    /*
+     * When their balance was last added to, for the dated line on the slip. Asked for only when
+     * there is a balance to date, so attaching a settled customer still costs no request, and
+     * allowed to fail quietly: the line prints without the date rather than blocking a sale.
+     */
+    if (next && next.balance > 0) {
+      void api
+        .getCustomer(next.id)
+        .then((detail) => setCustomerBalanceAt(detail.balanceAt))
+        .catch(() => undefined);
+    }
   }, []);
 
   // Declared before the callbacks below, which need it for the messages they throw.
@@ -195,6 +212,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const resetDraft = useCallback(() => {
     setCart([]);
     setCustomerState(null);
+    setCustomerBalanceAt(null);
     setCustomerDraft({ name: '', phone: '' });
     setPaidInput('');
     setPrintBalanceState(false);
@@ -329,7 +347,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
+      customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
       saveSettings,
     }),
     [

@@ -344,6 +344,16 @@ const CASES = [
     customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' },
     paid: 1000, balance: 370, showBalance: true,
   }), {}],
+  ['carrying a balance forward', bill({
+    customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' },
+    paid: 1000, balance: 870, showBalance: true,
+    previousBalance: 500, previousBalanceAt: '2026-08-02T10:00:00',
+  }), {}],
+  ['carrying a balance forward, in Kannada', bill({
+    customer: { id: 'p1', name: 'ರಮೇಶ್', phone: '9886012345' },
+    paid: 1000, balance: 870, showBalance: true,
+    previousBalance: 500, previousBalanceAt: '2026-08-02T10:00:00',
+  }), { language: 'kn' }],
   ['a handwritten line', bill({
     lines: [...LINES, { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40 }],
   }), {}],

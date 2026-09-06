@@ -60,6 +60,8 @@ type Shop = {
   commitBill: (options?: CommitOptions) => Promise<Bill>;
 
   setCustomer: (customer: Customer | null) => void;
+  /** ISO date the attached customer's balance was last added to, or null. */
+  customerBalanceAt: string | null;
   saveCustomer: (input: { id?: string; name: string; phone: string }) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
@@ -81,6 +83,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
   const [cart, setCart] = useState<BillLine[]>([]);
   const [customer, setCustomerState] = useState<Customer | null>(null);
+  /** The date their balance was last added to. Held beside the customer, not on them: only this
+   *  screen needs it, and only the customer-detail endpoint can answer it honestly. */
+  const [customerBalanceAt, setCustomerBalanceAt] = useState<string | null>(null);
   const [inactive, setInactive] = useState<Customer[]>([]);
   // Part of the bill draft, not of one screen: a phone unmounts screens as you switch tabs, and
   // a part payment typed and then forgotten must not be silently discarded.
@@ -99,9 +104,21 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const setCustomer = useCallback((next: Customer | null) => {
     setCustomerState(next);
+    setCustomerBalanceAt(null);
     setPaidInput('');
     setPrintBalanceState(false);
     setPrintBalanceTouched(false);
+    /*
+     * When their balance was last added to, for the dated line on the slip. Asked for only when
+     * there is a balance to date, so attaching a settled customer still costs no request, and
+     * allowed to fail quietly: the line prints without the date rather than blocking a sale.
+     */
+    if (next && next.balance > 0) {
+      void api
+        .getCustomer(next.id)
+        .then((detail) => setCustomerBalanceAt(detail.balanceAt))
+        .catch(() => undefined);
+    }
   }, []);
 
   /**
@@ -117,6 +134,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const resetDraft = useCallback(() => {
     setCart([]);
     setCustomerState(null);
+    setCustomerBalanceAt(null);
     setCustomerDraft({ name: '', phone: '' });
     setPaidInput('');
     setPrintBalanceState(false);
@@ -336,9 +354,12 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const saveCustomer = useCallback(async (input: { id?: string; name: string; phone: string }) => {
     const saved = await api.saveCustomer(input);
-    setCustomerState(saved);
+    // Through setCustomer, not setCustomerState: saving by phone can match somebody who already
+    // owes money, and their balance needs dating like any other attachment. The web app has
+    // always gone this way round.
+    setCustomer(saved);
     return saved;
-  }, []);
+  }, [setCustomer]);
 
 
 
@@ -359,7 +380,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
+      customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
       saveSettings,
     }),
     [

@@ -9,6 +9,16 @@ export type ReceiptLabels = {
   bill: string;
   name: string;
   phone: string;
+  /** The three column headings above the item table. */
+  no: string;
+  item: string;
+  price: string;
+  /**
+   * What the customer owed before this bill. Abbreviated on purpose: it prints inside the item
+   * column beside a date, and the full phrase came within a few dots of wrapping onto a second
+   * line on a 58mm roll.
+   */
+  oldBalance: string;
   total: string;
   paid: string;
   balance: string;
@@ -18,6 +28,10 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   bill: 'Bill #',
   name: 'Name',
   phone: 'Phone',
+  no: 'No.',
+  item: 'Item',
+  price: 'Price',
+  oldBalance: 'Old bal.',
   total: 'TOTAL',
   paid: 'Paid',
   balance: 'Balance',

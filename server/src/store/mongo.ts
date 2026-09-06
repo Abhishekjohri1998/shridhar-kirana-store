@@ -65,6 +65,10 @@ const billSchema = new Schema<Bill>(
     total: { type: Number, required: true },
     paid: { type: Number, required: true },
     balance: { type: Number, required: true },
+    // Optional, and no `required: true` with a default -- that pairing on the line names is what
+    // made every print return 500, and schematest exists because of it.
+    previousBalance: { type: Number, required: false, default: 0 },
+    previousBalanceAt: { type: String, required: false, default: null },
     showBalance: { type: Boolean, required: true, default: false },
   },
   { versionKey: false },
@@ -179,6 +183,30 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       const total = billTotal(lines);
       const takings = round2(paid ?? total);
 
+      /*
+       * When the balance was last added to: the newest earlier bill of theirs that was not
+       * settled in full.
+       *
+       * Read here, before the customer's running figures move. Anything that throws between the
+       * $inc below and the try/catch that compensates it would leave the ledger claiming money
+       * for a bill that does not exist, so a lookup this incidental has no business living
+       * inside that window. Served by the { 'customer.id': 1, no: -1 } index and stops at the
+       * first match.
+       *
+       * The honest limit of this date: a customer can only reduce their balance by overpaying on
+       * a later bill, so one who settles up in cash keeps the old date until they buy again.
+       */
+      let previousBalanceAt: string | null = null;
+      if (customerId) {
+        const owing = await Bills.findOne(
+          { 'customer.id': customerId, $expr: { $lt: ['$paid', '$total'] } },
+          { at: 1 },
+        )
+          .sort({ no: -1 })
+          .lean();
+        previousBalanceAt = owing ? (owing as unknown as Bill).at : null;
+      }
+
       let customerDoc: CustomerDoc | null = null;
       if (customerId) {
         // Roll the running figures forward first, so the balance printed on the slip is the
@@ -202,6 +230,12 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       ).lean();
       const no = (counter as unknown as CounterDoc).value;
 
+      // The customer doc above is the state *after* this bill, so what they owed before is that
+      // figure with this bill's own movement taken back out. No second read, and it cannot
+      // disagree with `balance` by a paisa because it is derived from it.
+      const balance = customerDoc ? customerBalance(customerDoc) : round2(total - takings);
+      const previousBalance = customerDoc ? round2(balance - total + takings) : 0;
+
       const bill: Bill = {
         no,
         at: new Date().toISOString(),
@@ -211,7 +245,9 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         lines,
         total,
         paid: takings,
-        balance: customerDoc ? customerBalance(customerDoc) : round2(total - takings),
+        balance,
+        previousBalance,
+        previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
         showBalance: showBalance ?? false,
       };
 

@@ -79,7 +79,9 @@ export const api = {
   listCustomers: () => request<Customer[]>('/customers'),
   searchCustomers: (q: string) => request<Customer[]>('/customers/search?q=' + encodeURIComponent(q)),
   getCustomer: (id: string) =>
-    request<{ customer: Customer; bills: Bill[] }>('/customers/' + encodeURIComponent(id)),
+    request<{ customer: Customer; bills: Bill[]; balanceAt: string | null }>(
+      '/customers/' + encodeURIComponent(id),
+    ),
   saveCustomer: (input: { id?: string; name: string; phone: string }) =>
     input.id
       ? request<Customer>('/customers/' + encodeURIComponent(input.id), {

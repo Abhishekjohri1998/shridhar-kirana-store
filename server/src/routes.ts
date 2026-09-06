@@ -101,7 +101,15 @@ api.get('/customers/:id', handler(async (req, res) => {
   if (!customer) throw new HttpError(404, 'No such customer');
   // Their bills come with them: this is the "customer total transaction" view.
   const bills = await getRepo().listBills(100, customer.id);
-  res.json({ customer, bills });
+  /*
+   * When their balance was last added to. Free here -- these bills are already sorted newest
+   * first -- which is why it is answered by this one endpoint rather than put on the customer
+   * record: a date on a field that four other endpoints could not fill honestly is a trap.
+   * The bill screen asks for it when it attaches a customer who owes something, so the preview
+   * shows the same date the paper will.
+   */
+  const owing = bills.find((b) => b.paid < b.total);
+  res.json({ customer, bills, balanceAt: owing ? owing.at : null });
 }));
 
 api.post('/customers', handler(async (req, res) => {

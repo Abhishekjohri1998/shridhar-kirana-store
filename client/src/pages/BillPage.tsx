@@ -101,6 +101,10 @@ export function BillPage() {
     total: shop.cartTotal,
     paid: paidValid ? paidAmount : shop.cartTotal,
     balance: balanceAfter,
+    // What they owed walking in. `balanceAfter` above is already this plus today's lines less
+    // what is paid, so the preview and the printed slip cannot disagree on any figure.
+    previousBalance: shop.customer ? shop.customer.balance : 0,
+    previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
   });
 
@@ -165,11 +169,10 @@ export function BillPage() {
         {error ? <p className="error" role="alert">{error}</p> : null}
         {shop.offline ? <p className="notice">{t('bill.offline')}</p> : null}
 
-        <CustomerBar />
-
         <div className="slip">
           <div className="slip-head">
-            <span className="slip-head-desc">{t('bill.whatWasSold')}</span>
+            <span className="slip-head-no">{t('bill.no')}</span>
+            <span className="slip-head-desc">{t('bill.item')}</span>
             <span className="slip-head-price">{t('bill.price')}</span>
           </div>
 
@@ -197,6 +200,9 @@ export function BillPage() {
                     {!line.ink ? <span className="slip-ghost">{t('bill.writeHint')}</span> : null}
                   </div>
 
+                  {/* Names the column in the stacked layout, where the price box has dropped
+                      below the writing strip and the header above cannot point at it. */}
+                  <span className="slip-price-tag" aria-hidden="true">{t('bill.price')}</span>
                   <input
                     className="slip-price"
                     inputMode="decimal"
@@ -230,6 +236,11 @@ export function BillPage() {
           </ol>
         </div>
       </div>
+
+      {/* Pinned between the slip and the totals rather than scrolling away at the top of it:
+          forty lines into a bill the fields used to be off-screen, so attaching somebody meant
+          scrolling back and losing your place in the writing. */}
+      <CustomerBar />
 
       <div className="cart">
         <div className="cart-head">

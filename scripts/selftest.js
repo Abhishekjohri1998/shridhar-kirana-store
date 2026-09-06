@@ -188,7 +188,14 @@ async function main() {
   console.log('\nReceipt document');
   const receipt = shared.buildReceipt(BILL, SETTINGS);
   eq('paper is 384 dots wide', receipt.width, 384);
-  const itemRows = receipt.rows.filter((r) => r.t === 'item');
+  // The first `item` row is the column headings, which ride on the same row type so that all
+  // four renderers draw them without a line of new code each. Everything below is about the
+  // lines themselves, so it is dropped first.
+  const headRow = receipt.rows.filter((r) => r.t === 'item')[0];
+  eq('the columns are named', [headRow.no, headRow.name, headRow.amount].join('|'), 'No.|Item|Price');
+  check('the headings sit above the first line',
+    receipt.rows.indexOf(headRow) < receipt.rows.findIndex((r) => r.t === 'ink' || (r.t === 'item' && r !== headRow)));
+  const itemRows = receipt.rows.filter((r) => r.t === 'item').slice(1);
   eq('one row per line', itemRows.length, 4);
   eq('first row prints the Kannada name', itemRows[0].name, 'ಗಾಣದ ಎಣ್ಣೆ');
   eq('first row amount is the line total', itemRows[0].amount, '550');
@@ -202,10 +209,11 @@ async function main() {
   const totalRow = receipt.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL');
   eq('total row reads 1370', totalRow && totalRow.right, '1370');
   eq('date is day-first', shared.stamp('2026-09-03T09:06:00'), '03/09/26 9:06 am');
+  eq('and a bare date drops the clock', shared.dateStamp('2026-09-03T09:06:00'), '03/09/26');
   eq('noon does not print as 0:00', shared.stamp('2026-09-03T12:30:00'), '03/09/26 12:30 pm');
   eq('midnight prints as 12 am', shared.stamp('2026-09-03T00:05:00'), '03/09/26 12:05 am');
   eq('showRate adds the per-unit note',
-    shared.buildReceipt(BILL, { ...SETTINGS, showRate: true }).rows.filter((r) => r.t === 'item')[0].note, '@ 110');
+    shared.buildReceipt(BILL, { ...SETTINGS, showRate: true }).rows.filter((r) => r.t === 'item')[1].note, '@ 110');
   check('no balance lines unless asked', !receipt.rows.some((r) => r.t === 'kv' && r.left === 'Balance'));
   check('no customer lines without a customer', !receipt.rows.some((r) => r.t === 'kv' && r.left === 'Name'));
 
@@ -241,6 +249,51 @@ async function main() {
   const balanceRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Balance');
   eq('paid prints when the balance is shown', paidRow && paidRow.right, '1000');
   eq('balance prints when the balance is shown', balanceRow && balanceRow.right, '422');
+
+  console.log('\nReceipt document: what they already owed');
+  const carriedBill = {
+    ...BILL,
+    customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' },
+    paid: 1000,
+    previousBalance: 500,
+    previousBalanceAt: '2026-08-02T10:00:00',
+    balance: 870,
+    showBalance: true,
+  };
+  const carried = shared.buildReceipt(carriedBill, SETTINGS);
+  const carriedRows = carried.rows.filter((r) => r.t === 'item').slice(1);
+  eq('it prints as a line of the table', carriedRows.length, 5);
+  const oldRow = carriedRows[carriedRows.length - 1];
+  eq('numbered on from the written lines', oldRow.no, '5');
+  eq('it carries the amount', oldRow.amount, '500');
+  check('it says what it is and when', oldRow.name === 'Old bal. 02/08/26', oldRow.name);
+  const cTotal = carried.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL');
+  eq('the printed total counts it', cTotal && cTotal.right, '1870');
+  // The whole point of the change. Before it, a slip could read TOTAL 1370, Paid 1000,
+  // Balance 870 -- three numbers a customer had no way to reconcile on the page.
+  const cPaid = carried.rows.find((r) => r.t === 'kv' && r.left === 'Paid');
+  const cBal = carried.rows.find((r) => r.t === 'kv' && r.left === 'Balance');
+  check('total less paid is the balance, on the paper',
+    Number(cTotal.right) - Number(cPaid.right) === Number(cBal.right),
+    cTotal.right + ' - ' + cPaid.right + ' != ' + cBal.right);
+  eq("the shop's own figure for the bill is untouched", carriedBill.total, 1370);
+
+  const undated = shared.buildReceipt({ ...carriedBill, previousBalanceAt: null }, SETTINGS);
+  eq('with no date it prints the label alone',
+    undated.rows.filter((r) => r.t === 'item').slice(-1)[0].name, 'Old bal.');
+  const quiet = shared.buildReceipt({ ...carriedBill, showBalance: false }, SETTINGS);
+  check('nothing is carried when the balance is not printed',
+    !quiet.rows.some((r) => r.t === 'item' && String(r.name).startsWith('Old bal.')));
+  eq("and the total is the day's lines again",
+    quiet.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL').right, '1370');
+  const credit = shared.buildReceipt({ ...carriedBill, previousBalance: -200 }, SETTINGS);
+  check('a customer in credit gets no line',
+    !credit.rows.some((r) => r.t === 'item' && String(r.name).startsWith('Old bal.')));
+  eq('and no reduced total either',
+    credit.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL').right, '1370');
+  const none = shared.buildReceipt({ ...carriedBill, previousBalance: undefined }, SETTINGS);
+  eq('an older bill with no such field still prints',
+    none.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL').right, '1370');
 
   console.log('\nHandwriting geometry');
   const bounds = shared.inkBounds(SAMPLE_INK);
@@ -513,6 +566,31 @@ async function main() {
     check('their last visit is recorded', typeof detail.body.customer.lastVisit === 'string');
     eq('their bills come back with them', detail.body.bills.length, 2);
     check('and only their bills', detail.body.bills.every((b) => b.customer && b.customer.id === created.body.id));
+
+    // What each bill carried in from the one before it. `previousBalance` is a copy of a figure
+    // already recorded, never a new charge -- the totals asserted just above are what proves it
+    // is not double-counted anywhere.
+    eq('a first bill carries nothing forward', partly.body.previousBalance, 0);
+    check('and has no date to carry either', partly.body.previousBalanceAt == null);
+    eq("the next bill carries the first one's balance", second.body.previousBalance, 370);
+    eq('dated from the bill that left it owing', second.body.previousBalanceAt, partly.body.at);
+    eq("the shop's own figure for that bill is just its lines", second.body.total, 200);
+    check('carried plus lines less paid is the balance',
+      Math.round((second.body.previousBalance + second.body.total - second.body.paid) * 100) / 100
+        === second.body.balance,
+      JSON.stringify([second.body.previousBalance, second.body.total, second.body.paid, second.body.balance]));
+    // The newest bill that left money owing, which by now is the second one -- so this is the
+    // date a third bill would print, not the one the second bill printed.
+    eq('the date offered beside the customer moves on with them', detail.body.balanceAt, second.body.at);
+
+    // A number of its own: 9000000001 is the quiet-customer fixture, and selling to them here
+    // would make them active and quietly gut the test below.
+    const settled = await post('/api/customers', { name: 'Paid Up', phone: '9000000077' });
+    const cash = await post('/api/bills', { lines: [{ itemId: 'y', qty: 1, rate: 50 }], customerId: settled.body.id });
+    eq('a customer who pays in full carries nothing', cash.body.previousBalance, 0);
+    check('and is offered no date', cash.body.previousBalanceAt == null);
+    eq('nor does one appear beside them',
+      (await call('/api/customers/' + settled.body.id, { headers: auth })).body.balanceAt, null);
 
     eq('a balance cannot be printed without a customer',
       (await post('/api/bills', { lines: LINES, showBalance: true })).status, 400);

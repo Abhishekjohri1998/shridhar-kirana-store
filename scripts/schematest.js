@@ -110,6 +110,21 @@ function billDoc(lines) {
   ]));
   check('a line with typed names is still valid', !typed.validateSync());
 
+  // The carried-balance fields. Both optional on purpose: every bill already in Atlas predates
+  // them, and `required: true` with a default is the exact pairing that once made every print
+  // fail -- which is why this file exists.
+  const line = [{ itemId: 'x', nameKn: '', nameEn: '', qty: 1, rate: 5 }];
+  const carried = new Bill({
+    ...billDoc(line), previousBalance: 370, previousBalanceAt: '2026-08-02T10:00:00',
+  });
+  check('a bill carrying a balance forward is valid', !carried.validateSync());
+  const undated = new Bill({ ...billDoc(line), previousBalance: 370, previousBalanceAt: null });
+  check('and one carrying a balance with no date', !undated.validateSync());
+  const older = new Bill(billDoc(line));
+  check('a bill written before the fields existed is still valid', !older.validateSync());
+  check('and reads as carrying nothing', older.previousBalance === 0 && older.previousBalanceAt === null,
+    JSON.stringify([older.previousBalance, older.previousBalanceAt]));
+
   // What must still be refused, so this has not simply turned validation off.
   const noRate = new Bill(billDoc([{ itemId: 'x', nameKn: '', nameEn: '', qty: 1 }]));
   check('a line with no rate is refused', Boolean(noRate.validateSync()));

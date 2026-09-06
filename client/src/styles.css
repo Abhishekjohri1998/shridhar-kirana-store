@@ -437,7 +437,9 @@ button, input, select, textarea {
 
 .bill-layout {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  /* Slip scrolls; customer strip and totals are pinned under it. Three rows, not two, since the
+     customer fields left the scrolling pane. */
+  grid-template-rows: minmax(0, 1fr) auto auto;
   height: 100%;
 }
 
@@ -482,6 +484,9 @@ button, input, select, textarea {
   color: var(--ink-400);
 }
 
+.slip-head-no { grid-column: 1; text-align: center; }
+/* Only ever seen in the stacked layout, where the header cannot reach the price box. */
+.slip-price-tag { display: none; }
 .slip-head-desc { grid-column: 2; }
 .slip-head-price { grid-column: 3; text-align: right; }
 
@@ -517,9 +522,22 @@ button, input, select, textarea {
   .slip-undo { grid-area: undo; }
   .slip-remove { grid-area: remove; }
 
-  /* Nothing sits above the price any more, so its heading would point at empty space. */
+  /* The price box has moved to a row of its own, so a heading up in the header would point at
+     the writing strip instead. Its name goes with it, into the cell left empty beside it. */
   .slip-head-price { display: none; }
-  .slip-head { grid-template-columns: 28px minmax(0, 1fr); }
+  .slip-head { grid-template-columns: 44px minmax(0, 1fr); }
+  .slip-line { grid-template-columns: 44px minmax(0, 1fr) 36px 36px; }
+  .slip-price-tag {
+    display: block;
+    grid-area: blank;
+    align-self: center;
+    text-align: right;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-400);
+  }
 }
 
 .slip-no {
@@ -1156,7 +1174,9 @@ select.input {
   animation: slide-in var(--t-fast) var(--ease) both;
 }
 
-.customer-fields { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.customer-fields { display: flex; align-items: center; gap: 8px; }
+.customer-fields .input { flex: 1 1 0; min-width: 0; }
+.customer-fields .btn { flex: none; }
 
 /* The folded state: one slim row that reads as an offer rather than a form. */
 .customer-add {
@@ -1199,12 +1219,20 @@ select.input {
 .customer-box { animation: rise var(--t-fast) var(--ease) both; }
 
 .suggestions {
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  bottom: 100%;
+  z-index: 6;
+  max-height: 190px;
+  overflow-y: auto;
+  background: var(--paper-1);
+  box-shadow: var(--sh-2, 0 -8px 24px rgba(23, 20, 15, 0.12));
   list-style: none;
-  margin: 8px 0 0;
+  margin: 0 0 8px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  overflow: hidden;
   box-shadow: var(--sh-2);
   animation: rise var(--t-fast) var(--ease) both;
 }
@@ -1383,7 +1411,7 @@ select.input {
   .cart-lines { max-height: 30vh; }
   .total-row .value { font-size: 2.4rem; }
   .nav a { font-size: 0.85rem; padding: 13px 6px 11px; }
-  .customer-fields { grid-template-columns: 2fr 1fr; }
+  .customer-fields .input:first-child { flex: 2 1 0; }
 }
 
 /* ---------------------------------------------------------------- desktop */

@@ -92,20 +92,23 @@ export function CustomerBar() {
   if (shop.customer && !open) {
     const c = shop.customer;
     return (
-      <div className="customer-chip">
-        <span className="grow">
-          <strong>{c.name || t('cust.unnamed')}</strong>
-          {c.phone ? <span className="muted small"> · {c.phone}</span> : null}
-          <span className="muted small" style={{ display: 'block' }}>
-            {c.billCount === 0
-              ? t('cust.firstBill')
-              : c.billCount === 1
-                ? t('cust.oneBillTotal', { amount: money(c.totalBilled) })
-                : t('cust.billsTotal', { n: c.billCount, amount: money(c.totalBilled) })}
-            {c.balance !== 0 ? t('cust.balanceSuffix', { amount: money(c.balance) }) : null}
+      <div className="customer-bar">
+        <div className="customer-chip">
+          <span className="grow ellipsis">
+            <strong>{c.name || t('cust.unnamed')}</strong>
+            {c.phone ? <span className="muted small"> · {c.phone}</span> : null}
           </span>
-        </span>
-        <button className="btn plain slim" onClick={detach}>{t('cust.change')}</button>
+          {/* The balance if there is one, because that is the figure the shopkeeper is looking
+              for; the bill count only when there is nothing more pressing to say. */}
+          <span className="customer-figure">
+            {c.balance !== 0
+              ? t('cust.balanceOf', { amount: money(c.balance) })
+              : c.billCount === 0
+                ? t('cust.firstBill')
+                : t('cust.totalOf', { amount: money(c.totalBilled) })}
+          </span>
+          <button className="btn plain slim" onClick={detach}>{t('cust.change')}</button>
+        </div>
       </div>
     );
   }
@@ -113,11 +116,13 @@ export function CustomerBar() {
   // Nothing typed, nobody attached: offer the fields rather than presenting them.
   if (!shop.customer && !expanded) {
     return (
-      <button type="button" className="customer-add" onClick={() => setExpanded(true)}>
-        <CustomersIcon className="customer-add-icon" />
-        <span className="grow">{t('cust.addOptional')}</span>
-        <span className="customer-add-plus" aria-hidden="true">+</span>
-      </button>
+      <div className="customer-bar">
+        <button type="button" className="customer-add" onClick={() => setExpanded(true)}>
+          <CustomersIcon className="customer-add-icon" />
+          <span className="grow">{t('cust.addOptional')}</span>
+          <span className="customer-add-plus" aria-hidden="true">+</span>
+        </button>
+      </div>
     );
   }
 
@@ -126,9 +131,10 @@ export function CustomerBar() {
   );
 
   return (
-    <div className="customer-box">
-      {error ? <p className="error small" role="alert">{error}</p> : null}
-      <div className="customer-fields">
+    <div className="customer-bar">
+      <div className="customer-box">
+        {error ? <p className="error small" role="alert">{error}</p> : null}
+        <div className="customer-fields">
         <input
           className="input"
           value={name}
@@ -146,39 +152,42 @@ export function CustomerBar() {
           inputMode="tel"
           autoComplete="off"
         />
+
+          {query.length > 0 && !exact ? (
+            <button className="btn plain slim" onClick={() => void saveNew()}>
+              {searching ? t('cust.looking') : t('cust.addToBill')}
+            </button>
+          ) : null}
+
+          {shop.customer ? (
+            <button className="btn plain slim" onClick={() => setOpen(false)}>
+              {t('cust.keep', { name: shop.customer.name || shop.customer.phone })}
+            </button>
+          ) : null}
+        </div>
+
+        {/* Floated above the strip rather than sitting in it: a list that grows in flow would
+            push a pinned footer up over the writing with every keystroke. */}
+        {matches.length > 0 ? (
+          <ul className="suggestions" aria-label={t('cust.matching')}>
+            {matches.map((m) => (
+              <li key={m.id}>
+                <button className="suggestion" onClick={() => attach(m)}>
+                  <span className="grow ellipsis">
+                    <strong>{m.name || t('cust.unnamed')}</strong>
+                    {m.phone ? <span className="muted small"> · {m.phone}</span> : null}
+                  </span>
+                  <span className="muted small">
+                    {m.balance !== 0
+                      ? t('cust.balanceOf', { amount: money(m.balance) })
+                      : t('cust.totalOf', { amount: money(m.totalBilled) })}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
-
-      {matches.length > 0 ? (
-        <ul className="suggestions" aria-label={t('cust.matching')}>
-          {matches.map((m) => (
-            <li key={m.id}>
-              <button className="suggestion" onClick={() => attach(m)}>
-                <span className="grow">
-                  <strong>{m.name || t('cust.unnamed')}</strong>
-                  {m.phone ? <span className="muted small"> · {m.phone}</span> : null}
-                </span>
-                <span className="muted small">
-                  {m.balance !== 0
-                    ? t('cust.balanceOf', { amount: money(m.balance) })
-                    : t('cust.totalOf', { amount: money(m.totalBilled) })}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {query.length > 0 && !exact ? (
-        <button className="btn plain slim" style={{ marginTop: 8 }} onClick={() => void saveNew()}>
-          {searching ? t('cust.looking') : t('cust.addToBill')}
-        </button>
-      ) : null}
-
-      {shop.customer ? (
-        <button className="btn plain slim" style={{ marginTop: 8 }} onClick={() => setOpen(false)}>
-          {t('cust.keep', { name: shop.customer.name || shop.customer.phone })}
-        </button>
-      ) : null}
     </div>
   );
 }

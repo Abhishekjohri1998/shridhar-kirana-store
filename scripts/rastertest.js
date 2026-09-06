@@ -248,6 +248,16 @@ const CASES = [
     total: 55,
     paid: 55,
   }), { paper: '80mm' }],
+  ['carrying a balance forward', bill({
+    customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' },
+    paid: 1000, balance: 870, showBalance: true,
+    previousBalance: 500, previousBalanceAt: '2026-08-02T10:00:00',
+  }), { paper: '58mm' }],
+  ['carrying a balance forward, in Kannada', bill({
+    customer: { id: 'p1', name: 'ರಮೇಶ್', phone: '9886012345' },
+    paid: 1000, balance: 870, showBalance: true,
+    previousBalance: 500, previousBalanceAt: '2026-08-02T10:00:00',
+  }), { paper: '58mm', language: 'kn' }],
   ['with a bare price and no description', bill({
     lines: [...LINES, { itemId: 'bare', nameKn: '', nameEn: '', qty: 1, rate: 12 }],
   }), { paper: '58mm' }],

@@ -73,6 +73,15 @@ export type Bill = {
   paid: number;
   /** What the customer still owes across every bill, as of this one. */
   balance: number;
+  /**
+   * What they owed before this bill, and the date that figure was last added to.
+   *
+   * Stored rather than worked out again at print time, for the same reason the customer's name
+   * is copied in: a reprint months later has to match the paper the customer is holding, even
+   * though their balance has moved on since.
+   */
+  previousBalance?: number;
+  previousBalanceAt?: string | null;
   /** Whether the paid and balance lines print. The shop wants this optional per bill. */
   showBalance: boolean;
 };
