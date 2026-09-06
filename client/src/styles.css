@@ -437,9 +437,8 @@ button, input, select, textarea {
 
 .bill-layout {
   display: grid;
-  /* Slip scrolls; customer strip and totals are pinned under it. Three rows, not two, since the
-     customer fields left the scrolling pane. */
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  /* Customer strip on top, totals underneath, and only the written lines between them scroll. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
 }
 
@@ -456,12 +455,21 @@ button, input, select, textarea {
    the total can actually be added up. */
 
 .slip-pane {
+  display: flex;
   padding: var(--pad);
-  overflow: auto;
-  overscroll-behavior-y: contain;
+  min-height: 0;
+  overflow: hidden;
 }
 
+/* The card is the fixed thing; only its rows scroll, so the column names stay above the column
+   they name however far down the slip you are. Sticky was the obvious alternative and does not
+   work here: overflow: hidden is what gives the card its rounded corners, and it would take the
+   heading out of the pane's scroll context. */
 .slip {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   background: var(--receipt);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
@@ -490,7 +498,15 @@ button, input, select, textarea {
 .slip-head-desc { grid-column: 2; }
 .slip-head-price { grid-column: 3; text-align: right; }
 
-.slip-lines { list-style: none; margin: 0; padding: 0; }
+.slip-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
 
 .slip-line {
   display: grid;
@@ -509,7 +525,8 @@ button, input, select, textarea {
    Writing gets the full width; the price and buttons drop underneath it. */
 @media (max-width: 600px) {
   .slip-line {
-    grid-template-columns: 28px minmax(0, 1fr) 36px 36px;
+    /* Wide enough in the first column for the price heading that drops down into it. */
+    grid-template-columns: 44px minmax(0, 1fr) 36px 36px;
     grid-template-areas:
       'no    write write write'
       'blank price undo  remove';
@@ -526,7 +543,6 @@ button, input, select, textarea {
      the writing strip instead. Its name goes with it, into the cell left empty beside it. */
   .slip-head-price { display: none; }
   .slip-head { grid-template-columns: 44px minmax(0, 1fr); }
-  .slip-line { grid-template-columns: 44px minmax(0, 1fr) 36px 36px; }
   .slip-price-tag {
     display: block;
     grid-area: blank;
@@ -1180,6 +1196,27 @@ select.input {
 
 /* ---------------------------------------------------------------- customer */
 
+/* The pinned top rail. Positioned, so the suggestion list anchors to the strip rather than to
+   the viewport. */
+.customer-bar {
+  position: relative;
+  z-index: 4;
+  padding: var(--pad) var(--pad) 0;
+  background: var(--paper-0);
+  border-bottom: 1px solid var(--line);
+}
+
+/* The balance, or the bill count when there is no balance to say instead. */
+.customer-figure {
+  flex: none;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--brand-700);
+  white-space: nowrap;
+}
+
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
 .customer-box,
 .customer-chip {
   background: var(--paper-1);
@@ -1197,9 +1234,13 @@ select.input {
   animation: slide-in var(--t-fast) var(--ease) both;
 }
 
-.customer-fields { display: flex; align-items: center; gap: 8px; }
-.customer-fields .input { flex: 1 1 0; min-width: 0; }
-.customer-fields .btn { flex: none; }
+/* The two fields share a row; the button takes the next one.
+   Inline, its label ("Add this customer to the bill") refuses to shrink, so on a phone it
+   squeezed the two inputs down to a thumb's width and pushed the whole page sideways -- which is
+   the horizontal scrollbar visible under the tab bar in the shop's own screenshot. */
+.customer-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.customer-fields .input { flex: 1 1 120px; min-width: 0; }
+.customer-fields .btn { flex: 1 1 100%; }
 
 /* The folded state: one slim row that reads as an offer rather than a form. */
 .customer-add {
@@ -1242,17 +1283,19 @@ select.input {
 .customer-box { animation: rise var(--t-fast) var(--ease) both; }
 
 .suggestions {
+  /* Drops below the strip. It used to rise above it, back when the strip sat at the foot of the
+     screen; from the top of the screen that put the list over the shop name. */
   position: absolute;
   left: var(--pad);
   right: var(--pad);
-  bottom: 100%;
+  top: 100%;
   z-index: 6;
   max-height: 190px;
   overflow-y: auto;
   background: var(--paper-1);
   box-shadow: var(--sh-2, 0 -8px 24px rgba(23, 20, 15, 0.12));
   list-style: none;
-  margin: 0 0 8px;
+  margin: 8px 0 0;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--r-md);

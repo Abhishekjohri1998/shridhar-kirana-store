@@ -187,6 +187,10 @@ export function BillPage() {
 
   return (
     <div className="bill-layout">
+      {/* Pinned at the top, above the writing. Forty lines into a bill these fields used to be
+          off-screen, so attaching somebody meant scrolling back and losing your place. */}
+      <CustomerBar />
+
       <div className="slip-pane">
         {error ? <p className="error" role="alert">{error}</p> : null}
         {shop.offline ? <p className="notice">{t('bill.offline')}</p> : null}
@@ -258,11 +262,6 @@ export function BillPage() {
           </ol>
         </div>
       </div>
-
-      {/* Pinned between the slip and the totals rather than scrolling away at the top of it:
-          forty lines into a bill the fields used to be off-screen, so attaching somebody meant
-          scrolling back and losing your place in the writing. */}
-      <CustomerBar />
 
       <div className="cart">
         <div className="cart-head">

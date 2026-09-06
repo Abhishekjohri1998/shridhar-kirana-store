@@ -226,16 +226,18 @@ export function BillScreen() {
 
   return (
     <View style={styles.wrap}>
-      <ScrollView
-        ref={sheet}
-        style={styles.sheet}
-        contentContainerStyle={styles.sheetContent}
-        keyboardShouldPersistTaps="handled"
-      >
+      {/* Pinned at the top, above the writing. Forty lines down a bill these fields used to be
+          off the top of the screen, so attaching somebody meant scrolling back and losing your
+          place in what you were writing. */}
+      <View style={styles.top}>
+        <CustomerBar />
         {error ? <ErrorText>{error}</ErrorText> : null}
         {shop.offline ? <Text style={styles.offline}>{t('bill.offline')}</Text> : null}
+      </View>
 
-        <View style={styles.slip}>
+      {/* The card is the fixed thing; only its rows scroll, so the column names stay above the
+          column they name however far down the slip you are. */}
+      <View style={styles.slip}>
           <View style={styles.slipHead}>
             <Text style={[styles.slipHeadText, styles.colNo, styles.slipHeadNo]}>{t('bill.no')}</Text>
             <Text style={[styles.slipHeadText, { flex: 1 }]}>{t('bill.item')}</Text>
@@ -249,6 +251,13 @@ export function BillScreen() {
               </>
             )}
           </View>
+
+          <ScrollView
+            ref={sheet}
+            style={styles.sheet}
+            contentContainerStyle={styles.sheetContent}
+            keyboardShouldPersistTaps="handled"
+          >
 
           {shop.cart.map((line, index) => {
             const blank = !line.ink && line.rate === 0;
@@ -330,15 +339,10 @@ export function BillScreen() {
               </View>
             );
           })}
+          </ScrollView>
         </View>
-      </ScrollView>
 
-      {/* Pinned, not scrolling. Forty lines down a bill the customer fields used to be off the
-          top of the screen, so attaching somebody meant scrolling back and losing your place in
-          the writing. */}
       <View style={styles.foot}>
-        <CustomerBar />
-
         <View style={styles.footHead}>
           <Text style={styles.footTitle}>{t('bill.currentBill')}</Text>
           {hasSomething ? (
@@ -433,16 +437,25 @@ export function BillScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, minHeight: 0, backgroundColor: C.bg },
+  /* Padding lives here rather than on the wrap, so the totals strip below keeps its full-width
+     border instead of being inset from the edges of the screen. */
+  top: { paddingHorizontal: 12, paddingTop: 12 },
   /* Side by side once there is room: the slip on the left, the total parked on the right. */
   sheet: { flex: 1, minHeight: 0 },
   /* flexGrow so the sheet fills its half even when the slip is one line long -- without it the
      whole screen collapsed to the height of its contents and the footer rode up under the
      header. */
-  sheetContent: { padding: 12, paddingBottom: 20, flexGrow: 1 },
+  sheetContent: { paddingBottom: 8 },
   offline: { ...TYPE.hint, color: C.gold, marginBottom: 8 },
 
   /* A ruled sheet, because that is what it replaces. */
   slip: {
+    // The card fills what is left between the customer strip and the totals; the rows inside it
+    // are what scroll.
+    flex: 1,
+    minHeight: 0,
+    marginHorizontal: 12,
+    marginBottom: 12,
     backgroundColor: C.paper,
     borderWidth: 1,
     borderColor: C.lineStrong,

@@ -174,7 +174,9 @@ const styles = StyleSheet.create({
   chipName: { flex: 1, fontSize: 15, fontWeight: '700', color: C.ink },
   chipFigure: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
   small: { fontSize: 12, color: C.soft, fontWeight: '400' },
-  fields: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  /* The two fields share a row; the button wraps onto the next one. Inline, its label refuses
+     to shrink and squeezes the inputs down to a thumb's width. */
+  fields: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   /* Capped and scrolling, so a long list of Rameshes cannot grow the footer without limit. */
   matches: {
     maxHeight: 150, marginBottom: 8, backgroundColor: C.card,
@@ -188,5 +190,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 11, paddingHorizontal: 10,
     borderBottomWidth: StyleSheet.hairlineWidth, borderColor: C.line,
   },
-  slim: { minHeight: 46, paddingVertical: 8, paddingHorizontal: 14 },
+  slim: { flexBasis: '100%', minHeight: 46, paddingVertical: 8, paddingHorizontal: 14 },
 });

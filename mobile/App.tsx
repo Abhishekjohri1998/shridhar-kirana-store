@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
+  ActivityIndicator, Animated, Dimensions, Easing, Pressable, StatusBar, StyleSheet, Text, View,
   useWindowDimensions,
 } from 'react-native';
 // Imported by weight, not from the package root: the root re-exports all four faces and metro
@@ -79,6 +79,33 @@ function Tab({
   );
 }
 
+/**
+ * How tall the safe area actually measured.
+ *
+ * The shell is told to fill its parent and on some devices it does not, stranding the totals and
+ * the tab bar in the middle of the glass. Rather than assume a height -- which has now been
+ * wrong three times -- the parent reports its own, and the shell is given that as a floor. A
+ * measured parent cannot disagree with itself, so this can never overflow the way an explicit
+ * window height did.
+ */
+const safeFrame = { height: 0, subscribers: new Set<(h: number) => void>() };
+
+function useSafeFrame(): number {
+  const [height, setHeight] = useState(safeFrame.height);
+  useEffect(() => {
+    safeFrame.subscribers.add(setHeight);
+    return () => { safeFrame.subscribers.delete(setHeight); };
+  }, []);
+  return height;
+}
+
+function reportSafeFrame(height: number): void {
+  const next = Math.round(height);
+  if (next === safeFrame.height) return;
+  safeFrame.height = next;
+  safeFrame.subscribers.forEach((fn) => fn(next));
+}
+
 function Shell() {
   const shop = useShop();
   const [tab, setTab] = useState<TabKey>('bill');
@@ -93,6 +120,8 @@ function Shell() {
   const insets = useSafeAreaInsets();
   const [shellH, setShellH] = useState(0);
   const [barY, setBarY] = useState(0);
+  const frame = useSafeFrame();
+  const screen = Dimensions.get('screen');
 
   if (!shop.ready || !fontsReady) {
     return (
@@ -125,7 +154,7 @@ function Shell() {
   return (
     <PrintProvider>
       <View
-        style={styles.shell}
+        style={[styles.shell, frame > 0 ? { minHeight: frame } : null]}
         onLayout={(e) => {
           recordShellHeight(e.nativeEvent.layout.height);
           setShellH(Math.round(e.nativeEvent.layout.height));
@@ -145,7 +174,9 @@ function Shell() {
             where the tab bar actually ended up. */}
         {SHOW_LAYOUT_PROBE ? (
           <Text style={styles.probe} numberOfLines={1}>
-            win {Math.round(win.width)}x{Math.round(win.height)} · shell {shellH} · bar@{barY} ·
+            win {Math.round(win.width)}x{Math.round(win.height)} ·
+            {' '}scr {Math.round(screen.width)}x{Math.round(screen.height)} · safe {frame} ·
+            {' '}shell {shellH} · bar@{barY} ·
             {' '}ins {Math.round(insets.top)}/{Math.round(insets.bottom)}
           </Text>
         ) : null}
@@ -214,7 +245,10 @@ function Shell() {
 function SafeArea({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View
+      style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
+      onLayout={(e) => reportSafeFrame(e.nativeEvent.layout.height - insets.top - insets.bottom)}
+    >
       {children}
     </View>
   );
@@ -240,10 +274,10 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   safe: { flex: 1, minHeight: 0, backgroundColor: C.bg },
-  /* Fills its parent. An explicit height was tried while the app was still locked to portrait,
-     and it froze the shell at the height of whichever orientation happened to load first --
-     rotate the tablet and the app kept the old size with the tab bar stranded mid-screen. The
-     orientation lock was the real fault; this is back to flex. */
+  /* Fills its parent, with a floor of whatever the parent measured -- see safeFrame. An
+     explicit height from useWindowDimensions was tried once and backfired: under the old
+     portrait lock the hook reported a height the parent did not have and the shell froze at the
+     wrong size. The floor here comes from the parent itself, so the two cannot disagree. */
   shell: { flex: 1, backgroundColor: C.bg },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
 
