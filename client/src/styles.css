@@ -494,6 +494,30 @@ button, input, select, textarea {
 
 .slip-line:last-child { border-bottom: 0; }
 
+/* On a narrow screen the row becomes two.
+   The number, price box and both buttons are fixed width, and together with their gaps they
+   take two thirds of a phone -- leaving about seventy pixels to write a Kannada item name in.
+   Writing gets the full width; the price and buttons drop underneath it. */
+@media (max-width: 600px) {
+  .slip-line {
+    grid-template-columns: 28px minmax(0, 1fr) 36px 36px;
+    grid-template-areas:
+      'no    write write write'
+      'blank price undo  remove';
+    row-gap: 4px;
+  }
+
+  .slip-no { grid-area: no; }
+  .slip-write { grid-area: write; }
+  .slip-price { grid-area: price; }
+  .slip-undo { grid-area: undo; }
+  .slip-remove { grid-area: remove; }
+
+  /* Nothing sits above the price any more, so its heading would point at empty space. */
+  .slip-head-price { display: none; }
+  .slip-head { grid-template-columns: 28px minmax(0, 1fr); }
+}
+
 .slip-no {
   font-size: 0.8rem;
   color: var(--ink-400);

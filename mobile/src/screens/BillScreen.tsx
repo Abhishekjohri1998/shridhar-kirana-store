@@ -36,6 +36,15 @@ export function BillScreen() {
    */
   const { width } = useWindowDimensions();
   const roomy = width >= 820;
+  /**
+   * A phone in portrait cannot spare the width for a single row.
+   *
+   * The number, price box and two icons are all fixed, and on a 360-point screen they and their
+   * gaps take 214 of the 316 available -- leaving about a hundred points to write a Kannada item
+   * name in. Below 600 the row becomes two: writing across the full width, and the price and
+   * buttons underneath.
+   */
+  const compact = width < 600;
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
@@ -190,15 +199,27 @@ export function BillScreen() {
           <View style={styles.slipHead}>
             <Text style={[styles.slipHeadText, styles.colNo]} />
             <Text style={[styles.slipHeadText, { flex: 1 }]}>{t('bill.whatWasSold')}</Text>
-            <Text style={[styles.slipHeadText, styles.colPrice, { textAlign: 'right' }]}>{t('bill.price')}</Text>
-            <View style={styles.colIcon} />
-            <View style={styles.colIcon} />
+            {compact ? null : (
+              <>
+                <Text style={[styles.slipHeadText, styles.colPrice, { textAlign: 'right' }]}>
+                  {t('bill.price')}
+                </Text>
+                <View style={styles.colIcon} />
+                <View style={styles.colIcon} />
+              </>
+            )}
           </View>
 
           {shop.cart.map((line, index) => {
             const blank = !line.ink && line.rate === 0;
             return (
-              <View style={styles.slipLine} key={line.itemId}>
+              <View
+                style={[styles.slipLine, compact && styles.slipLineCompact]}
+                key={line.itemId}
+              >
+                {/* Narrow screens split the row in two so the writing takes the whole width;
+                    wide ones keep everything on one line. Same children either way. */}
+                <View style={compact ? styles.slipRowTop : styles.slipRowWideLeft}>
                 <Text style={[styles.slipNo, styles.colNo]}>{index + 1}</Text>
 
                 <View style={styles.slipWrite}>
@@ -223,7 +244,9 @@ export function BillScreen() {
                     </View>
                   ) : null}
                 </View>
+                </View>
 
+                <View style={compact ? styles.slipRowBottom : styles.slipRowWideRight}>
                 <TextInput
                   style={[styles.slipPrice, styles.colPrice]}
                   keyboardType="decimal-pad"
@@ -253,6 +276,7 @@ export function BillScreen() {
                 >
                   <Text style={[styles.slipRemove, blank && styles.slipRemoveOff]}>×</Text>
                 </Pressable>
+                </View>
               </View>
             );
           })}
@@ -377,6 +401,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: C.line,
   },
+  /* Two stacked halves instead of one line, so the writing can have the full width. */
+  slipLineCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 2, paddingVertical: 7 },
+  /* On a wide row the two halves behave as the old single row did: the left one takes the
+     slack so the writing keeps it, the right one is only as wide as its buttons. Giving both
+     flex: 1 would split the row down the middle and halve the strip. */
+  slipRowWideLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  slipRowWideRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  slipRowTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  slipRowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
   slipGhostWrap: { position: 'absolute', left: 10, right: 0, top: 0, bottom: 0, justifyContent: 'center' },
