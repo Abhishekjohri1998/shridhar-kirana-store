@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
-  useWindowDimensions,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -76,17 +75,6 @@ function Tab({
 function Shell() {
   const shop = useShop();
   const [tab, setTab] = useState<TabKey>('bill');
-  /**
-   * The shell is given the window's height outright rather than told to fill its parent.
-   *
-   * On a tablet the flex chain collapsed to the height of its contents -- the totals rode up
-   * under the slip and the tab bar floated in the middle of the glass. Every link in that chain
-   * said flex: 1 and it still happened, so the height is stated here instead of inferred. A
-   * number cannot collapse.
-   */
-  const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
-  const shellHeight = Math.max(320, windowHeight - insets.top - insets.bottom);
   const barWidth = useRef(0);
   const slide = useRef(new Animated.Value(0)).current;
 
@@ -120,7 +108,7 @@ function Shell() {
 
   return (
     <PrintProvider>
-      <View style={[styles.shell, { height: shellHeight }]}>
+      <View style={styles.shell}>
         <View style={styles.header}>
           <Mark size={24} color={C.accent} />
           <Text style={styles.headerText} numberOfLines={1}>
@@ -218,6 +206,10 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   safe: { flex: 1, minHeight: 0, backgroundColor: C.bg },
+  /* Fills its parent. An explicit height was tried while the app was still locked to portrait,
+     and it froze the shell at the height of whichever orientation happened to load first --
+     rotate the tablet and the app kept the old size with the tab bar stranded mid-screen. The
+     orientation lock was the real fault; this is back to flex. */
   shell: { flex: 1, backgroundColor: C.bg },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
 

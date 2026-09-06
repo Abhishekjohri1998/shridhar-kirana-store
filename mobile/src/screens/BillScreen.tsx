@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
@@ -28,12 +28,14 @@ export function BillScreen() {
   const printer = usePrint();
   const t = shop.t;
   /**
-   * Tablets, and phones turned sideways, are wide enough to put the totals beside the slip
-   * instead of under it. Below that the slip keeps the whole width, because writing room is the
-   * scarcest thing on a phone.
+   * The totals stay at the foot at every width.
+   *
+   * They were put beside the slip on wide screens, which cost the writing a third of its length
+   * and bought a column that holds one number and two buttons. Length is what a line of Kannada
+   * needs; the total is read once at the end.
    */
   const { width } = useWindowDimensions();
-  const wide = width >= 820;
+  const roomy = width >= 820;
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
@@ -41,7 +43,6 @@ export function BillScreen() {
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
   const sheet = useRef<ScrollView>(null);
-  const lineCount = useRef(shop.cart.length);
 
   /** Keep one empty line at the foot, always: on paper the next line is simply there. */
   useEffect(() => {
@@ -51,20 +52,17 @@ export function BillScreen() {
   }, [shop]);
 
   /**
-   * Follow the writing down the page.
+   * Follow the writing down the page, but only once a line is finished.
    *
-   * A slip grows a line at a time and the empty one is always last, so after forty entries the
-   * place to write next is forty lines below the fold. Scrolling there by hand between every item
-   * is the sort of thing that makes a counter go back to paper. When a line is added, the sheet
-   * goes to the bottom by itself.
+   * After forty entries the empty line is forty rows below the fold, and reaching it by hand
+   * between every item is what sends a counter back to paper. The first attempt scrolled
+   * whenever a line was added -- which happens on the very first stroke, so the row slid upward
+   * from under the pen mid-word. Leaving the price field is the unambiguous "done with this one"
+   * moment, and it can never land mid-stroke.
    */
-  useEffect(() => {
-    if (shop.cart.length > lineCount.current) {
-      // After the row has been laid out, or there is nothing yet to scroll to.
-      requestAnimationFrame(() => sheet.current?.scrollToEnd({ animated: true }));
-    }
-    lineCount.current = shop.cart.length;
-  }, [shop.cart.length]);
+  const goToNewestLine = useCallback(() => {
+    requestAnimationFrame(() => sheet.current?.scrollToEnd({ animated: true }));
+  }, []);
 
   const paid = shop.paidInput;
   const showBalance = shop.printBalance;
@@ -176,11 +174,11 @@ export function BillScreen() {
   };
 
   return (
-    <View style={[styles.wrap, wide && styles.wrapWide]}>
+    <View style={styles.wrap}>
       <ScrollView
         ref={sheet}
         style={styles.sheet}
-        contentContainerStyle={[styles.sheetContent, wide && styles.sheetContentWide]}
+        contentContainerStyle={styles.sheetContent}
         keyboardShouldPersistTaps="handled"
       >
         {error ? <ErrorText>{error}</ErrorText> : null}
@@ -207,7 +205,7 @@ export function BillScreen() {
                   <InkPad
                     ref={(handle) => { pads.current[line.itemId] = handle; }}
                     variant="line"
-                    height={wide ? 116 : 96}
+                    height={roomy ? 116 : 96}
                     value={line.ink ?? null}
                     onChange={(ink) => shop.setLineInk(index, ink)}
                     label={t('bill.writeLine', { n: index + 1 })}
@@ -234,6 +232,8 @@ export function BillScreen() {
                   accessibilityLabel={t('bill.priceOfLine', { n: index + 1 })}
                   value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
                   onChangeText={(text) => onPrice(index, line.itemId, text)}
+                  // The line is done; bring the fresh blank one into view.
+                  onBlur={() => { if (index >= shop.cart.length - 2) goToNewestLine(); }}
                 />
 
                 <Pressable
@@ -259,7 +259,7 @@ export function BillScreen() {
         </View>
       </ScrollView>
 
-      <View style={[styles.foot, wide && styles.footWide]}>
+      <View style={styles.foot}>
         <View style={styles.footHead}>
           <Text style={styles.footTitle}>{t('bill.currentBill')}</Text>
           {hasSomething ? (
@@ -337,13 +337,11 @@ export function BillScreen() {
 const styles = StyleSheet.create({
   wrap: { flex: 1, minHeight: 0, backgroundColor: C.bg },
   /* Side by side once there is room: the slip on the left, the total parked on the right. */
-  wrapWide: { flexDirection: 'row' },
   sheet: { flex: 1, minHeight: 0 },
   /* flexGrow so the sheet fills its half even when the slip is one line long -- without it the
      whole screen collapsed to the height of its contents and the footer rode up under the
      header. */
   sheetContent: { padding: 12, paddingBottom: 20, flexGrow: 1 },
-  sheetContentWide: { maxWidth: 900, width: '100%', alignSelf: 'center' },
   offline: { ...TYPE.hint, color: C.gold, marginBottom: 8 },
 
   /* A ruled sheet, because that is what it replaces. */
@@ -402,7 +400,6 @@ const styles = StyleSheet.create({
   slipRemove: { fontSize: 20, color: C.faint },
   slipRemoveOff: { opacity: 0.25 },
 
-  footWide: { width: 340, borderTopWidth: 0, borderLeftWidth: 1, justifyContent: 'flex-end' },
   foot: {
     backgroundColor: C.card,
     borderTopWidth: 1,

@@ -1431,10 +1431,13 @@ select.input {
   /* The slip keeps the whole width. Writing room is the scarcest thing on this screen, and a
      column parked beside it would only be holding a total. */
   .slip-pane { padding: 22px; }
-  .slip-pane > * { max-width: 820px; margin-left: auto; margin-right: auto; }
+  /* Wide, because length is what a handwritten line needs. 820px was a reading measure, and
+     this is not prose -- it is a strip to write "2 kg rice" across in Kannada. The cap only
+     stops the slip stretching absurdly on a very wide monitor. */
+  .slip-pane > * { max-width: 1200px; margin-left: auto; margin-right: auto; }
 
   .cart { padding-bottom: 18px; }
-  .cart > * { max-width: 820px; margin-left: auto; margin-right: auto; }
+  .cart > * { max-width: 1200px; margin-left: auto; margin-right: auto; }
 
   .slip-line,
   .slip-head { grid-template-columns: 40px minmax(0, 1fr) 130px 40px 40px; }
