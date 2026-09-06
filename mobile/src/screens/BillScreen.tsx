@@ -40,6 +40,8 @@ export function BillScreen() {
   const [priceText, setPriceText] = useState<Record<string, string>>({});
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
+  const sheet = useRef<ScrollView>(null);
+  const lineCount = useRef(shop.cart.length);
 
   /** Keep one empty line at the foot, always: on paper the next line is simply there. */
   useEffect(() => {
@@ -47,6 +49,22 @@ export function BillScreen() {
     const lastIsBlank = last && !last.ink && last.rate === 0;
     if (!lastIsBlank) shop.addBlankLine();
   }, [shop]);
+
+  /**
+   * Follow the writing down the page.
+   *
+   * A slip grows a line at a time and the empty one is always last, so after forty entries the
+   * place to write next is forty lines below the fold. Scrolling there by hand between every item
+   * is the sort of thing that makes a counter go back to paper. When a line is added, the sheet
+   * goes to the bottom by itself.
+   */
+  useEffect(() => {
+    if (shop.cart.length > lineCount.current) {
+      // After the row has been laid out, or there is nothing yet to scroll to.
+      requestAnimationFrame(() => sheet.current?.scrollToEnd({ animated: true }));
+    }
+    lineCount.current = shop.cart.length;
+  }, [shop.cart.length]);
 
   const paid = shop.paidInput;
   const showBalance = shop.printBalance;
@@ -160,6 +178,7 @@ export function BillScreen() {
   return (
     <View style={[styles.wrap, wide && styles.wrapWide]}>
       <ScrollView
+        ref={sheet}
         style={styles.sheet}
         contentContainerStyle={[styles.sheetContent, wide && styles.sheetContentWide]}
         keyboardShouldPersistTaps="handled"
