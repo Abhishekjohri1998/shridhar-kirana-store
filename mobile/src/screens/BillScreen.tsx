@@ -51,6 +51,8 @@ export function BillScreen() {
   const [priceText, setPriceText] = useState<Record<string, string>>({});
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
+  /** The same, for the price boxes, so one line's price can hand on to the next one's. */
+  const prices = useRef<Record<string, TextInput | null>>({});
   const sheet = useRef<ScrollView>(null);
 
   /** Keep one empty line at the foot, always: on paper the next line is simply there. */
@@ -72,6 +74,21 @@ export function BillScreen() {
   const goToNewestLine = useCallback(() => {
     requestAnimationFrame(() => sheet.current?.scrollToEnd({ animated: true }));
   }, []);
+
+  /**
+   * Price entered, on to the next one.
+   *
+   * A bill is written-then-priced, written-then-priced, and reaching across the row for each
+   * price box in turn is the friction that makes forty items feel like forty tasks. The action
+   * key moves to the line below instead; on the last line there is nothing below yet, so the
+   * fresh blank one is simply scrolled into view.
+   */
+  const goToNextPrice = useCallback((index: number) => {
+    const next = shop.cart[index + 1];
+    const field = next ? prices.current[next.itemId] : null;
+    if (field) field.focus();
+    else goToNewestLine();
+  }, [shop.cart, goToNewestLine]);
 
   const paid = shop.paidInput;
   const showBalance = shop.printBalance;
@@ -248,6 +265,7 @@ export function BillScreen() {
 
                 <View style={compact ? styles.slipRowBottom : styles.slipRowWideRight}>
                 <TextInput
+                  ref={(el) => { prices.current[line.itemId] = el; }}
                   style={[styles.slipPrice, styles.colPrice]}
                   keyboardType="decimal-pad"
                   placeholder="—"
@@ -255,6 +273,11 @@ export function BillScreen() {
                   accessibilityLabel={t('bill.priceOfLine', { n: index + 1 })}
                   value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
                   onChangeText={(text) => onPrice(index, line.itemId, text)}
+                  returnKeyType="next"
+                  // Without this the keyboard closes on the way past, and the next field has to
+                  // raise it again -- a flicker on every single line.
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => goToNextPrice(index)}
                   // The line is done; bring the fresh blank one into view.
                   onBlur={() => { if (index >= shop.cart.length - 2) goToNewestLine(); }}
                 />

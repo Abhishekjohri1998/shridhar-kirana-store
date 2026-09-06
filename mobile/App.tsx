@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
 } from 'react-native';
-import { Caveat_700Bold, useFonts } from '@expo-google-fonts/caveat';
+// Imported by weight, not from the package root: the root re-exports all four faces and metro
+// then bundles every one of them, which is three quarters of a megabyte of fonts the app never
+// draws with -- paid for on every over-the-air update, on a shop's mobile data.
+import { Caveat_700Bold } from '@expo-google-fonts/caveat/700Bold';
+import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { money, type MsgKey } from '@shridhar/shared';

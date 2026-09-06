@@ -183,6 +183,27 @@ const SAMPLE_INK = {
   ],
 };
 
+/**
+ * A small, low scrawl and a tall one, so a slip can carry writing of two very different sizes.
+ * The two rasterisers each get one scale for the whole slip; if only one of them were updated
+ * to read it, these are the cases where they would part company.
+ */
+const TINY_INK = {
+  w: 300,
+  h: 120,
+  strokes: [[10, 62, 24, 54, 38, 66, 52, 56]],
+};
+
+const TALL_INK = {
+  w: 300,
+  h: 120,
+  strokes: [
+    [12, 8, 12, 112],
+    [12, 8, 60, 60, 12, 112],
+    [90, 20, 90, 100, 150, 100],
+  ],
+};
+
 const LINES = [
   { itemId: 'gana-enne', nameKn: 'ಗಾಣದ ಎಣ್ಣೆ', nameEn: 'Gana oil', qty: 5, rate: 110 },
   { itemId: 'menasinakayi', nameKn: 'ಮೆಣಸಿನಕಾಯಿ', nameEn: 'Chilli', qty: 5, rate: 123 },
@@ -209,6 +230,23 @@ const CASES = [
   }), { paper: '58mm' }],
   ['with handwriting on 80mm', bill({
     lines: [...LINES, { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40 }],
+  }), { paper: '80mm' }],
+  ['with big and small handwriting on one slip', bill({
+    lines: [
+      { itemId: 'ink-tall', nameKn: '', nameEn: '', ink: TALL_INK, qty: 1, rate: 40 },
+      { itemId: 'ink-tiny', nameKn: '', nameEn: '', ink: TINY_INK, qty: 1, rate: 15 },
+      { itemId: 'ink-mid', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 60 },
+    ],
+    total: 115,
+    paid: 115,
+  }), { paper: '58mm' }],
+  ['big and small handwriting on 80mm', bill({
+    lines: [
+      { itemId: 'ink-tiny', nameKn: '', nameEn: '', ink: TINY_INK, qty: 1, rate: 15 },
+      { itemId: 'ink-tall', nameKn: '', nameEn: '', ink: TALL_INK, qty: 1, rate: 40 },
+    ],
+    total: 55,
+    paid: 55,
   }), { paper: '80mm' }],
   ['with a bare price and no description', bill({
     lines: [...LINES, { itemId: 'bare', nameKn: '', nameEn: '', qty: 1, rate: 12 }],

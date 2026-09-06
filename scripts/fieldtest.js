@@ -189,6 +189,42 @@ check('fitPrefix takes the whole string when it fits',
   SH.fitPrefix('ಮೆ', 99, measure) === 'ಮೆ');
 
 console.log('');
+console.log('One size for every hand-written line on a slip');
+/*
+ * The bug this guards: each line used to be fitted to the row height on its own, so a short
+ * word like "1k" was blown up to the same 46 dots as a tall scrawl, and a slip came out with
+ * the shopkeeper's own handwriting in three different sizes.
+ */
+const TALL = { w: 300, h: 120, strokes: [[10, 10, 10, 110, 60, 110]] };
+const SMALL = { w: 300, h: 120, strokes: [[10, 50, 40, 50, 40, 70]] };
+const WIDE = { w: 900, h: 120, strokes: [[0, 60, 880, 60]] };
+const ROW = 46;
+const WIDTH = SH.inkMaxWidth(384);
+
+const both = SH.planInk([TALL, SMALL], WIDTH, ROW);
+check('the tallest line fills the row', Math.abs(both.height - ROW) < 0.001, String(both.height));
+check('the origin is the top of the union', both.originY === 10, String(both.originY));
+const drawnSmall = (SH.inkBounds(SMALL).maxY - both.originY) * both.scale;
+const drawnTall = (SH.inkBounds(TALL).maxY - both.originY) * both.scale;
+check('the small line stays smaller than the tall one', drawnSmall < drawnTall * 0.75,
+  drawnSmall + ' vs ' + drawnTall);
+check('order does not change the plan',
+  JSON.stringify(SH.planInk([SMALL, TALL], WIDTH, ROW)) === JSON.stringify(both));
+check('a line on its own is unchanged',
+  Math.abs(SH.planInk([TALL], WIDTH, ROW).scale - SH.inkFit(TALL, WIDTH, ROW).scale) < 1e-9);
+const wide = SH.planInk([WIDE, SMALL], WIDTH, ROW);
+check('a line too wide for the paper caps the scale',
+  (SH.inkBounds(WIDE).maxX - SH.inkBounds(WIDE).minX) * wide.scale <= WIDTH + 0.001,
+  String(wide.scale));
+check('and then it is the width, not the row, that is filled', wide.height < ROW, String(wide.height));
+const none = SH.planInk([], WIDTH, ROW);
+check('an empty slip does not divide by zero',
+  Number.isFinite(none.scale) && none.scale > 0 && none.height === 0, JSON.stringify(none));
+const flat = SH.planInk([{ w: 300, h: 120, strokes: [[10, 40, 90, 40]] }], WIDTH, ROW);
+check('a single flat line still gets a usable scale',
+  Number.isFinite(flat.scale) && flat.scale > 0, JSON.stringify(flat));
+
+console.log('');
 console.log('Phone numbers fold to one canonical form');
 // The same regular entered these ways has to be one customer, not five with a split khata.
 const SAME = ['9886012345', '98860 12345', '98860-12345', '+919886012345', '+91 98860 12345',

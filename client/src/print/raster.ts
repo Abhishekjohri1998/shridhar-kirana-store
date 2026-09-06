@@ -1,5 +1,5 @@
 import {
-  INK_ROW_HEIGHT, INK_STROKE_DOTS, RASTER, fitPrefix, inkFit, inkMaxWidth,
+  INK_ROW_HEIGHT, INK_STROKE_DOTS, RASTER, fitPrefix, inkBounds, inkMaxWidth,
   type Ink, type ReceiptDoc,
 } from '@shridhar/shared';
 
@@ -21,7 +21,7 @@ function lineHeight(size: number): number {
 
 type Op =
   | { op: 'text'; text: string; x: number; y: number; size: number; bold: boolean; align: CanvasTextAlign }
-  | { op: 'ink'; ink: Ink; x: number; y: number; maxWidth: number }
+  | { op: 'ink'; ink: Ink; x: number; y: number; scale: number; originY: number }
   | { op: 'dash'; y: number };
 
 function wrap(meas: CanvasRenderingContext2D, text: string, size: number, bold: boolean, maxW: number): string[] {
@@ -59,15 +59,24 @@ function wrap(meas: CanvasRenderingContext2D, text: string, size: number, bold: 
 }
 
 /** Replay the pen strokes into the dot grid, trimmed and scaled to the item column. */
-function drawInk(ctx: CanvasRenderingContext2D, ink: Ink, x: number, y: number, maxWidth: number): void {
-  const fit = inkFit(ink, maxWidth, INK_ROW_HEIGHT);
+function drawInk(
+  ctx: CanvasRenderingContext2D,
+  ink: Ink,
+  x: number,
+  y: number,
+  scale: number,
+  originY: number,
+): void {
+  // The scale and the vertical origin come from the document, worked out across every line on
+  // the slip at once. Fitting each line here on its own is what made short words print large.
+  const box = inkBounds(ink);
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(fit.scale, fit.scale);
-  ctx.translate(-fit.box.minX, -fit.box.minY);
+  ctx.scale(scale, scale);
+  ctx.translate(-box.minX, -originY);
   ctx.strokeStyle = '#000';
   // Scaled back out of the transform, so the printed thickness is the same whatever the writing size.
-  ctx.lineWidth = INK_STROKE_DOTS / fit.scale;
+  ctx.lineWidth = INK_STROKE_DOTS / scale;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const stroke of ink.strokes) {
@@ -148,8 +157,9 @@ export function rasterize(doc: ReceiptDoc): Raster {
 
     if (row.t === 'ink') {
       const inkMax = Math.min(inkMaxWidth(W), nameMax);
-      ops.push({ op: 'ink', ink: row.ink, x: nameX, y, maxWidth: inkMax });
-      y += Math.max(INK_ROW_HEIGHT, inkFit(row.ink, inkMax, INK_ROW_HEIGHT).h);
+      ops.push({ op: 'ink', ink: row.ink, x: nameX, y, scale: row.scale, originY: row.originY });
+      // A shared scale means nothing overruns the row, so the row height is simply the row.
+      y += INK_ROW_HEIGHT;
       if (row.note) {
         ops.push({ op: 'text', text: row.note, x: nameX, y, size: 18, bold: false, align: 'left' });
         y += lineHeight(18);
@@ -185,7 +195,7 @@ export function rasterize(doc: ReceiptDoc): Raster {
     if (op.op === 'dash') {
       for (let x = PAD; x < W - PAD; x += 8) ctx.fillRect(x, op.y, 4, 2);
     } else if (op.op === 'ink') {
-      drawInk(ctx, op.ink, op.x, op.y, op.maxWidth);
+      drawInk(ctx, op.ink, op.x, op.y, op.scale, op.originY);
     } else {
       ctx.font = font(op.size, op.bold);
       ctx.textAlign = op.align;

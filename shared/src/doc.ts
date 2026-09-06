@@ -1,5 +1,6 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
 import { lineAmount, money, round2 } from './money';
+import { planInk } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 
@@ -34,7 +35,7 @@ export type Row =
   | { t: 'kv'; left: string; right: string; size?: number; bold?: boolean }
   | { t: 'item'; no: string; name: string; amount: string; note?: string }
   /** A handwritten description in the item column, with the price beside it. */
-  | { t: 'ink'; no: string; ink: Ink; amount: string; note?: string }
+  | { t: 'ink'; no: string; ink: Ink; amount: string; note?: string; scale: number; originY: number }
   | { t: 'sep' }
   | { t: 'space'; h: number };
 
@@ -78,6 +79,15 @@ export function buildReceipt(
 
   rows.push({ t: 'sep' });
 
+  // One scale for the whole slip. Worked out before any row is built, because it depends on
+  // every line at once: sizing each line to its own box made a short word print as large as a
+  // tall one.
+  const plan = planInk(
+    bill.lines.filter((l) => l.ink && l.ink.strokes.length > 0).map((l) => l.ink as Ink),
+    inkMaxWidth(paperProfile(settings.paper).dots),
+    INK_ROW_HEIGHT,
+  );
+
   bill.lines.forEach((line, index) => {
     const shared = {
       // The line's place on the slip, not its quantity. Quantity is part of what the shopkeeper
@@ -88,7 +98,9 @@ export function buildReceipt(
       note: settings.showRate ? '@ ' + money(line.rate) : undefined,
     };
     // Handwriting wins over the typed names: it is what the shopkeeper actually wrote.
-    if (line.ink && line.ink.strokes.length > 0) rows.push({ t: 'ink', ink: line.ink, ...shared });
+    if (line.ink && line.ink.strokes.length > 0) {
+      rows.push({ t: 'ink', ink: line.ink, scale: plan.scale, originY: plan.originY, ...shared });
+    }
     else rows.push({ t: 'item', name: line.nameKn || line.nameEn, ...shared });
   });
 

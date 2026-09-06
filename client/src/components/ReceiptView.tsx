@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
-  INK_ROW_HEIGHT, INK_STROKE_DOTS, inkFit, inkMaxWidth, inkToSvgPath,
+  INK_STROKE_DOTS, inkBounds, inkToSvgPath,
   type Ink, type ReceiptDoc,
 } from '@shridhar/shared';
 
@@ -17,16 +17,19 @@ function textStyle(size: number, bold?: boolean): CSSProperties {
  * resolution the target has, which is what makes the same strokes come out sharp on a phone
  * screen and on the print head.
  */
-function InkMark({ ink, paperDots, alt }: { ink: Ink; paperDots: number; alt: string }) {
-  const fit = inkFit(ink, inkMaxWidth(paperDots), INK_ROW_HEIGHT);
-  const { box } = fit;
+function InkMark({
+  ink, scale, originY, alt,
+}: { ink: Ink; scale: number; originY: number; alt: string }) {
+  // scale and originY are the slip's, not this line's: sizing each line to its own box is what
+  // printed a short word as large as a tall one.
+  const box = inkBounds(ink);
   const viewW = Math.max(1, box.maxX - box.minX);
-  const viewH = Math.max(1, box.maxY - box.minY);
+  const viewH = Math.max(1, box.maxY - originY);
   return (
     <svg
-      width={dots(fit.w)}
-      height={dots(fit.h)}
-      viewBox={box.minX + ' ' + box.minY + ' ' + viewW + ' ' + viewH}
+      width={dots(viewW * scale)}
+      height={dots(viewH * scale)}
+      viewBox={box.minX + ' ' + originY + ' ' + viewW + ' ' + viewH}
       preserveAspectRatio="xMinYMid meet"
       style={{ display: 'block', overflow: 'visible' }}
       aria-label={alt}
@@ -37,7 +40,7 @@ function InkMark({ ink, paperDots, alt }: { ink: Ink; paperDots: number; alt: st
         stroke="#000"
         // Stroke width is in ink units, so it has to be divided back out by the fitted scale to
         // land on the paper at a predictable thickness.
-        strokeWidth={INK_STROKE_DOTS / fit.scale}
+        strokeWidth={INK_STROKE_DOTS / scale}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -134,7 +137,7 @@ export function ReceiptView({
               <div key={i} className="r-item" style={textStyle(24)}>
                 <span>{row.no}</span>
                 <span className="r-name">
-                  <InkMark ink={row.ink} paperDots={doc.width} alt={inkAlt} />
+                  <InkMark ink={row.ink} scale={row.scale} originY={row.originY} alt={inkAlt} />
                   {row.note ? (
                     <span className="r-note" style={{ display: 'block', fontSize: dots(18) }}>
                       {row.note}

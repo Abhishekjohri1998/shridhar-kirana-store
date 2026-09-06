@@ -103,22 +103,16 @@ export const RASTER_SCRIPT = `
     return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
   }
 
-  function inkFit(ink, maxWidth, targetHeight) {
+  // scale and originY arrive on the row, worked out across every line on the slip at once, so
+  // this must not fit the writing itself -- doing that is what made short words print large.
+  function drawInk(ctx, ink, x, y, scale, originY, strokeDots) {
     var box = inkBounds(ink);
-    var w = Math.max(1, box.maxX - box.minX);
-    var h = Math.max(1, box.maxY - box.minY);
-    var scale = Math.min(targetHeight / h, maxWidth / w);
-    return { scale: scale, w: w * scale, h: h * scale, box: box };
-  }
-
-  function drawInk(ctx, ink, x, y, maxWidth, rowHeight, strokeDots) {
-    var fit = inkFit(ink, maxWidth, rowHeight);
     ctx.save();
     ctx.translate(x, y);
-    ctx.scale(fit.scale, fit.scale);
-    ctx.translate(-fit.box.minX, -fit.box.minY);
+    ctx.scale(scale, scale);
+    ctx.translate(-box.minX, -originY);
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = strokeDots / fit.scale;
+    ctx.lineWidth = strokeDots / scale;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (var s = 0; s < ink.strokes.length; s++) {
@@ -195,8 +189,9 @@ export const RASTER_SCRIPT = `
 
         if (row.t === 'ink') {
           var inkMax = Math.min(INK_W, nameMax);
-          ops.push({ op: 'ink', ink: row.ink, x: nameX, y: y, maxWidth: inkMax });
-          y += Math.max(INK_H, inkFit(row.ink, inkMax, INK_H).h);
+          ops.push({ op: 'ink', ink: row.ink, x: nameX, y: y, scale: row.scale, originY: row.originY });
+          // A shared scale means nothing overruns the row.
+          y += INK_H;
           if (row.note) {
             ops.push({ op: 'text', text: row.note, x: nameX, y: y, size: 18, bold: false, align: 'left' });
             y += lh(18);
@@ -230,7 +225,7 @@ export const RASTER_SCRIPT = `
         if (o.op === 'dash') {
           for (var x = PAD; x < W - PAD; x += 8) ctx.fillRect(x, o.y, 4, 2);
         } else if (o.op === 'ink') {
-          drawInk(ctx, o.ink, o.x, o.y, o.maxWidth, INK_H, INK_S);
+          drawInk(ctx, o.ink, o.x, o.y, o.scale, o.originY, INK_S);
         } else {
           ctx.font = font(o.size, o.bold);
           ctx.textAlign = o.align;

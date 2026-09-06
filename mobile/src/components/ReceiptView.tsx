@@ -1,7 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import {
-  INK_ROW_HEIGHT, INK_STROKE_DOTS, RASTER, inkMaxWidth, type ReceiptDoc,
-} from '@shridhar/shared';
+import { INK_STROKE_DOTS, RASTER, type ReceiptDoc } from '@shridhar/shared';
 import { InkView } from './InkView';
 import { C } from '../theme';
 
@@ -53,9 +51,10 @@ export function ReceiptView({ doc, width = 300 }: { doc: ReceiptDoc; width?: num
               {row.t === 'ink' ? (
                 <InkView
                   ink={row.ink}
-                  height={px(INK_ROW_HEIGHT)}
-                  maxWidth={px(inkMaxWidth(doc.width))}
-                  strokeDots={px(INK_STROKE_DOTS)}
+                  scale={row.scale}
+                  originY={row.originY}
+                  dot={dot}
+                  strokeDots={INK_STROKE_DOTS}
                 />
               ) : (
                 <Text style={[styles.text, st]}>{row.name}</Text>

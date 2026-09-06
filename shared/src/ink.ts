@@ -44,6 +44,44 @@ export function inkFit(ink: Ink, maxWidth: number, targetHeight: number): InkFit
   return { scale, w: drawnW * scale, h: drawnH * scale, box };
 }
 
+export type InkPlan = {
+  /** Multiply an ink coordinate by this to get output units. Shared by every line on a slip. */
+  scale: number;
+  /** Subtract this from a y before scaling, so every line sits on one baseline. */
+  originY: number;
+  /** Height of the tallest line once scaled, in output units. */
+  height: number;
+};
+
+/**
+ * One scale and one baseline for every hand-written line on a slip.
+ *
+ * `inkFit` sizes a single piece of writing to fill the space it is given, which is right for a
+ * thumbnail and wrong for a bill: fitting each line separately blew a short word like "1k" up to
+ * the same height as one with an ascender, so nothing on the paper looked like it came from the
+ * same hand. Sizing the whole slip together keeps the proportions the shopkeeper wrote.
+ *
+ * The tallest line fills the row; the rest keep their true size against it. The vertical origin
+ * is shared so the lines rest on a common baseline rather than each being trimmed to its own box.
+ */
+export function planInk(inks: readonly Ink[], maxWidth: number, targetHeight: number): InkPlan {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let widest = 1;
+  for (const ink of inks) {
+    const box = inkBounds(ink);
+    if (box.minY < minY) minY = box.minY;
+    if (box.maxY > maxY) maxY = box.maxY;
+    widest = Math.max(widest, box.maxX - box.minX);
+  }
+  // No handwriting on the slip: the numbers still have to be finite for the callers.
+  if (!Number.isFinite(minY)) return { scale: 1, originY: 0, height: 0 };
+
+  const unionH = Math.max(1, maxY - minY);
+  const scale = Math.min(targetHeight / unionH, maxWidth / widest);
+  return { scale, originY: minY, height: unionH * scale };
+}
+
 /**
  * SVG path data for the strokes, in the ink's own coordinates. The caller positions and scales it
  * with a viewBox or a transform, which keeps the handwriting resolution-independent -- crisp on a
