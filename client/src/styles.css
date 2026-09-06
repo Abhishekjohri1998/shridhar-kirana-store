@@ -822,6 +822,29 @@ button, input, select, textarea {
   color: var(--ink-900);
 }
 
+.carried-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 6px;
+}
+
+/* The settling figure, offered rather than typed. */
+.pay-all {
+  align-self: flex-end;
+  flex: none;
+  border: 1px solid var(--brand-edge);
+  background: var(--brand-wash);
+  color: var(--brand-700);
+  border-radius: 999px;
+  padding: 10px 13px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pay-all:hover { background: var(--brand-edge); }
+
 .total-row {
   display: flex;
   align-items: baseline;

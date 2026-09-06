@@ -295,6 +295,23 @@ async function main() {
   eq('an older bill with no such field still prints',
     none.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL').right, '1370');
 
+  // The bill screen shows this same figure above its TOTAL, from this same function. Two copies
+  // of the rule is exactly how the glass and the paper come to disagree about what is owed.
+  eq('carried: the balance when it is being printed', shared.carriedBalance(true, 500), 500);
+  eq('carried: nothing when it is not', shared.carriedBalance(false, 500), 0);
+  eq('carried: nothing for a customer in credit', shared.carriedBalance(true, -200), 0);
+  eq('carried: nothing when there is no figure', shared.carriedBalance(true, undefined), 0);
+  eq('carried: nor when it is null', shared.carriedBalance(true, null), 0);
+  eq('carried: rounded to paise', shared.carriedBalance(true, 12.345), 12.35);
+  // The property that ties the two together: what the slip prints as TOTAL is exactly what the
+  // footer computes as cartTotal + carriedBalance(...).
+  const screenTotal = Math.round((carriedBill.total + shared.carriedBalance(true, 500)) * 100) / 100;
+  eq('the screen and the slip reach the same total',
+    carried.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL').right, shared.money(screenTotal));
+  // And paying that figure settles the account exactly.
+  eq('paying it in full leaves nothing owed',
+    Math.round((500 + carriedBill.total - screenTotal) * 100) / 100, 0);
+
   console.log('\nHandwriting geometry');
   const bounds = shared.inkBounds(SAMPLE_INK);
   eq('bounds trim to what was written', bounds.minX + ',' + bounds.minY, '10,20');

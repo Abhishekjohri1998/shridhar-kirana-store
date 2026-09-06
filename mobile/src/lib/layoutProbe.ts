@@ -10,6 +10,20 @@
  */
 export const layoutProbe = { shellHeight: 0 };
 
+/**
+ * Whether to print the measurements on the bill screen itself.
+ *
+ * The tab bar sits mid-screen on one tablet and nowhere else, and three fixes aimed at the
+ * layout have all missed -- because the question that decides between "the layout did not fill
+ * its window" and "Android gave the app a short window" has never actually been measured on the
+ * device. The numbers are already in Settings, but a screenshot of the bill screen is what
+ * arrives; so for now they go where they will be seen.
+ *
+ * Set to false, and this constant, the line in App.tsx and its two onLayout handlers all come
+ * out together.
+ */
+export const SHOW_LAYOUT_PROBE = true;
+
 export function recordShellHeight(height: number): void {
   layoutProbe.shellHeight = Math.round(height);
 }

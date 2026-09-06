@@ -388,7 +388,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setCustomer, saveCustomer, setPrintBalance, customerDraft, saveSettings,
+      customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, customerDraft, saveSettings,
     ],
   );
 

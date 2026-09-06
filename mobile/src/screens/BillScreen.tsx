@@ -3,7 +3,8 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
-  buildReceipt, checkCustomer, money, parsePaid, parsePrice, round2, type Bill, type Customer,
+  buildReceipt, carriedBalance, checkCustomer, dateStamp, money, parsePaid, parsePrice, round2,
+  type Bill, type Customer,
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
@@ -95,13 +96,33 @@ export function BillScreen() {
   const paidCheck = parsePaid(paid, shop.cartTotal);
   const paidValid = paidCheck.ok;
   const paidAmount = paidCheck.ok ? paidCheck.value : shop.cartTotal;
+  // Deliberately unchanged: customer.balance + cartTotal is already carried + today, so this
+  // is (carried + today) - paid. Rewriting it in terms of grandTotal would count the old
+  // balance twice.
   const balanceAfter = shop.customer
     ? round2(shop.customer.balance + shop.cartTotal - paidAmount)
     : 0;
 
+  /*
+   * What the customer is actually being asked for: today's lines plus whatever they already
+   * owed. cartTotal stays the lines alone -- it is what the server stores as the bill's own
+   * total and what buildReceipt is handed, and buildReceipt adds the carried balance itself.
+   * The same carriedBalance() decides both, so the footer and the paper cannot disagree.
+   */
+  const carried = carriedBalance(showBalance, shop.customer?.balance);
+  const grandTotal = round2(shop.cartTotal + carried);
+
   useEffect(() => {
     if (shop.printBalanceTouched) return;
-    shop.setPrintBalance(shop.customer != null && balanceAfter !== 0, false);
+    /*
+     * On when there is anything to say about a balance at all -- what they walked in owing, or
+     * what they leave owing. It used to look only at what was left, so paying an old debt off in
+     * full switched the balance lines back off: the slip lost the line explaining the larger
+     * total and printed TOTAL 150 against Paid 600. The bill that settles an account is exactly
+     * the one the customer most needs the arithmetic on.
+     */
+    const anyBalance = (shop.customer?.balance ?? 0) !== 0 || balanceAfter !== 0;
+    shop.setPrintBalance(shop.customer != null && anyBalance, false);
   }, [shop, balanceAfter]);
 
   /** Lines that carry something. The trailing blank is scaffolding, not a purchase. */
@@ -341,6 +362,13 @@ export function BillScreen() {
                   onChangeText={shop.setPaidInput}
                 />
               </View>
+              {/* The settling figure, one tap away. Blank still means today's shopping only,
+                  so clearing a debt has to be a thing the shopkeeper does on purpose. */}
+              {grandTotal > 0 ? (
+                <Pressable style={styles.payAll} onPress={() => shop.setPaidInput(String(grandTotal))}>
+                  <Text style={styles.payAllText}>{t('bill.payAll', { amount: money(grandTotal) })}</Text>
+                </Pressable>
+              ) : null}
               <View style={styles.balanceBox}>
                 <Text style={styles.payLabel}>{t('bill.balanceAfter')}</Text>
                 <Text style={styles.balanceValue}>{paidValid ? money(balanceAfter) : '—'}</Text>
@@ -357,9 +385,20 @@ export function BillScreen() {
           </View>
         ) : null}
 
+        {/* Without this line a TOTAL larger than the lines above has nothing explaining it. */}
+        {carried > 0 ? (
+          <View style={styles.carriedRow}>
+            <Text style={styles.carriedLabel}>
+              {t('bill.oldBalance')}
+              {shop.customerBalanceAt ? '  ' + dateStamp(shop.customerBalanceAt) : ''}
+            </Text>
+            <Text style={styles.carriedValue}>{money(carried)}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>{t('bill.total')}</Text>
-          <Text style={styles.totalValue}>{money(shop.cartTotal)}</Text>
+          <Text style={styles.totalValue}>{money(grandTotal)}</Text>
         </View>
 
         <View style={styles.actions}>
@@ -495,6 +534,18 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   switchLabel: { flex: 1, fontSize: 13, color: C.ink, lineHeight: 18 },
 
+  carriedRow: {
+    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
+    paddingBottom: 6,
+  },
+  carriedLabel: { fontSize: 13, color: C.soft },
+  carriedValue: { fontSize: 15, fontWeight: '700', color: C.ink700 },
+  payAll: {
+    alignSelf: 'flex-end', marginBottom: 2,
+    borderWidth: 1, borderColor: C.accentEdge, backgroundColor: C.accentWash,
+    borderRadius: R.pill, paddingHorizontal: 12, paddingVertical: 9,
+  },
+  payAllText: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
   totalRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',
     paddingTop: 10, paddingBottom: 10, borderTopWidth: 2, borderColor: C.ink,

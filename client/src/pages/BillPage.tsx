@@ -6,6 +6,8 @@ import {
   parsePaid,
   parsePrice,
   round2,
+  carriedBalance,
+  dateStamp,
   type Bill,
   type Customer,
 } from '@shridhar/shared';
@@ -53,15 +55,35 @@ export function BillPage() {
   const paidCheck = parsePaid(paid, shop.cartTotal);
   const paidValid = paidCheck.ok;
   const paidAmount = paidCheck.ok ? paidCheck.value : shop.cartTotal;
+  // Deliberately unchanged: customer.balance + cartTotal is already carried + today, so this is
+  // (carried + today) - paid. Rewriting it in terms of grandTotal would count the old balance
+  // twice.
   const balanceAfter = shop.customer
     ? round2(shop.customer.balance + shop.cartTotal - paidAmount)
     : 0;
+
+  /*
+   * What the customer is actually being asked for: today's lines plus whatever they already
+   * owed. cartTotal stays the lines alone -- it is what the server stores as the bill's own
+   * total and what buildReceipt is handed, and buildReceipt adds the carried balance itself.
+   * The same carriedBalance() decides both, so the footer and the paper cannot disagree.
+   */
+  const carried = carriedBalance(showBalance, shop.customer?.balance);
+  const grandTotal = round2(shop.cartTotal + carried);
 
   // Suggest printing the balance when there is one -- but stop suggesting once the shopkeeper has
   // made the choice themselves, otherwise editing a price would silently re-tick the box.
   useEffect(() => {
     if (shop.printBalanceTouched) return;
-    shop.setPrintBalance(shop.customer != null && balanceAfter !== 0, false);
+    /*
+     * On when there is anything to say about a balance at all -- what they walked in owing, or
+     * what they leave owing. It used to look only at what was left, so paying an old debt off in
+     * full switched the balance lines back off: the slip lost the line explaining the larger
+     * total and printed TOTAL 150 against Paid 600. The bill that settles an account is exactly
+     * the one the customer most needs the arithmetic on.
+     */
+    const anyBalance = (shop.customer?.balance ?? 0) !== 0 || balanceAfter !== 0;
+    shop.setPrintBalance(shop.customer != null && anyBalance, false);
   }, [shop, balanceAfter]);
 
   /** Lines that carry something. The trailing blank is scaffolding, not a purchase. */
@@ -253,12 +275,23 @@ export function BillPage() {
           ) : null}
         </div>
 
+        {/* Without this line a TOTAL larger than the lines above has nothing explaining it. */}
+        {carried > 0 ? (
+          <div className="carried-row">
+            <span className="muted small">
+              {t('bill.oldBalance')}
+              {shop.customerBalanceAt ? '  ' + dateStamp(shop.customerBalanceAt) : ''}
+            </span>
+            <strong>{money(carried)}</strong>
+          </div>
+        ) : null}
+
         <div className="total-row">
           <span className="label">{t('bill.total')}</span>
           {/* Keyed on the amount so React replaces the node whenever the number moves, which is
               what restarts the CSS pop. Cheaper than a counter animation and it never lands on a
               value that was not real. */}
-          <span className="value" key={shop.cartTotal}>{money(shop.cartTotal)}</span>
+          <span className="value" key={grandTotal}>{money(grandTotal)}</span>
         </div>
 
         {/* Part payment and the balance line, which the shop wants optional per bill. */}
@@ -275,6 +308,17 @@ export function BillPage() {
                   placeholder={t('bill.paidPlaceholder', { amount: money(shop.cartTotal) })}
                 />
               </label>
+              {/* The settling figure, one click away. Blank still means today's shopping only,
+                  so clearing a debt has to be a thing the shopkeeper does on purpose. */}
+              {grandTotal > 0 ? (
+                <button
+                  type="button"
+                  className="pay-all"
+                  onClick={() => shop.setPaidInput(String(grandTotal))}
+                >
+                  {t('bill.payAll', { amount: money(grandTotal) })}
+                </button>
+              ) : null}
               <span style={{ textAlign: 'right', minWidth: 96 }}>
                 <span className="muted small" style={{ display: 'block' }}>{t('bill.balanceAfter')}</span>
                 <strong style={{ fontSize: '1.1rem' }}>{paidValid ? money(balanceAfter) : '—'}</strong>

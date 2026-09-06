@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
+  useWindowDimensions,
 } from 'react-native';
 // Imported by weight, not from the package root: the root re-exports all four faces and metro
 // then bundles every one of them, which is three quarters of a megabyte of fonts the app never
@@ -12,7 +13,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { money, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { PrintProvider } from './src/lib/usePrint';
-import { recordShellHeight } from './src/lib/layoutProbe';
+import { SHOW_LAYOUT_PROBE, recordShellHeight } from './src/lib/layoutProbe';
 import { ShopProvider, useShop } from './src/lib/useShop';
 import { BillScreen } from './src/screens/BillScreen';
 import { CustomersScreen } from './src/screens/CustomersScreen';
@@ -86,6 +87,12 @@ function Shell() {
   const [fontsReady] = useFonts({ Caveat_700Bold });
   const barWidth = useRef(0);
   const slide = useRef(new Animated.Value(0)).current;
+  // Measurements, not interface: see SHOW_LAYOUT_PROBE. Held in state rather than the module
+  // probe so the line redraws once the numbers land.
+  const win = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const [shellH, setShellH] = useState(0);
+  const [barY, setBarY] = useState(0);
 
   if (!shop.ready || !fontsReady) {
     return (
@@ -117,7 +124,13 @@ function Shell() {
 
   return (
     <PrintProvider>
-      <View style={styles.shell} onLayout={(e) => recordShellHeight(e.nativeEvent.layout.height)}>
+      <View
+        style={styles.shell}
+        onLayout={(e) => {
+          recordShellHeight(e.nativeEvent.layout.height);
+          setShellH(Math.round(e.nativeEvent.layout.height));
+        }}
+      >
         <View style={styles.header}>
           <Mark size={24} color={C.accent} />
           <Text style={[styles.headerText, handFont(shop.settings.shopName, 19)]} numberOfLines={1}>
@@ -125,6 +138,17 @@ function Shell() {
           </Text>
           <Text style={styles.badge}>{shop.t('app.today', { amount: money(shop.today.total) })}</Text>
         </View>
+
+        {/* Diagnostics, deliberately in English and deliberately in the way. `shell` against
+            `win`'s height is the whole question: equal means the layout used everything it was
+            given and the window itself is short -- a native fault, not this file's. `bar@` is
+            where the tab bar actually ended up. */}
+        {SHOW_LAYOUT_PROBE ? (
+          <Text style={styles.probe} numberOfLines={1}>
+            win {Math.round(win.width)}x{Math.round(win.height)} · shell {shellH} · bar@{barY} ·
+            {' '}ins {Math.round(insets.top)}/{Math.round(insets.bottom)}
+          </Text>
+        ) : null}
 
         {/* All five stay mounted. Keeping the cart alive while the shopkeeper checks a rate on
             another tab matters more here than saving a few megabytes. */}
@@ -147,6 +171,7 @@ function Shell() {
           style={styles.tabBar}
           onLayout={(e) => {
             barWidth.current = e.nativeEvent.layout.width;
+            setBarY(Math.round(e.nativeEvent.layout.y));
             slide.setValue(index);
           }}
         >
@@ -233,6 +258,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerText: { ...TYPE.title, flex: 1 },
+  probe: {
+    fontSize: 10, color: C.faint, backgroundColor: C.well,
+    paddingHorizontal: 14, paddingVertical: 3,
+    fontVariant: ['tabular-nums'],
+  },
   badge: {
     fontSize: 12,
     fontWeight: '600',

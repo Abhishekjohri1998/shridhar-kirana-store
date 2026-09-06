@@ -63,6 +63,21 @@ export function stamp(iso: string): string {
  * and the Bluetooth raster all render from this, so what the shopkeeper sees is what comes out
  * of the paper.
  */
+/**
+ * What a bill carries in from the customer's old balance.
+ *
+ * Nothing unless the balance lines are being printed -- without the Paid and Balance lines under
+ * it, a larger total has nothing to explain it -- and never a credit, which would make the total
+ * smaller than the lines above it and read as a fault.
+ *
+ * Lives here, beside the receipt, because the bill screen has to show the same figure the paper
+ * will. Two copies of this rule is exactly how the screen and the slip come to disagree about
+ * what a customer owes.
+ */
+export function carriedBalance(showBalance: boolean, previousBalance?: number | null): number {
+  return showBalance && previousBalance != null && previousBalance > 0 ? round2(previousBalance) : 0;
+}
+
 export function buildReceipt(
   bill: Bill,
   settings: Settings,
@@ -125,10 +140,7 @@ export function buildReceipt(
    * just bought. Never printed when it is negative -- a customer in credit would make TOTAL
    * smaller than the lines above it, which reads as a fault.
    */
-  const carried =
-    bill.showBalance && bill.previousBalance != null && bill.previousBalance > 0
-      ? round2(bill.previousBalance)
-      : 0;
+  const carried = carriedBalance(bill.showBalance, bill.previousBalance);
 
   if (carried > 0) {
     rows.push({
