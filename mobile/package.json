@@ -13,9 +13,11 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
+    "@expo-google-fonts/caveat": "^0.4.2",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@shridhar/shared": "1.0.0",
     "expo": "~53.0.0",
+    "expo-font": "~13.3.2",
     "expo-updates": "~0.28.18",
     "react": "19.0.0",
     "react-native": "0.79.5",

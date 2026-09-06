@@ -14,7 +14,7 @@
     "newArchEnabled": false,
     "android": {
       "package": "com.shridhar.billing",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0d6847"
@@ -38,6 +38,9 @@
     "updates": {
       "url": "https://u.expo.dev/ba25ec93-194e-48c4-a250-3ffaa65ae051"
     },
-    "ios": {}
+    "ios": {},
+    "plugins": [
+      "expo-font"
+    ]
   }
 }

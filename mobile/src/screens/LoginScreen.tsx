@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Mark } from '../components/Icons';
 import { Button, ErrorText, Fade, Field } from '../components/ui';
 import { useShop } from '../lib/useShop';
-import { C, R, SP, TYPE, shadow } from '../theme';
+import { C, R, SP, TYPE, handFont, shadow } from '../theme';
 
 export function LoginScreen() {
   const shop = useShop();
@@ -35,7 +35,7 @@ export function LoginScreen() {
           <View style={styles.markRow}>
             <Mark size={46} color={C.accent} />
           </View>
-          <Text style={styles.title}>{shop.settings.shopName}</Text>
+          <Text style={[styles.title, handFont(shop.settings.shopName, 22)]}>{shop.settings.shopName}</Text>
           <Text style={styles.lede}>{shop.t('login.prompt')}</Text>
 
           {error ? <ErrorText>{error}</ErrorText> : null}

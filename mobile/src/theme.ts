@@ -1,4 +1,5 @@
 import { Platform, type TextStyle, type ViewStyle } from 'react-native';
+import { hasKannada } from '@shridhar/shared';
 
 /**
  * The phone app's half of one design.
@@ -96,3 +97,23 @@ export const TYPE = {
   } as TextStyle,
   hint: { fontSize: 12, color: C.soft, lineHeight: 18 } as TextStyle,
 };
+
+/**
+ * Caveat, but only where Caveat can actually be read.
+ *
+ * The face carries no Kannada, and React Native has no fallback chain -- a Text told to use
+ * Caveat and given Kannada renders empty boxes, not a substitute. Since the whole interface
+ * turns Kannada when the shop chooses it, the font has to be decided per string rather than
+ * per style. `hasKannada` already exists in shared/ for the print path; this is the same
+ * question asked for a different reason.
+ *
+ * Deliberately never applied to money: a stylised 3 on a bill is how a shop loses an argument.
+ */
+export function handFont(text: string, size?: number): TextStyle {
+  if (hasKannada(text)) return {};
+  // Caveat has a small x-height and reads a size down from the sans it replaces, so a heading
+  // swapped for it one-to-one comes out looking quieter than the one beside it.
+  return size == null
+    ? { fontFamily: 'Caveat_700Bold' }
+    : { fontFamily: 'Caveat_700Bold', fontSize: Math.round(size * 1.3) };
+}

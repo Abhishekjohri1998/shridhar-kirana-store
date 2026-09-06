@@ -79,6 +79,10 @@
 
   --font-ui: 'Noto Sans Kannada', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  /* Headings and the wordmark. Caveat carries no Kannada, so Noto stands behind it: a shop
+     name or a heading in Kannada falls through and renders properly instead of as boxes.
+     Deliberately not used for money -- a stylised 3 on a bill is how a shop loses an argument. */
+  --font-hand: 'Caveat', 'Noto Sans Kannada', cursive;
 
   font-family: var(--font-ui);
   color: var(--ink-700);
@@ -900,8 +904,8 @@ button, input, select, textarea {
 
 .section-title {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 1.05rem;
+  font-family: var(--font-hand);
+  font-size: 1.28rem;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--ink-900);
@@ -1329,8 +1333,8 @@ select.input {
 }
 
 .signin-card h1 {
-  font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-family: var(--font-hand);
+  font-size: 1.85rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0 0 4px;
@@ -1442,8 +1446,8 @@ select.input {
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
-    font-family: var(--font-display);
-    font-size: 1.02rem;
+    font-family: var(--font-hand);
+    font-size: 1.3rem;
     font-weight: 700;
     letter-spacing: -0.01em;
     color: var(--ink-900);

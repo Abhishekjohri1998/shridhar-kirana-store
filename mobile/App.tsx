@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
 } from 'react-native';
+import { Caveat_700Bold, useFonts } from '@expo-google-fonts/caveat';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { money, type MsgKey } from '@shridhar/shared';
@@ -14,7 +15,7 @@ import { HistoryScreen } from './src/screens/HistoryScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { ServerScreen } from './src/screens/ServerScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { C, R, T, TYPE, shadow } from './src/theme';
+import { C, R, T, TYPE, handFont, shadow } from './src/theme';
 
 const TABS = [
   { key: 'bill', label: 'nav.bill' },
@@ -75,10 +76,13 @@ function Tab({
 function Shell() {
   const shop = useShop();
   const [tab, setTab] = useState<TabKey>('bill');
+  // Held until the face is ready, so no heading is drawn once in the wrong font and again in
+  // the right one.
+  const [fontsReady] = useFonts({ Caveat_700Bold });
   const barWidth = useRef(0);
   const slide = useRef(new Animated.Value(0)).current;
 
-  if (!shop.ready) {
+  if (!shop.ready || !fontsReady) {
     return (
       <View style={styles.loading}>
         <Mark size={44} color={C.accentEdge} />
@@ -111,7 +115,7 @@ function Shell() {
       <View style={styles.shell}>
         <View style={styles.header}>
           <Mark size={24} color={C.accent} />
-          <Text style={styles.headerText} numberOfLines={1}>
+          <Text style={[styles.headerText, handFont(shop.settings.shopName, 19)]} numberOfLines={1}>
             {shop.settings.shopName}
           </Text>
           <Text style={styles.badge}>{shop.t('app.today', { amount: money(shop.today.total) })}</Text>

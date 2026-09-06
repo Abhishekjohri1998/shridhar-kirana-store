@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, ErrorText, Field, Notice } from '../components/ui';
 import { api, normaliseServerUrl } from '../lib/api';
 import { useShop } from '../lib/useShop';
-import { C } from '../theme';
+import { C, handFont } from '../theme';
 
 /**
  * First run: where is the server?
@@ -46,7 +46,7 @@ export function ServerScreen() {
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.title}>Simple Sales Book</Text>
+      <Text style={[styles.title, handFont('Simple Sales Book', 22)]}>Simple Sales Book</Text>
       <Text style={styles.lede}>
         This phone needs the address of the billing server before it can do anything else.
       </Text>

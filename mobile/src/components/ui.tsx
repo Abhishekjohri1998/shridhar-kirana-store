@@ -10,7 +10,7 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
-import { C, R, SP, T, TYPE, shadow } from '../theme';
+import { C, R, SP, T, TYPE, handFont, shadow } from '../theme';
 
 /**
  * A press that lands.
@@ -124,7 +124,7 @@ export function Card({ children, style }: { children: ReactNode; style?: ViewSty
 }
 
 export function SectionTitle({ children }: { children: ReactNode }) {
-  return <Text style={styles.section}>{children}</Text>;
+  return <Text style={[styles.section, handFont(String(children ?? ''), 16)]}>{children}</Text>;
 }
 
 export function ErrorText({ children }: { children: ReactNode }) {
