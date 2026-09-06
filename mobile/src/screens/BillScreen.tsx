@@ -197,7 +197,14 @@ export function BillScreen() {
                     hint=""
                     strokeCount={() => ''}
                   />
-                  {!line.ink ? <Text style={styles.slipGhost}>{t('bill.writeHint')}</Text> : null}
+                  {/* pointerEvents none, or the hint sits on top of the writing strip and eats
+                      every stroke aimed at it -- which is exactly where someone starts writing.
+                      The web stylesheet has always said this; the phone did not. */}
+                  {!line.ink ? (
+                    <View style={styles.slipGhostWrap} pointerEvents="none">
+                      <Text style={styles.slipGhost}>{t('bill.writeHint')}</Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 <TextInput
@@ -355,12 +362,8 @@ const styles = StyleSheet.create({
   },
   slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
-  slipGhost: {
-    position: 'absolute',
-    left: 10,
-    fontSize: 13,
-    color: C.faint,
-  },
+  slipGhostWrap: { position: 'absolute', left: 10, right: 0, top: 0, bottom: 0, justifyContent: 'center' },
+  slipGhost: { fontSize: 13, color: C.faint },
   slipPrice: {
     minHeight: 46,
     paddingHorizontal: 10,
