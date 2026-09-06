@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  Dimensions, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions,
+} from 'react-native';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { layoutProbe } from '../lib/layoutProbe';
 import {
   LANGS, PAPERS, PAPER_KEYS, checkFooter, checkShopName, paperProfile, parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
@@ -62,6 +68,22 @@ export function SettingsScreen() {
   const [picker, setPicker] = useState<PairedPrinter[] | null>(null);
   const [scanning, setScanning] = useState(false);
   const [confirmServer, setConfirmServer] = useState(false);
+
+  /**
+   * What this device actually is, and what it gave the app.
+   *
+   * Written because three attempts to fix a tablet layout from a cropped screenshot all missed.
+   * `window` against `screen` says whether Android handed the app the whole display or a
+   * reduced one -- no arrangement of views can fill space the app was never given -- and
+   * `shell` against `window` says whether the layout then used what it had.
+   */
+  const insets = useSafeAreaInsets();
+  const win = useWindowDimensions();
+  const screen = Dimensions.get('screen');
+  const build = Constants.expoConfig?.android?.versionCode ?? '?';
+  const version = Constants.expoConfig?.version ?? '?';
+  const updateId = Updates.updateId ? Updates.updateId.slice(0, 8) : 'none (built-in)';
+  const size = (w: number, h: number) => Math.round(w) + ' x ' + Math.round(h);
 
   useEffect(() => {
     setShopName(shop.settings.shopName);
@@ -232,6 +254,17 @@ export function SettingsScreen() {
       <Card style={styles.card}>
         <SectionTitle>{t('set.deviceSection')}</SectionTitle>
         <Text style={styles.hint}>{shop.serverUrl}</Text>
+
+        {/* Diagnostics, not interface copy: left in English on purpose, since "window 1152 x 720"
+            has no useful Kannada and the dictionary should not have to carry it. */}
+        <Text style={styles.probe}>app {version} · build {build} · update {updateId}</Text>
+        <Text style={styles.probe}>window {size(win.width, win.height)}</Text>
+        <Text style={styles.probe}>screen {size(screen.width, screen.height)}</Text>
+        <Text style={styles.probe}>
+          insets top {Math.round(insets.top)} · bottom {Math.round(insets.bottom)}
+        </Text>
+        <Text style={styles.probe}>shell height {layoutProbe.shellHeight}</Text>
+
         <View style={{ height: 10 }} />
         <Button label={t('set.signOut')} tone="plain" onPress={shop.signOut} />
         <View style={{ height: 8 }} />
@@ -290,6 +323,7 @@ const styles = StyleSheet.create({
   card: { marginBottom: 12 },
   label: { fontSize: 12, color: C.soft, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6 },
   hint: { fontSize: 12, color: C.soft, lineHeight: 18, marginTop: 4 },
+  probe: { fontSize: 11, color: C.faint, lineHeight: 16, fontVariant: ['tabular-nums'] },
   warn: { fontSize: 12, color: C.danger, lineHeight: 18, marginTop: 4 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
   switchLabel: { fontSize: 15, color: C.ink },

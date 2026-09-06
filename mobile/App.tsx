@@ -8,6 +8,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { money, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { PrintProvider } from './src/lib/usePrint';
+import { recordShellHeight } from './src/lib/layoutProbe';
 import { ShopProvider, useShop } from './src/lib/useShop';
 import { BillScreen } from './src/screens/BillScreen';
 import { CustomersScreen } from './src/screens/CustomersScreen';
@@ -112,7 +113,7 @@ function Shell() {
 
   return (
     <PrintProvider>
-      <View style={styles.shell}>
+      <View style={styles.shell} onLayout={(e) => recordShellHeight(e.nativeEvent.layout.height)}>
         <View style={styles.header}>
           <Mark size={24} color={C.accent} />
           <Text style={[styles.headerText, handFont(shop.settings.shopName, 19)]} numberOfLines={1}>
