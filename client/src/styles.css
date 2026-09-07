@@ -838,6 +838,32 @@ button, input, select, textarea {
   color: var(--ink-900);
 }
 
+/* "Bill #14 saved." with a way to send it, right where the bill was made. */
+.saved-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 6px 10px 6px 12px;
+  background: var(--brand-wash);
+  border: 1px solid var(--brand-edge);
+  border-radius: var(--r-sm);
+  color: var(--brand-700);
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.saved-dismiss {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--brand-700);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
 .carried-row {
   display: flex;
   align-items: baseline;

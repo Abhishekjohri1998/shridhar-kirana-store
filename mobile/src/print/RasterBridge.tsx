@@ -6,9 +6,15 @@ import {
 import { RASTER_HTML } from './rasterHtml';
 
 export type Raster = { width: number; height: number; data: string };
-export type RasterHandle = { rasterize: (doc: ReceiptDoc) => Promise<Raster> };
+/** A picture of the slip: the same layout, drawn larger, as a PNG data URL. */
+export type RasterImage = { width: number; height: number; image: string };
+export type RasterHandle = {
+  rasterize: (doc: ReceiptDoc) => Promise<Raster>;
+  imageOf: (doc: ReceiptDoc, scale?: number) => Promise<RasterImage>;
+};
 
-type Pending = { resolve: (r: Raster) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
+type Reply = Raster | RasterImage;
+type Pending = { resolve: (r: Reply) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
 
 /**
  * Invisible 1x1 WebView that turns a ReceiptDoc into printer dots. Mounted once, high in the
@@ -29,9 +35,10 @@ export const RasterBridge = forwardRef<RasterHandle, RasterBridgeProps>(function
     fn(p);
   }, []);
 
-  useImperativeHandle(ref, () => ({
-    rasterize: (doc: ReceiptDoc) =>
-      new Promise<Raster>((resolve, reject) => {
+  /** One request, whether the answer wanted is dots or a picture. */
+  const render = useCallback(
+    (doc: ReceiptDoc, imageScale?: number) =>
+      new Promise<Reply>((resolve, reject) => {
         if (pending.current) {
           reject(new Error('Still rendering the previous receipt'));
           return;
@@ -53,21 +60,37 @@ export const RasterBridge = forwardRef<RasterHandle, RasterBridgeProps>(function
           inkStrokeDots: INK_STROKE_DOTS,
           inkGutter: INK_GUTTER,
           inkBleed: INK_BLEED,
+          ...(imageScale ? { imageScale } : {}),
         });
         web.current?.injectJavaScript('window.__render(' + JSON.stringify(payload) + ');true;');
       }),
+    [settle],
+  );
+
+  useImperativeHandle(ref, () => ({
+    rasterize: (doc: ReceiptDoc) => render(doc) as Promise<Raster>,
+    // Three times the print head's resolution: the same slip, legible on a phone screen rather
+    // than the size of a stamp when it lands in a chat.
+    imageOf: (doc: ReceiptDoc, scale = 3) => render(doc, scale) as Promise<RasterImage>,
   }));
 
   const onMessage = useCallback(
     (e: WebViewMessageEvent) => {
-      let msg: { ok?: boolean; ready?: boolean; error?: string; width?: number; height?: number; data?: string };
+      let msg: {
+        ok?: boolean; ready?: boolean; error?: string;
+        width?: number; height?: number; data?: string; image?: string;
+      };
       try {
         msg = JSON.parse(e.nativeEvent.data);
       } catch {
         return;
       }
       if (msg.ready) return;
-      if (msg.ok && msg.data && msg.width && msg.height) {
+      if (msg.ok && msg.image && msg.width && msg.height) {
+        settle((p) => p.resolve({
+          width: msg.width as number, height: msg.height as number, image: msg.image as string,
+        }));
+      } else if (msg.ok && msg.data && msg.width && msg.height) {
         settle((p) => p.resolve({ width: msg.width as number, height: msg.height as number, data: msg.data as string }));
       } else {
         settle((p) => p.reject(new Error(msg.error || 'Could not render the receipt')));

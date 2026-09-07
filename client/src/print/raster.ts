@@ -113,6 +113,24 @@ function drawInk(
  * none of them can render Kannada as text. The browser can, so we let it draw and send dots.
  */
 export function rasterize(doc: ReceiptDoc): Raster {
+  return draw(doc).raster();
+}
+
+/**
+ * A picture of the slip, for sharing rather than printing.
+ *
+ * Same document, same layout, same renderer -- drawn larger than the print head's 384 dots so it
+ * is legible on a screen. Sharing a typed summary was the alternative and it is not one: the item
+ * descriptions on this shop's bills are handwriting, and handwriting has no text to send.
+ */
+export async function receiptPng(doc: ReceiptDoc, scale = 3): Promise<Blob> {
+  const canvas = draw(doc, scale).canvas;
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('This browser would not turn the receipt into a picture');
+  return blob;
+}
+
+function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: () => Raster } {
   const W = doc.width || 384;
   const measCanvas = document.createElement('canvas');
   const meas = measCanvas.getContext('2d');
@@ -188,10 +206,13 @@ export function rasterize(doc: ReceiptDoc): Raster {
 
   const H = Math.max(1, Math.ceil(y));
   const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
+  // One multiplier on the whole context, so every op below is written in dots and knows nothing
+  // about which of the two jobs it is doing. At scale 1 this is byte-for-byte the print path.
+  canvas.width = W * scale;
+  canvas.height = H * scale;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('This browser will not give us a canvas to draw the receipt on');
+  if (scale !== 1) ctx.scale(scale, scale);
 
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, W, H);
@@ -210,18 +231,22 @@ export function rasterize(doc: ReceiptDoc): Raster {
     }
   }
 
-  const px = ctx.getImageData(0, 0, W, H).data;
-  const bytesPerRow = Math.ceil(W / 8);
-  const bits = new Uint8Array(bytesPerRow * H);
-  for (let row = 0; row < H; row++) {
-    for (let col = 0; col < W; col++) {
-      const p = (row * W + col) * 4;
-      const lum = 0.299 * (px[p] ?? 255) + 0.587 * (px[p + 1] ?? 255) + 0.114 * (px[p + 2] ?? 255);
-      if ((px[p + 3] ?? 0) > 32 && lum < THRESHOLD) {
-        bits[row * bytesPerRow + (col >> 3)]! |= 0x80 >> (col & 7);
+  // Packing to dots is only asked for by the printing path, and only ever at scale 1.
+  const raster = (): Raster => {
+    const px = ctx.getImageData(0, 0, W, H).data;
+    const bytesPerRow = Math.ceil(W / 8);
+    const bits = new Uint8Array(bytesPerRow * H);
+    for (let row = 0; row < H; row++) {
+      for (let col = 0; col < W; col++) {
+        const p = (row * W + col) * 4;
+        const lum = 0.299 * (px[p] ?? 255) + 0.587 * (px[p + 1] ?? 255) + 0.114 * (px[p + 2] ?? 255);
+        if ((px[p + 3] ?? 0) > 32 && lum < THRESHOLD) {
+          bits[row * bytesPerRow + (col >> 3)]! |= 0x80 >> (col & 7);
+        }
       }
     }
-  }
+    return { width: W, height: H, bits };
+  };
 
-  return { width: W, height: H, bits };
+  return { canvas, raster };
 }

@@ -31,6 +31,15 @@ export function BillDialog({
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const share = async () => {
+    setError(null);
+    try {
+      await printer.shareBill(bill, shop.settings);
+    } catch (e) {
+      setError(t('hist.couldNotShare') + ': ' + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+
   const reprint = async () => {
     setError(null);
     try {
@@ -68,11 +77,17 @@ export function BillDialog({
       </button>
     </>
   ) : (
+    /* Cancelling sits apart from the buttons pressed a hundred times a day. */
     <>
-      <button className="btn plain" onClick={onClose}>{t('common.close')}</button>
       {bill.cancelled ? null : (
-        <button className="btn plain" onClick={() => setAsking(true)}>{t('hist.cancelBill')}</button>
+        <button className="btn plain grow" onClick={() => setAsking(true)}>{t('hist.cancelBill')}</button>
       )}
+      <button className="btn plain" onClick={onClose}>{t('common.close')}</button>
+      {/* A picture of the slip, for a customer who wants a copy on their phone. Offered for a
+          cancelled bill too: what it said is still what it said. */}
+      <button className="btn plain" disabled={printer.busy} onClick={() => void share()}>
+        {printer.busy ? t('hist.sharing') : t('hist.share')}
+      </button>
       <button className="btn" disabled={printer.busy || bill.cancelled} onClick={() => void reprint()}>
         {printer.busy ? t('hist.printing') : t('hist.printAgain')}
       </button>

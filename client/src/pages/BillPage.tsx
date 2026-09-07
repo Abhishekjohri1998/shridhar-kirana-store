@@ -34,6 +34,8 @@ export function BillPage() {
   const printer = usePrint();
   const t = shop.t;
   const [error, setError] = useState<string | null>(null);
+  /** The bill just saved, so a copy can go to the customer while they are still standing here. */
+  const [justSaved, setJustSaved] = useState<Bill | null>(null);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
@@ -177,6 +179,7 @@ export function BillPage() {
       return;
     }
     setPriceText({});
+    setJustSaved(bill);
     try {
       await printer.printBill(bill, shop.settings);
     } catch (e) {
@@ -193,6 +196,32 @@ export function BillPage() {
 
       <div className="slip-pane">
         {error ? <p className="error" role="alert">{error}</p> : null}
+
+        {/* Offered here rather than only from History: the moment a customer asks for a copy is
+            the moment they are still at the counter. */}
+        {justSaved ? (
+          <div className="saved-row">
+            <span className="grow">{t('bill.savedBill', { no: justSaved.no })}</span>
+            <button
+              className="btn plain slim"
+              disabled={printer.busy}
+              onClick={() => {
+                void printer.shareBill(justSaved, shop.settings).catch((e: unknown) => {
+                  setError(t('hist.couldNotShare') + ': ' + (e instanceof Error ? e.message : String(e)));
+                });
+              }}
+            >
+              {printer.busy ? t('hist.sharing') : t('hist.share')}
+            </button>
+            <button
+              className="saved-dismiss"
+              onClick={() => setJustSaved(null)}
+              aria-label={t('common.close')}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {shop.offline ? <p className="notice">{t('bill.offline')}</p> : null}
 
         <div className="slip">

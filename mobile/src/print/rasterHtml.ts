@@ -221,9 +221,17 @@ export const RASTER_SCRIPT = `
       }
 
       var H = Math.max(1, Math.ceil(y));
+      /*
+       * imageScale asks for a picture of the slip instead of printer dots -- the same layout,
+       * the same ops, drawn larger so it is legible on a phone rather than a print head. One
+       * multiplier on the whole context, so nothing below has to know which of the two it is
+       * producing, and the dot path is untouched at scale 1.
+       */
+      var SCALE = payload.imageScale || 1;
       var c = document.createElement('canvas');
-      c.width = W; c.height = H;
+      c.width = W * SCALE; c.height = H * SCALE;
       var ctx = c.getContext('2d');
+      if (SCALE !== 1) ctx.scale(SCALE, SCALE);
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = '#000';
       ctx.textBaseline = 'top';
@@ -239,6 +247,14 @@ export const RASTER_SCRIPT = `
           ctx.textAlign = o.align;
           ctx.fillText(o.text, o.x, o.y);
         }
+      }
+
+      // A picture to share, rather than dots to print. Asked for separately so the printing path
+      // below never changes shape -- and so the parity test, which only ever asks for dots, keeps
+      // comparing exactly what the printer gets.
+      if (payload.imageScale) {
+        post({ ok: true, width: c.width, height: c.height, image: c.toDataURL('image/png') });
+        return;
       }
 
       var px = ctx.getImageData(0, 0, W, H).data;

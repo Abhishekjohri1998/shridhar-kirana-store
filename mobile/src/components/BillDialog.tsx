@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { View } from 'react-native';
 import { buildReceipt, type Bill } from '@shridhar/shared';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
@@ -40,6 +41,16 @@ export function BillDialog({
     setAsking(false);
     setError(null);
     onClose();
+  };
+
+  const share = async () => {
+    if (!bill) return;
+    setError(null);
+    try {
+      await printer.shareBill(bill, shop.settings);
+    } catch (e) {
+      setError(t('hist.couldNotShare') + ': ' + (e instanceof Error ? e.message : String(e)));
+    }
   };
 
   const reprint = async () => {
@@ -89,23 +100,36 @@ export function BillDialog({
       />
     </>
   ) : (
-    <>
-      <Button label={t('common.close')} tone="plain" onPress={close} style={{ flex: 1 }} />
+    /*
+     * Two rows, not four buttons in one.
+     *
+     * Cancelling sits on its own line above the rest: four labels across a phone leaves none of
+     * them readable, and a destructive action does not belong shoulder to shoulder with the one
+     * pressed a hundred times a day.
+     */
+    <View style={{ flex: 1, gap: 8 }}>
       {bill?.cancelled ? null : (
+        <Button label={t('hist.cancelBill')} tone="plain" onPress={() => setAsking(true)} />
+      )}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Button label={t('common.close')} tone="plain" onPress={close} style={{ flex: 1 }} />
+        {/* A picture of the slip, for a customer who wants a copy on their phone. Offered for a
+            cancelled bill too: what it said is still what it said. */}
         <Button
-          label={t('hist.cancelBill')}
+          label={printer.busy ? t('hist.sharing') : t('hist.share')}
           tone="plain"
-          onPress={() => setAsking(true)}
+          onPress={() => void share()}
+          disabled={printer.busy}
           style={{ flex: 1 }}
         />
-      )}
-      <Button
-        label={printer.busy ? t('hist.printing') : t('hist.printAgain')}
-        onPress={() => void reprint()}
-        disabled={printer.busy || bill?.cancelled === true}
-        style={{ flex: 1.2 }}
-      />
-    </>
+        <Button
+          label={printer.busy ? t('hist.printing') : t('hist.printAgain')}
+          onPress={() => void reprint()}
+          disabled={printer.busy || bill?.cancelled === true}
+          style={{ flex: 1.3 }}
+        />
+      </View>
+    </View>
   );
 
   return (

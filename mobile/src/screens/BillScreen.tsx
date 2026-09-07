@@ -47,6 +47,8 @@ export function BillScreen() {
    */
   const compact = width < 600;
   const [error, setError] = useState<string | null>(null);
+  /** The bill just saved, so a copy can go to the customer while they are still standing here. */
+  const [justSaved, setJustSaved] = useState<Bill | null>(null);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
@@ -216,6 +218,7 @@ export function BillScreen() {
       return;
     }
     setPriceText({});
+    setJustSaved(bill);
     try {
       await printer.printBill(bill, shop.settings);
     } catch (e) {
@@ -232,6 +235,28 @@ export function BillScreen() {
       <View style={styles.top}>
         <CustomerBar />
         {error ? <ErrorText>{error}</ErrorText> : null}
+
+        {/* Offered here rather than only from History: the moment a customer asks for a copy is
+            the moment they are still at the counter. */}
+        {justSaved ? (
+          <View style={styles.savedRow}>
+            <Text style={styles.savedText}>{t('bill.savedBill', { no: justSaved.no })}</Text>
+            <Button
+              label={printer.busy ? t('hist.sharing') : t('hist.share')}
+              tone="plain"
+              disabled={printer.busy}
+              onPress={() => {
+                void printer.shareBill(justSaved, shop.settings).catch((e: unknown) => {
+                  setError(t('hist.couldNotShare') + ': ' + (e instanceof Error ? e.message : String(e)));
+                });
+              }}
+              style={styles.savedButton}
+            />
+            <Pressable onPress={() => setJustSaved(null)} accessibilityLabel={t('common.close')}>
+              <Text style={styles.savedDismiss}>×</Text>
+            </Pressable>
+          </View>
+        ) : null}
         {shop.offline ? <Text style={styles.offline}>{t('bill.offline')}</Text> : null}
       </View>
 
@@ -440,6 +465,14 @@ const styles = StyleSheet.create({
   /* Padding lives here rather than on the wrap, so the totals strip below keeps its full-width
      border instead of being inset from the edges of the screen. */
   top: { paddingHorizontal: 12, paddingTop: 12 },
+  savedRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10,
+    backgroundColor: C.accentWash, borderWidth: 1, borderColor: C.accentEdge,
+    borderRadius: R.sm, paddingLeft: 12, paddingRight: 10, paddingVertical: 6,
+  },
+  savedText: { flex: 1, fontSize: 13, fontWeight: '700', color: C.accentDeep },
+  savedButton: { minHeight: 38 },
+  savedDismiss: { fontSize: 20, color: C.accentDeep, paddingHorizontal: 4 },
   /* Side by side once there is room: the slip on the left, the total parked on the right. */
   sheet: { flex: 1, minHeight: 0 },
   /* flexGrow so the sheet fills its half even when the slip is one line long -- without it the

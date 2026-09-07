@@ -99,5 +99,5 @@ export {
   chooseSerialPrinter, connectedSerialName, isWebSerialAvailable, disconnectSerial,
   SERIAL_BAUD_RATES, loadBaudRate, saveBaudRate, SerialPrintError,
 } from './serial';
-export { rasterize } from './raster';
+export { rasterize, receiptPng } from './raster';
 export { rasterToEscPos } from './escpos';
