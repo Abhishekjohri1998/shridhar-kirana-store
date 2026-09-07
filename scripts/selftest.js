@@ -560,6 +560,26 @@ async function main() {
     const byPhone = await call('/api/customers/search?q=98860', { headers: auth });
     check('suggestions match on a number prefix', byPhone.body.some((c) => c.id === created.body.id));
     eq('an empty query suggests nothing', (await call('/api/customers/search?q=', { headers: auth })).body.length, 0);
+    /*
+     * Typed in English, found whatever script the name is in. The shop types at a counter and
+     * the names already in the book are Kannada; the name itself is never rewritten, only
+     * matched. Driven through the real endpoint because the matching moved into the store.
+     */
+    const knName = 'ರಮೇಶ್ ಗೌಡ';
+    const knCust = await post('/api/customers', { name: knName, phone: '9000000123' });
+    eq('a Kannada name is stored as it was typed', knCust.body.name, knName);
+    const byEnglish = await call('/api/customers/search?q=ramesh', { headers: auth });
+    check('typing English finds a customer stored in Kannada',
+      byEnglish.body.some((c) => c.id === knCust.body.id),
+      JSON.stringify(byEnglish.body.map((c) => c.name)));
+    check('and their name comes back in Kannada',
+      byEnglish.body.every((c) => c.id !== knCust.body.id || c.name === knName));
+    const byPrefix = await call('/api/customers/search?q=rame', { headers: auth });
+    check('a prefix is enough', byPrefix.body.some((c) => c.id === knCust.body.id));
+    const wrongName = await call('/api/customers/search?q=suresh', { headers: auth });
+    check('a different name does not find them',
+      !wrongName.body.some((c) => c.id === knCust.body.id));
+
     // A customer called "R." must not be read as a regular expression.
     eq('a regex-looking query is treated as text', (await call('/api/customers/search?q=' + encodeURIComponent('.*'), { headers: auth })).body.length, 0);
 

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { checkCustomer, money, stamp, type Bill, type Customer } from '@shridhar/shared';
+import {
+  checkCustomer, customerMatches, money, stamp, type Bill, type Customer,
+} from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
 import { Button, Empty, ErrorText, Field, Notice } from '../components/ui';
@@ -46,14 +48,10 @@ export function CustomersScreen() {
   }, []);
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return customers;
-    // Only match the number when the query has digits in it: includes of an empty string is
-    // true for every string, which would make a name search that finds nothing list everybody.
-    const digits = q.replace(/\D/g, '');
-    return customers.filter(
-      (c) => c.name.toLowerCase().includes(q) || (digits.length > 0 && c.phone.includes(digits)),
-    );
+    if (!query.trim()) return customers;
+    // One matcher, shared with the suggestions under the bill screen and with both stores, so
+    // "who exists" cannot get a different answer depending on which box you typed in.
+    return customers.filter((c) => customerMatches(c, query));
   }, [query, customers]);
 
   const owing = customers.filter((c) => c.balance > 0);

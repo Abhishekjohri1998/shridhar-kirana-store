@@ -1,4 +1,5 @@
 import { normalisePhone } from './phone';
+import { searchKey } from './kannada';
 import { round2 } from './money';
 
 /**
@@ -114,6 +115,50 @@ export type CustomerFields =
   | { ok: false; error: string };
 
 export { normalisePhone };
+
+/**
+ * Does this customer answer to what was typed?
+ *
+ * The one place the question is asked, because it used to be asked in three -- the two stores'
+ * `searchCustomers` and the Customers page's own filter -- and three copies of a matching rule
+ * are three chances to disagree about who exists.
+ *
+ * Three ways to match, any of which will do:
+ *
+ * - the name as written, which is what a shopkeeper typing Kannada expects;
+ * - the phone, on digits only. Guarded, because `startsWith('')` is true of every string, and a
+ *   name search that found nothing used to list the whole book;
+ * - the phonetic key, which is what lets `ramesh` reach a customer stored as ರಮೇಶ್. Their name is
+ *   untouched by this -- it is only how they are found, never how they are shown.
+ *
+ * A prefix rather than a substring, matching what the suggestions under the bill screen have
+ * always done: typing `rame` reaches `ramesh`, but `mesh` does not.
+ */
+export function customerMatches(c: { name: string; phone: string }, query: string): boolean {
+  const typed = String(query ?? '').trim();
+  if (!typed) return false;
+
+  const digits = normalisePhone(typed);
+  if (digits.length > 0 && c.phone.startsWith(digits)) return true;
+
+  /*
+   * Any word of the name, not just the first.
+   *
+   * A shop knows a customer as "Gowda" as readily as "Ramesh", and a plain prefix on the whole
+   * string finds neither surname nor second name. Matching each word separately gets both while
+   * still refusing a fragment from the middle of one -- `gowda` reaches ರಮೇಶ್ ಗೌಡ, `owda`
+   * does not. The whole string is tried too, so a two-word query still works.
+   */
+  const lower = typed.toLowerCase();
+  const words = c.name.split(/\s+/).filter(Boolean);
+  if (c.name.toLowerCase().startsWith(lower)) return true;
+  if (words.some((w) => w.toLowerCase().startsWith(lower))) return true;
+
+  const key = searchKey(typed);
+  if (key.length === 0) return false;
+  if (searchKey(c.name).startsWith(key)) return true;
+  return words.some((w) => searchKey(w).startsWith(key));
+}
 
 export function checkCustomer(rawName: string, rawPhone: string): CustomerFields {
   const name = rawName.trim();

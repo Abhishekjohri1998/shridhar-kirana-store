@@ -80,8 +80,8 @@ npm run apk      # build an installable .apk (needs an Expo account)
 ```
 
 ```bash
-npm test     # typecheck, then 725 checks: 304 field-rule, 47 translation,
-             # 47 rasteriser-parity, 99 printer/Bluetooth, 27 schema, 201 pipeline/API
+npm test     # typecheck, then 759 checks: 333 field-rule, 47 translation,
+             # 47 rasteriser-parity, 99 printer/Bluetooth, 27 schema, 206 pipeline/API
 npm run build && npm start     # production: one process on port 4000 serving API + app
 ```
 

@@ -265,6 +265,67 @@ check('the customer form folds the country code too',
 check('and folds the trunk zero',
   F.checkCustomer('R', '09886012345').phone === '9886012345');
 
+console.log('\nFinding a customer by typing English');
+/*
+ * The shop types at a counter, in English, and the names already in the book are in Kannada.
+ * searchKey reduces both to the same rough phonetic key so one finds the other; the name itself
+ * is never touched, only how it is matched.
+ *
+ * The middle column is not decoration: it is how the repo's own Latin-to-Kannada transliterator
+ * spells these words (selftest.js pins all nine), with capitals for retroflex consonants and
+ * doubled letters for long vowels. The right-hand column is what a person actually types. Every
+ * row of it exercises one folding rule, which is the whole reason the folding exists.
+ */
+const NAMES = [
+  // stored           the scheme's spelling   what a shopkeeper types
+  ['ಅಕ್ಕಿ', 'akki', 'akki'],
+  ['ಎಣ್ಣೆ', 'eNNe', 'enne'],
+  ['ಹಾಲು', 'haalu', 'halu'],
+  ['ಹಿಟ್ಟು', 'hiTTu', 'hittu'],
+  ['ಬೆಳೆ', 'beLe', 'bele'],
+  ['ನಂದಿ', 'naMdi', 'nandi'],
+];
+for (const [stored, scheme, typed] of NAMES) {
+  const key = SH.searchKey(stored);
+  check('typing "' + typed + '" reaches ' + stored, SH.searchKey(typed) === key,
+    SH.searchKey(typed) + ' vs ' + key);
+  check('and so does the scheme spelling "' + scheme + '"', SH.searchKey(scheme) === key,
+    SH.searchKey(scheme) + ' vs ' + key);
+}
+
+// The two spellings the reversed tables get wrong on their own, and the commonest surname in
+// Karnataka is one of them.
+check('gowda reaches ಗೌಡ', SH.searchKey('gowda') === SH.searchKey('ಗೌಡ'));
+check('so does gouda', SH.searchKey('gouda') === SH.searchKey('ಗೌಡ'));
+check('vishwa reaches ವಿಶ್ವ',
+  SH.searchKey('vishwa') === SH.searchKey('ವಿಶ್ವ'));
+
+// Adding a way to match must not take one away.
+const RAMESH = { name: 'ರಮೇಶ್', phone: '9886012345' };
+check('English finds a Kannada name', F.customerMatches(RAMESH, 'ramesh'));
+check('a prefix of it does too', F.customerMatches(RAMESH, 'rame'));
+check('Kannada still finds a Kannada name', F.customerMatches(RAMESH, 'ರಮೇ'));
+check('the number still finds them', F.customerMatches(RAMESH, '9886'));
+const LATIN = { name: 'Ramesha', phone: '9886012399' };
+check('English still finds an English name', F.customerMatches(LATIN, 'rames'));
+check('and Kannada finds an English name', F.customerMatches(LATIN, 'ರಮೇ'));
+
+// What must not match.
+check('a different name does not', !F.customerMatches(RAMESH, 'suresh'));
+check('and the keys really are different',
+  SH.searchKey('ರಮೇಶ್') !== SH.searchKey('ಸುರೇಶ್'));
+// The bug the old `includes('')` comment records: an empty query listing the whole book.
+check('an empty query matches nobody', !F.customerMatches(RAMESH, ''));
+check('nor does whitespace', !F.customerMatches(RAMESH, '   '));
+check('a middle fragment does not match -- prefix, not substring',
+  !F.customerMatches(LATIN, 'mesha'));
+// Digits alone must not be read as a name prefix.
+check('a number that is not theirs does not match', !F.customerMatches(RAMESH, '9000'));
+
+check('the key is stable under itself',
+  SH.searchKey(SH.searchKey('ರಮೇಶ್')) === SH.searchKey('ರಮೇಶ್'));
+check('an empty name has an empty key', SH.searchKey('') === '' && SH.searchKey('  ') === '');
+
 console.log('\nCustomer fields');
 check('both blank is refused', !F.checkCustomer('', '').ok);
 check('whitespace only is refused', !F.checkCustomer('  ', ' ').ok);

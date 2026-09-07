@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
-  DEFAULT_SETTINGS, billTotal, round2,
+  DEFAULT_SETTINGS, billTotal, customerMatches, round2,
   type Bill, type BillLine, type Customer, type Ink, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -340,15 +340,24 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
     },
 
     async searchCustomers(query, limit) {
-      const trimmed = query.trim();
-      if (!trimmed) return [];
-      // Escaped, because a customer called "R." must not be read as a regex.
-      const safe = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const digits = normalisePhone(trimmed);
-      const or: Record<string, unknown>[] = [{ name: { $regex: '^' + safe, $options: 'i' } }];
-      if (digits) or.push({ phone: { $regex: '^' + digits } });
-      const docs = await Customers.find({ $or: or }).sort({ name: 1 }).limit(limit).lean();
-      return docs.map((d) => toCustomer(d as unknown as CustomerDoc));
+      if (!query.trim()) return [];
+      /*
+       * Matched here rather than in the query.
+       *
+       * A phonetic key cannot be compared by a regex against a name the database has never
+       * reduced, and the point of the key is that every customer already in the book becomes
+       * findable by typing English -- nothing re-entered, no backfill. So the names come back and
+       * the matching happens in the one place both stores and both apps share.
+       *
+       * listCustomers() already returns every customer to the Customers page, so this is not a
+       * new order of magnitude. If the shop ever has thousands rather than dozens, the answer is
+       * to store searchKey(name) on the document and index it -- and then to backfill it.
+       */
+      const docs = await Customers.find().sort({ name: 1 }).lean();
+      return docs
+        .map((d) => toCustomer(d as unknown as CustomerDoc))
+        .filter((c) => customerMatches(c, query))
+        .slice(0, limit);
     },
 
     async getCustomer(id) {

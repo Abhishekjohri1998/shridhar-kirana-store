@@ -120,6 +120,106 @@ export function latinToKannada(input: string): string {
   return out;
 }
 
+/*
+ * ---------------------------------------------------------------- the other direction
+ *
+ * The tables above turn Latin into Kannada. Reversed, they turn Kannada into Latin, which is
+ * what lets a name typed in one script find a name stored in the other.
+ *
+ * Derived from those same tables rather than written out again: a second copy of a mapping this
+ * size drifts from the first the week someone corrects one of them. Where the forward table has
+ * two ways to write the same glyph on purpose -- `v` and `w` both give ವ -- the first wins,
+ * which is why the tables are ordered as they are.
+ */
+const CONSONANT_BY_GLYPH = new Map<string, string>();
+for (const [latin, glyph] of CONSONANTS) {
+  if (!CONSONANT_BY_GLYPH.has(glyph)) CONSONANT_BY_GLYPH.set(glyph, latin);
+}
+
+const VOWEL_BY_LETTER = new Map<string, string>();
+const VOWEL_BY_SIGN = new Map<string, string>();
+for (const [latin, independent, sign] of VOWELS) {
+  if (!VOWEL_BY_LETTER.has(independent)) VOWEL_BY_LETTER.set(independent, latin);
+  // The sign for the inherent 'a' is the empty string, which is not a character to look up.
+  if (sign && !VOWEL_BY_SIGN.has(sign)) VOWEL_BY_SIGN.set(sign, latin);
+}
+
+/**
+ * ಅಕ್ಕಿ -> "akki", ರಮೇಶ್ -> "rameesh".
+ *
+ * Kannada is an abugida: a consonant carries an inherent 'a', a vowel sign replaces that 'a',
+ * and the virama removes it. So the inherent vowel is held back until the next character says
+ * what became of it. Anything that is not Kannada -- Latin, digits, spaces -- passes through.
+ */
+function romanise(text: string): string {
+  let out = '';
+  let owed = '';
+  const flush = () => { out += owed; owed = ''; };
+
+  for (const ch of text) {
+    const consonant = CONSONANT_BY_GLYPH.get(ch);
+    if (consonant != null) { flush(); out += consonant; owed = 'a'; continue; }
+
+    const sign = VOWEL_BY_SIGN.get(ch);
+    if (sign != null) { owed = sign; flush(); continue; }
+
+    if (ch === VIRAMA) { owed = ''; continue; }
+
+    const vowel = VOWEL_BY_LETTER.get(ch);
+    if (vowel != null) { flush(); out += vowel; continue; }
+
+    if (ch === ANUSVARA) { flush(); out += 'n'; continue; }
+    if (ch === VISARGA) { flush(); out += 'h'; continue; }
+
+    flush();
+    out += ch;
+  }
+  flush();
+  return out;
+}
+
+/**
+ * A rough phonetic key, for matching a name typed in one script against one stored in the other.
+ *
+ * Romanising is only half of it. Kannada tells apart sounds that English spelling does not, and
+ * the forward scheme above marks those differences with capitals and doubled letters -- ಎಣ್ಣೆ is
+ * `eNNe`, ಹಿಟ್ಟು is `hiTTu`. Nobody types that at a counter; they type `enne` and `hittu`. So
+ * both sides of the comparison are folded down to what an English speaker would actually reach
+ * for: retroflex onto dental, the three s-sounds together, aspirates onto their plain consonant,
+ * long vowels onto short, doubles onto singles.
+ *
+ * That trades precision for recall, deliberately. ಕಟ and ಖಠ end up with the same key, so a
+ * search can turn up a name that merely sounds close. In a shop with a few hundred customers
+ * five suggestions to glance at beats a name that cannot be found at all.
+ */
+export function searchKey(text: string): string {
+  return romanise(String(text ?? ''))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    // Aspirates: kha -> ka, sha -> sa, chha -> cha. The + is what makes ಛ and ಚ agree.
+    .replace(/([kgcjtdpbs])h+/g, '$1')
+    /*
+     * Two spellings the reversed tables get wrong for a Kannada name written in English.
+     *
+     * The forward table offers both `v` and `w` for the same glyph and the first one wins on
+     * the way back, so a stored name romanises to `v` where the shopkeeper types `w`. And the
+     * au vowel sign comes back as `au` where the usual English spelling is `ow` -- Gowda, the
+     * commonest surname in Karnataka, missed on exactly this.
+     */
+    .replace(/w/g, 'v')
+    /*
+     * The anusvara assimilates to whatever follows it -- an `n` before a dental, an `m`
+     * before a labial -- so ನಂದಿ is said `nandi` and ಸಂಪ is said `sampa`. Romanising it as
+     * either letter is therefore wrong half the time, so both fold to one nasal, but only
+     * before a consonant. Leaving a final or pre-vowel `m` alone is what keeps Rama and
+     * Rana two different people.
+     */
+    .replace(/m(?=[bcdfghjklmnpqrstvxyz])/g, 'n')
+    .replace(/o([uv])/g, 'au')
+    // Long vowels onto short, doubled consonants onto single: haalu -> halu, hiTTu -> hitu.
+    .replace(/([a-z0-9])\1+/g, '$1');
+}
+
 /** True if the text contains at least one Kannada character. */
 export function hasKannada(text: string): boolean {
   return /[ಀ-೿]/.test(text);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   checkCustomer,
   money,
+  searchKey,
   type Customer,
 } from '@shridhar/shared';
 import { CustomersIcon } from './Icons';
@@ -126,8 +127,17 @@ export function CustomerBar() {
     );
   }
 
+  /*
+   * Is the typed pair already one of the suggestions?
+   *
+   * Compared by phonetic key, not by text. Now that typing `ramesh` finds a customer stored as
+   * ರಮೇಶ್, a literal comparison would call them different people -- so the shopkeeper would be
+   * offered "Add this customer" for somebody already in the book, and one tap would make a
+   * duplicate. The search finding them is exactly what makes this check need the same rule.
+   */
   const exact = matches.some(
-    (m) => m.name.toLowerCase() === name.trim().toLowerCase() && m.phone === phone.trim().replace(/\D/g, ''),
+    (m) =>
+      searchKey(m.name) === searchKey(name) && m.phone === phone.trim().replace(/\D/g, ''),
   );
 
   return (

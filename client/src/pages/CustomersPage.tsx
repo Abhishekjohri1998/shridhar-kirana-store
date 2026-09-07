@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   checkCustomer,
+  customerMatches,
   money,
   stamp,
   type Bill,
@@ -50,14 +51,10 @@ export function CustomersPage() {
   }, []);
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return customers;
-    // Only match on the number when the query actually has digits in it: `includes('')` is true
-    // for every string, which used to make a name search that found nothing list everybody.
-    const digits = q.replace(/\D/g, '');
-    return customers.filter(
-      (c) => c.name.toLowerCase().includes(q) || (digits.length > 0 && c.phone.includes(digits)),
-    );
+    if (!query.trim()) return customers;
+    // One matcher, shared with the suggestions under the bill screen and with both stores, so
+    // "who exists" cannot get a different answer depending on which box you typed in.
+    return customers.filter((c) => customerMatches(c, query));
   }, [query, customers]);
 
   const owing = useMemo(() => customers.filter((c) => c.balance > 0), [customers]);

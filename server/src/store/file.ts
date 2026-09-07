@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_SETTINGS, billTotal, round2,
+  DEFAULT_SETTINGS, billTotal, customerMatches, round2,
   type Bill, type Customer, type Item, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -176,13 +176,9 @@ export async function createFileRepo(dir: string): Promise<Repo> {
     },
 
     async searchCustomers(query, limit) {
-      const trimmed = query.trim().toLowerCase();
-      if (!trimmed) return [];
-      const digits = normalisePhone(trimmed);
+      if (!query.trim()) return [];
       return db.customers
-        .filter((c) =>
-          c.name.toLowerCase().startsWith(trimmed) || (digits.length > 0 && c.phone.startsWith(digits)),
-        )
+        .filter((c) => customerMatches(c, query))
         .sort((a, b) => a.name.localeCompare(b.name))
         .slice(0, limit)
         .map(toCustomer);
