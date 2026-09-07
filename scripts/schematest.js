@@ -66,6 +66,7 @@ function billDoc(lines) {
   const registered = models();
   const Bill = registered.Bill;
   const Customer = registered.Customer;
+  const SettingsModel = registered.Settings;
 
   console.log('');
   console.log('MongoDB schemas, validated in memory');
@@ -168,6 +169,23 @@ function billDoc(lines) {
    * returned a 500 against Atlas and passed against the file store. The shop found it by trying
    * to rename itself.
    */
+  if (SettingsModel) {
+    // The GST number is optional with a plain default -- never `required: true` alongside one,
+    // which is the pairing that made every print return 500 and the reason this file exists.
+    const bare = new SettingsModel({
+      key: 'shop', shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
+      showRate: false, inactiveAfterDays: 30,
+    });
+    check('settings with no GST number are valid', !bare.validateSync());
+    check('and the field reads as empty rather than missing', bare.gstin === '',
+      JSON.stringify(bare.gstin));
+    const withGst = new SettingsModel({
+      key: 'shop', shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
+      showRate: false, inactiveAfterDays: 30, gstin: '29ABCDE1234F1Z5',
+    });
+    check('settings with one are valid too', !withGst.validateSync());
+  }
+
   console.log('\nUpdate documents Mongo will accept');
   const DEFAULTS = { shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
     showRate: false, inactiveAfterDays: 30, key: 'shop' };

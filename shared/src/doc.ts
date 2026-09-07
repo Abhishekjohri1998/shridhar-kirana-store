@@ -91,9 +91,18 @@ export function buildReceipt(
 ): ReceiptDoc {
   const rows: Row[] = [
     { t: 'center', text: settings.shopName, size: 30, bold: true },
+  ];
+
+  // Under the shop name, where a customer and an inspector both look for it. Only when the shop
+  // has entered one -- a slip for a shop with no GST number should not carry an empty label.
+  if (settings.gstin && settings.gstin.trim()) {
+    rows.push({ t: 'center', text: labels.gstin + ' ' + settings.gstin.trim(), size: 20 });
+  }
+
+  rows.push(
     { t: 'space', h: 6 },
     { t: 'kv', left: labels.bill + bill.no, right: stamp(bill.at), size: 20 },
-  ];
+  );
 
   // Customer details sit at the top of the slip, above the item table.
   if (bill.customer && (bill.customer.name || bill.customer.phone)) {

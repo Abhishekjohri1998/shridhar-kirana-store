@@ -9,6 +9,7 @@ import {
 } from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
+import { ScriptField } from '../components/ScriptField';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
 import { Empty } from '../components/Empty';
@@ -298,16 +299,16 @@ export function CustomersPage() {
           }
         >
           <div className="stack">
-            <div className="field">
-              <label htmlFor="c-name">{t('cs.name')}</label>
-              <input
-                id="c-name"
-                className="input"
-                autoFocus
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              />
-            </div>
+            {/* Kannada without a Kannada keyboard: see ScriptField. The name is stored exactly
+                as it ends up here, and typing English still finds it either way. */}
+            <ScriptField
+              key={draft.id ?? 'new'}
+              id="c-name"
+              label={t('cs.name')}
+              value={draft.name}
+              onCommit={(name) => setDraft((d) => (d ? { ...d, name } : d))}
+              autoFocus
+            />
             <div className="field">
               <label htmlFor="c-phone">{t('cs.phone')}</label>
               <input

@@ -120,6 +120,8 @@ export type Settings = {
   paper: PaperKey;
   /** Interface and receipt language. */
   language: Lang;
+  /** The shop's GST number. Prints under the shop name when it is filled in. */
+  gstin: string;
   /** Print the per-unit rate under each item name. The shop's paper slip does not, so this is off by default. */
   showRate: boolean;
   /** A customer quiet for this many days is flagged as needing a nudge. */
@@ -131,6 +133,7 @@ export const DEFAULT_SETTINGS: Settings = {
   footer: 'Thank you, Visit again!',
   paper: '58mm',
   language: 'en',
+  gstin: '',
   showRate: false,
   inactiveAfterDays: 30,
 };

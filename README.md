@@ -36,6 +36,7 @@ three-page written spec.
 | **The item column must support handwriting**, because customers prefer regional language | [`InkPad.tsx`](client/src/components/InkPad.tsx) captures stylus strokes; they print as vectors. Every line of the slip is one of these |
 | Price in digital format, used to compute the total | Typed digits, validated server-side; the server recomputes every total. Digits are typed rather than written because a total can only be added up from numbers the machine can read |
 | "Sometimes it should calculate the total of price entered without items" | A line may carry a price and no writing at all, and still counts towards the total |
+| GST number on the slip | **Settings -> GST number**, printed under the shop name. Warned about when it does not match the fifteen-character GSTIN shape, never refused: a provisional number still has to be billable |
 | Customer details at the top: name, contact no. | [`CustomerBar.tsx`](client/src/components/CustomerBar.tsx); they print above the item table |
 | Those details should "appear in suggestion if they are already there" | Typing either field searches saved customers and offers them |
 | Customer total transaction | Customers page: total billed, paid, balance, bill count, and their bills |
@@ -80,8 +81,8 @@ npm run apk      # build an installable .apk (needs an Expo account)
 ```
 
 ```bash
-npm test     # typecheck, then 759 checks: 333 field-rule, 47 translation,
-             # 47 rasteriser-parity, 99 printer/Bluetooth, 27 schema, 206 pipeline/API
+npm test     # typecheck, then 796 checks: 343 field-rule, 47 translation,
+             # 53 rasteriser-parity, 106 printer/Bluetooth, 30 schema, 217 pipeline/API
 npm run build && npm start     # production: one process on port 4000 serving API + app
 ```
 

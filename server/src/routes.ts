@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { INK_LIMITS, inkPointCount } from '@shridhar/shared';
+import { INK_LIMITS, checkGstin, inkPointCount } from '@shridhar/shared';
 import { issueToken, pinMatches, requireAuth } from './auth';
 import { HttpError, handler } from './http';
 import { getRepo } from './store';
@@ -38,6 +38,9 @@ const settingsBody = z.object({
   footer: z.string().trim().max(120).optional(),
   paper: z.enum(['58mm', '80mm']).optional(),
   language: z.enum(['en', 'kn']).optional(),
+  // Accepted as typed and normalised by checkGstin on the way in: a number the shop insists on
+  // is the shop's business, and a settings screen that refuses to save is not a validator.
+  gstin: z.string().trim().max(24).optional(),
   showRate: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
 });
@@ -73,6 +76,9 @@ api.get('/settings', handler(async (_req, res) => {
 api.put('/settings', handler(async (req, res) => {
   const patch = settingsBody.parse(req.body);
   if (Object.keys(patch).length === 0) throw new HttpError(400, 'Nothing to change');
+  // Normalised here rather than trusted from the browser, like every other figure: the number
+  // prints on paper, so it should read the same whichever app typed it and however it was spaced.
+  if (patch.gstin != null) patch.gstin = checkGstin(patch.gstin).value;
   res.json(await getRepo().updateSettings(patch));
 }));
 

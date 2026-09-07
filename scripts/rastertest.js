@@ -259,6 +259,8 @@ const CASES = [
     paid: 1000, balance: 870, showBalance: true,
     previousBalance: 500, previousBalanceAt: '2026-08-02T10:00:00',
   }), { paper: '58mm', language: 'kn' }],
+  ['with a GST number on it', bill(), { paper: '58mm', gstin: '29ABCDE1234F1Z5' }],
+  ['and on 80mm', bill(), { paper: '80mm', gstin: '29ABCDE1234F1Z5' }],
   ['with a bare price and no description', bill({
     lines: [...LINES, { itemId: 'bare', nameKn: '', nameEn: '', qty: 1, rate: 12 }],
   }), { paper: '58mm' }],

@@ -5,12 +5,12 @@ import {
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { layoutProbe } from '../lib/layoutProbe';
 import {
-  LANGS, PAPERS, PAPER_KEYS, checkFooter, checkShopName, paperProfile, parseQuietDays,
+  LANGS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile, parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
 } from '@shridhar/shared';
 import { Dialog } from '../components/Dialog';
+import { ScriptField } from '../components/ScriptField';
 import { Button, Card, ErrorText, Field, Notice, SectionTitle } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
@@ -62,6 +62,7 @@ export function SettingsScreen() {
   const t = shop.t;
   const [shopName, setShopName] = useState(shop.settings.shopName);
   const [footer, setFooter] = useState(shop.settings.footer);
+  const [gstin, setGstin] = useState(shop.settings.gstin ?? '');
   const [quiet, setQuiet] = useState(String(shop.settings.inactiveAfterDays));
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<MsgKey | null>(null);
@@ -88,8 +89,9 @@ export function SettingsScreen() {
   useEffect(() => {
     setShopName(shop.settings.shopName);
     setFooter(shop.settings.footer);
+    setGstin(shop.settings.gstin ?? '');
     setQuiet(String(shop.settings.inactiveAfterDays));
-  }, [shop.settings.shopName, shop.settings.footer, shop.settings.inactiveAfterDays]);
+  }, [shop.settings.shopName, shop.settings.footer, shop.settings.gstin, shop.settings.inactiveAfterDays]);
 
   const save = async (patch: Parameters<typeof shop.saveSettings>[0], labelKey: MsgKey) => {
     setError(null);
@@ -122,12 +124,12 @@ export function SettingsScreen() {
 
       <Card style={styles.card}>
         <SectionTitle>{t('set.slipSection')}</SectionTitle>
-        <Field
+        <ScriptField
           label={t('set.shopName')}
           value={shopName}
-          onChangeText={setShopName}
-          onBlur={() => {
-            const checked = checkShopName(shopName);
+          onCommit={(next) => {
+            setShopName(next);
+            const checked = checkShopName(next);
             if (!checked.ok) {
               setError(checked.error);
               setShopName(shop.settings.shopName);
@@ -137,12 +139,12 @@ export function SettingsScreen() {
             if (checked.value !== shop.settings.shopName) void save({ shopName: checked.value }, 'set.savedShopName');
           }}
         />
-        <Field
+        <ScriptField
           label={t('set.footer')}
           value={footer}
-          onChangeText={setFooter}
-          onBlur={() => {
-            const checked = checkFooter(footer);
+          onCommit={(next) => {
+            setFooter(next);
+            const checked = checkFooter(next);
             if (!checked.ok) {
               setError(checked.error);
               setFooter(shop.settings.footer);
@@ -152,6 +154,25 @@ export function SettingsScreen() {
             if (checked.value !== shop.settings.footer) void save({ footer: checked.value }, 'set.savedFooter');
           }}
         />
+        {/* Not a ScriptField: a GST number is fifteen Latin characters by definition. */}
+        <Field
+          label={t('set.gstin')}
+          value={gstin}
+          onChangeText={setGstin}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          hint={checkGstin(gstin).warning ?? t('set.gstinHint')}
+          onBlur={() => {
+            const checked = checkGstin(gstin);
+            setGstin(checked.value);
+            setError(null);
+            // Saved warning or not: a number the shop insists on is the shop's business.
+            if (checked.value !== (shop.settings.gstin ?? '')) {
+              void save({ gstin: checked.value }, 'set.savedGstin');
+            }
+          }}
+        />
+
         <View style={styles.switchRow}>
           <Switch
             value={shop.settings.showRate}
@@ -263,7 +284,6 @@ export function SettingsScreen() {
         <Text style={styles.probe}>
           insets top {Math.round(insets.top)} · bottom {Math.round(insets.bottom)}
         </Text>
-        <Text style={styles.probe}>shell height {layoutProbe.shellHeight}</Text>
 
         <View style={{ height: 10 }} />
         <Button label={t('set.signOut')} tone="plain" onPress={shop.signOut} />

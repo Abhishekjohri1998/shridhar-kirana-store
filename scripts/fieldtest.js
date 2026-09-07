@@ -265,6 +265,29 @@ check('the customer form folds the country code too',
 check('and folds the trunk zero',
   F.checkCustomer('R', '09886012345').phone === '9886012345');
 
+console.log('\nGST number');
+/*
+ * Warned about, never refused. A real GSTIN is fifteen characters in a fixed shape, but a shop
+ * with a provisional or unusual number still has to be able to bill -- so a wrong-looking number
+ * is saved with a complaint rather than blocked.
+ */
+const GOOD = '29ABCDE1234F1Z5';
+check('a real-shaped number is accepted without complaint',
+  F.checkGstin(GOOD).value === GOOD && F.checkGstin(GOOD).warning === null);
+check('lower case is raised', F.checkGstin('29abcde1234f1z5').value === GOOD);
+check('spaces and dashes are dropped', F.checkGstin('29 ABCDE-1234 F1Z5').value === GOOD);
+check('blank is fine and says nothing',
+  F.checkGstin('').value === '' && F.checkGstin('').warning === null);
+check('nothing at all does not throw', F.checkGstin(null).value === '');
+check('a short one warns about its length',
+  (F.checkGstin('29ABCDE1234F1Z').warning || '').includes('15'));
+check('but is still handed back to be saved', F.checkGstin('29ABCDE1234F1Z').value.length === 14);
+check('a wrong shape of the right length warns',
+  F.checkGstin('2XABCDE1234F1Z5').warning != null);
+check('and it too is handed back', F.checkGstin('2XABCDE1234F1Z5').value.length === 15);
+check('the check is stable under itself',
+  F.checkGstin(F.checkGstin('29 abcde 1234 f1z5').value).value === GOOD);
+
 console.log('\nFinding a customer by typing English');
 /*
  * The shop types at a counter, in English, and the names already in the book are in Kannada.

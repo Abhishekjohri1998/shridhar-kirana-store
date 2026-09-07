@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   checkFooter,
+  checkGstin,
   checkShopName,
   LANGS,
   PAPER_KEYS,
@@ -11,6 +12,7 @@ import {
   type Lang,
   type PaperKey,
 } from '@shridhar/shared';
+import { ScriptField } from '../components/ScriptField';
 import { SERIAL_BAUD_RATES } from '../print';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
@@ -37,6 +39,7 @@ export function SettingsPage() {
   const printer = usePrint();
   const [shopName, setShopName] = useState(shop.settings.shopName);
   const [footer, setFooter] = useState(shop.settings.footer);
+  const [gstin, setGstin] = useState(shop.settings.gstin ?? '');
   const [inactiveDays, setInactiveDays] = useState(String(shop.settings.inactiveAfterDays));
   const [error, setError] = useState<string | null>(null);
   // The key, not the rendered text: switching to Kannada would otherwise leave the
@@ -47,8 +50,9 @@ export function SettingsPage() {
   useEffect(() => {
     setShopName(shop.settings.shopName);
     setFooter(shop.settings.footer);
+    setGstin(shop.settings.gstin ?? '');
     setInactiveDays(String(shop.settings.inactiveAfterDays));
-  }, [shop.settings.shopName, shop.settings.footer, shop.settings.inactiveAfterDays]);
+  }, [shop.settings.shopName, shop.settings.footer, shop.settings.gstin, shop.settings.inactiveAfterDays]);
 
   const save = async (patch: Parameters<typeof shop.saveSettings>[0], labelKey: Parameters<typeof t>[0]) => {
     setError(null);
@@ -80,43 +84,61 @@ export function SettingsPage() {
 
       <section className="card stack">
         <h2 className="section-title">{t('set.slipSection')}</h2>
+        <ScriptField
+          id="s-name"
+          label={t('set.shopName')}
+          value={shopName}
+          onCommit={(next) => {
+            setShopName(next);
+            const checked = checkShopName(next);
+            if (!checked.ok) {
+              setError(checked.error);
+              setShopName(shop.settings.shopName);
+              return;
+            }
+            setError(null);
+            if (checked.value !== shop.settings.shopName) void save({ shopName: checked.value }, 'set.savedShopName');
+          }}
+        />
+        <ScriptField
+          id="s-footer"
+          label={t('set.footer')}
+          value={footer}
+          onCommit={(next) => {
+            setFooter(next);
+            const checked = checkFooter(next);
+            if (!checked.ok) {
+              setError(checked.error);
+              setFooter(shop.settings.footer);
+              return;
+            }
+            setError(null);
+            if (checked.value !== shop.settings.footer) void save({ footer: checked.value }, 'set.savedFooter');
+          }}
+        />
+
+        {/* Not a ScriptField: a GST number is fifteen Latin characters by definition. */}
         <div className="field">
-          <label htmlFor="s-name">{t('set.shopName')}</label>
+          <label htmlFor="s-gstin">{t('set.gstin')}</label>
           <input
-            id="s-name"
+            id="s-gstin"
             className="input"
-            value={shopName}
-            onChange={(e) => setShopName(e.target.value)}
+            value={gstin}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(e) => setGstin(e.target.value)}
             onBlur={() => {
-              const checked = checkShopName(shopName);
-              if (!checked.ok) {
-                setError(checked.error);
-                setShopName(shop.settings.shopName);
-                return;
-              }
+              const checked = checkGstin(gstin);
+              setGstin(checked.value);
               setError(null);
-              if (checked.value !== shop.settings.shopName) void save({ shopName: checked.value }, 'set.savedShopName');
+              // Saved warning or not: a number the shop insists on is the shop's business.
+              if (checked.value !== (shop.settings.gstin ?? '')) {
+                void save({ gstin: checked.value }, 'set.savedGstin');
+              }
             }}
           />
-        </div>
-        <div className="field">
-          <label htmlFor="s-footer">{t('set.footer')}</label>
-          <input
-            id="s-footer"
-            className="input"
-            value={footer}
-            onChange={(e) => setFooter(e.target.value)}
-            onBlur={() => {
-              const checked = checkFooter(footer);
-              if (!checked.ok) {
-                setError(checked.error);
-                setFooter(shop.settings.footer);
-                return;
-              }
-              setError(null);
-              if (checked.value !== shop.settings.footer) void save({ footer: checked.value }, 'set.savedFooter');
-            }}
-          />
+          <p className="muted small">{checkGstin(gstin).warning ?? t('set.gstinHint')}</p>
         </div>
         <label className="row" style={{ cursor: 'pointer' }}>
           <input

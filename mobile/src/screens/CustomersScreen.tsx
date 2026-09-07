@@ -5,6 +5,7 @@ import {
 } from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
+import { ScriptField } from '../components/ScriptField';
 import { Button, Empty, ErrorText, Field, Notice } from '../components/ui';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
@@ -275,10 +276,13 @@ export function CustomersScreen() {
       >
         {draft ? (
           <View>
-            <Field
+            {/* Kannada without a Kannada keyboard: see ScriptField. The name is stored exactly
+                as it ends up here, and typing English still finds it either way. */}
+            <ScriptField
+              key={draft.id ?? 'new'}
               label={t('cs.name')}
               value={draft.name}
-              onChangeText={(name) => setDraft((d) => (d ? { ...d, name } : d))}
+              onCommit={(name) => setDraft((d) => (d ? { ...d, name } : d))}
             />
             <Field
               label={t('cs.phone')}

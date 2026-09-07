@@ -1201,6 +1201,41 @@ select.input {
 
 /* The pinned top rail. Positioned, so the suggestion list anchors to the strip rather than to
    the viewport. */
+/* ------------------------------------------------------- typing in another script */
+
+.script-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.script-toggle {
+  flex: none;
+  min-width: 34px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper-1);
+  color: var(--ink-400);
+  border-radius: var(--r-sm);
+  padding: 3px 9px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.script-toggle.on {
+  border-color: var(--brand-edge);
+  background: var(--brand-wash);
+  color: var(--brand-700);
+}
+
+/* Bigger than the box beneath it: this is the line that goes on the paper. */
+.script-preview {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  color: var(--ink-900);
+}
+
 .customer-bar {
   position: relative;
   z-index: 4;

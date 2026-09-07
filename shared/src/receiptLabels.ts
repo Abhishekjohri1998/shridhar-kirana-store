@@ -9,6 +9,8 @@ export type ReceiptLabels = {
   bill: string;
   name: string;
   phone: string;
+  /** Printed under the shop name, when the shop has entered one. */
+  gstin: string;
   /** The three column headings above the item table. */
   no: string;
   item: string;
@@ -28,6 +30,7 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   bill: 'Bill #',
   name: 'Name',
   phone: 'Phone',
+  gstin: 'GSTIN',
   no: 'No.',
   item: 'Item',
   price: 'Price',

@@ -107,7 +107,9 @@ export function Button({
 export function Field({ label, hint, ...props }: { label: string; hint?: string } & TextInputProps) {
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      {/* Skipped when empty, so a caller that draws its own label row -- ScriptField -- does not
+          get a blank line's worth of margin above the box. */}
+      {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
       <TextInput
         {...props}
         style={[styles.input, props.style]}

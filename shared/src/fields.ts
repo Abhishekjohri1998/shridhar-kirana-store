@@ -160,6 +160,31 @@ export function customerMatches(c: { name: string; phone: string }, query: strin
   return words.some((w) => searchKey(w).startsWith(key));
 }
 
+/**
+ * A GST number, and what looks wrong with it.
+ *
+ * A real GSTIN is fifteen characters in a fixed shape: two digits of state code, the ten
+ * characters of a PAN, an entity digit, a letter that is nearly always Z, and a check character.
+ * This checks that shape and says so when it does not fit -- but it never refuses to save.
+ * A shop with a provisional or unusual number still has to be able to bill, and a settings
+ * screen that will not close is worse than a warning nobody needed.
+ */
+const GSTIN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
+
+export function checkGstin(raw: string): { value: string; warning: string | null } {
+  // Upper-cased and stripped of the spaces and dashes people put in it: the number is one token
+  // and it prints on paper, so it should look the same however it was typed.
+  const value = String(raw ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (!value) return { value: '', warning: null };
+  if (value.length !== 15) {
+    return { value, warning: 'A GST number is 15 characters -- this one has ' + value.length + '.' };
+  }
+  if (!GSTIN.test(value)) {
+    return { value, warning: 'That does not look like a GST number -- check it before printing.' };
+  }
+  return { value, warning: null };
+}
+
 export function checkCustomer(rawName: string, rawPhone: string): CustomerFields {
   const name = rawName.trim();
   const typedPhone = String(rawPhone ?? '').trim();

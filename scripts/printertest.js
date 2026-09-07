@@ -345,6 +345,7 @@ const CASES = [
     customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' },
     paid: 1000, balance: 370, showBalance: true,
   }), {}],
+  ['with a GST number on it', bill(), { gstin: '29ABCDE1234F1Z5' }],
   ['carrying a balance forward', bill({
     customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' },
     paid: 1000, balance: 870, showBalance: true,

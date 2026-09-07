@@ -250,6 +250,32 @@ async function main() {
   eq('paid prints when the balance is shown', paidRow && paidRow.right, '1000');
   eq('balance prints when the balance is shown', balanceRow && balanceRow.right, '422');
 
+  console.log('\nReceipt document: the GST number');
+  const withGst = shared.buildReceipt(BILL, { ...SETTINGS, gstin: '29ABCDE1234F1Z5' });
+  const gstRow = withGst.rows.find((r) => r.t === 'center' && String(r.text).includes('GSTIN'));
+  check('the GST number prints when the shop has one', gstRow != null,
+    JSON.stringify(withGst.rows.slice(0, 4)));
+  eq('labelled and spelled out', gstRow && gstRow.text, 'GSTIN 29ABCDE1234F1Z5');
+  // Under the shop name, where a customer and an inspector both look.
+  const shopRow = withGst.rows.findIndex((r) => r.t === 'center' && r.text === SETTINGS.shopName);
+  check('directly under the shop name', withGst.rows.indexOf(gstRow) === shopRow + 1);
+  check('and above the bill number',
+    withGst.rows.indexOf(gstRow) < withGst.rows.findIndex((r) => r.t === 'kv' && String(r.left).startsWith('Bill')));
+  check('a shop with no GST number gets no line',
+    !shared.buildReceipt(BILL, { ...SETTINGS, gstin: '' }).rows
+      .some((r) => r.t === 'center' && String(r.text).includes('GSTIN')));
+  check('nor does one with only spaces in the box',
+    !shared.buildReceipt(BILL, { ...SETTINGS, gstin: '   ' }).rows
+      .some((r) => r.t === 'center' && String(r.text).includes('GSTIN')));
+  check('an older settings record without the field still prints',
+    shared.buildReceipt(BILL, SETTINGS).rows.length > 0);
+  const knGst = shared.buildReceipt(
+    BILL, { ...SETTINGS, language: 'kn', gstin: '29ABCDE1234F1Z5' }, shared.receiptLabelsFor('kn'),
+  );
+  check('the label is Kannada on a Kannada slip',
+    knGst.rows.some((r) => r.t === 'center' && String(r.text).includes('29ABCDE1234F1Z5')
+      && /[ಀ-೿]/.test(String(r.text))));
+
   console.log('\nReceipt document: what they already owed');
   const carriedBill = {
     ...BILL,
@@ -713,6 +739,18 @@ async function main() {
     // quietly still answering.
     eq('the item list is gone', (await call('/api/items', { headers: auth })).status, 404);
     eq('adding an item is gone', (await post('/api/items', { nameEn: 'Milk', rate: 28 })).status, 404);
+
+    // Normalised on the way in, like every other figure the browser sends: the number goes on
+    // paper, so it should read the same however it was typed.
+    eq('a GST number is saved, upper-cased and stripped of spacing', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ gstin: '29 abcde 1234 f1z5' }),
+    })).body.gstin, '29ABCDE1234F1Z5');
+    eq('a wrong-looking one is still saved -- warned about, never refused', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ gstin: 'NOTAGST' }),
+    })).body.gstin, 'NOTAGST');
+    eq('and it can be cleared again', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ gstin: '' }),
+    })).body.gstin, '');
 
     eq('the paper size can be changed', (await call('/api/settings', {
       method: 'PUT', headers: auth, body: JSON.stringify({ paper: '80mm' }),
