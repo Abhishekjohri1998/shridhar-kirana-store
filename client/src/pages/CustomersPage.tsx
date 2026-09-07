@@ -6,6 +6,7 @@ import {
   type Bill,
   type Customer,
 } from '@shridhar/shared';
+import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
@@ -25,6 +26,8 @@ export function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<{ customer: Customer; bills: Bill[] } | null>(null);
+  /** The one bill being looked at, from this customer's list. */
+  const [bill, setBill] = useState<Bill | null>(null);
   const [draft, setDraft] = useState<{ id?: string; name: string; phone: string } | null>(null);
 
   const load = async () => {
@@ -200,6 +203,23 @@ export function CustomersPage() {
         </div>
       )}
 
+      {bill ? (
+        <BillDialog
+          bill={bill}
+          onClose={() => setBill(null)}
+          onCancelled={(cancelled) => {
+            // Rewrite the row in the open customer's list, and refresh their running figures --
+            // cancelling took money back out of them.
+            setOpen((prev) =>
+              prev
+                ? { ...prev, bills: prev.bills.map((b) => (b.no === cancelled.no ? cancelled : b)) }
+                : prev,
+            );
+            void load();
+          }}
+        />
+      ) : null}
+
       {open ? (
         <Dialog
           title={open.customer.name || open.customer.phone || 'Customer'}
@@ -244,18 +264,25 @@ export function CustomersPage() {
           ) : (
             <div className="list">
               {open.bills.map((b) => (
-                <div key={b.no} className="list-row" style={{ cursor: 'default' }}>
+                /* Tappable now: the bill is already here in full, so looking at what was printed
+                   -- or cancelling it -- needs no trip to the server. */
+                <button key={b.no} className="list-row" onClick={() => setBill(b)}>
                   <span className="grow">
                     <span style={{ display: 'block' }}>{t('hist.billNo', { no: b.no })}</span>
-                    <span className="muted small">{stamp(b.at)}</span>
+                    <span className="muted small">
+                      {stamp(b.at)}
+                      {b.cancelled ? ' · ' + t('hist.cancelled') : ''}
+                    </span>
                   </span>
                   <span style={{ textAlign: 'right' }}>
-                    <span style={{ display: 'block', fontWeight: 700 }}>{money(b.total)}</span>
-                    {b.paid !== b.total ? (
+                    <span style={{ display: 'block', fontWeight: 700 }}>
+                      {b.cancelled ? '—' : money(b.total)}
+                    </span>
+                    {!b.cancelled && b.paid !== b.total ? (
                       <span className="muted small">{t('cs.paidOf', { amount: money(b.paid) })}</span>
                     ) : null}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}

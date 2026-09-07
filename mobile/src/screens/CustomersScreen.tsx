@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { checkCustomer, money, stamp, type Bill, type Customer } from '@shridhar/shared';
+import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
 import { Button, Empty, ErrorText, Field, Notice } from '../components/ui';
 import { api } from '../lib/api';
@@ -22,6 +23,8 @@ export function CustomersScreen() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<{ customer: Customer; bills: Bill[] } | null>(null);
   const [draft, setDraft] = useState<{ id?: string; name: string; phone: string } | null>(null);
+  /** The one bill being looked at, from this customer's list. */
+  const [bill, setBill] = useState<Bill | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -222,23 +225,44 @@ export function CustomersScreen() {
               <Text style={styles.empty}>{t('cs.noBills')}</Text>
             ) : (
               open.bills.map((b) => (
-                <View key={b.no} style={styles.row}>
+                /* Tappable now: the bill is already here in full, so looking at what was printed
+                   -- or cancelling it -- needs no trip to the server. */
+                <Pressable key={b.no} style={styles.row} onPress={() => setBill(b)}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: C.ink }}>{t('hist.billNo', { no: b.no })}</Text>
-                    <Text style={styles.small}>{stamp(b.at)}</Text>
+                    <Text style={styles.small}>
+                      {stamp(b.at)}
+                      {b.cancelled ? ' · ' + t('hist.cancelled') : ''}
+                    </Text>
                   </View>
                   <View style={styles.right}>
-                    <Text style={styles.name}>{money(b.total)}</Text>
-                    {b.paid !== b.total ? (
+                    <Text style={styles.name}>{b.cancelled ? '—' : money(b.total)}</Text>
+                    {!b.cancelled && b.paid !== b.total ? (
                       <Text style={styles.small}>{t('cs.paidOf', { amount: money(b.paid) })}</Text>
                     ) : null}
                   </View>
-                </View>
+                </Pressable>
               ))
             )}
           </View>
         ) : null}
       </Dialog>
+
+      {/* A sibling, never nested: this app cannot put a Modal inside a Modal. */}
+      <BillDialog
+        bill={bill}
+        onClose={() => setBill(null)}
+        onCancelled={(cancelled) => {
+          // Rewrite the row in the open customer's list, and reload their running figures --
+          // cancelling took money back out of them.
+          setOpen((prev) =>
+            prev
+              ? { ...prev, bills: prev.bills.map((b) => (b.no === cancelled.no ? cancelled : b)) }
+              : prev,
+          );
+          void load();
+        }}
+      />
 
       <Dialog
         visible={draft != null}

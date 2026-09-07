@@ -69,6 +69,8 @@ const billSchema = new Schema<Bill>(
     // made every print return 500, and schematest exists because of it.
     previousBalance: { type: Number, required: false, default: 0 },
     previousBalanceAt: { type: String, required: false, default: null },
+    cancelled: { type: Boolean, required: false, default: false },
+    cancelledAt: { type: String, required: false, default: null },
     showBalance: { type: Boolean, required: true, default: false },
   },
   { versionKey: false },
@@ -199,7 +201,11 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       let previousBalanceAt: string | null = null;
       if (customerId) {
         const owing = await Bills.findOne(
-          { 'customer.id': customerId, $expr: { $lt: ['$paid', '$total'] } },
+          {
+            'customer.id': customerId,
+            cancelled: { $ne: true },
+            $expr: { $lt: ['$paid', '$total'] },
+          },
           { at: 1 },
         )
           .sort({ no: -1 })
@@ -276,9 +282,50 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return bill;
     },
 
+    async cancelBill(no) {
+      /*
+       * The mark is claimed first, with a guard on it not already being set, so two tills cannot
+       * both subtract for the same bill. Only once that claim succeeds are the customer's figures
+       * moved -- and if that fails, the mark comes back off, the same compensation createBill
+       * does when the insert fails. The bill staying live is the safe end of a half-done cancel;
+       * a ledger short of money is not.
+       */
+      const claimed = await Bills.findOneAndUpdate(
+        { no, cancelled: { $ne: true } },
+        { $set: { cancelled: true, cancelledAt: new Date().toISOString() } },
+        { new: true },
+      ).lean();
+
+      if (!claimed) {
+        // Either there is no such bill, or it was already cancelled -- which is not an error.
+        const existing = await Bills.findOne({ no }).lean();
+        return existing ? strip(existing as unknown as Bill) : null;
+      }
+
+      const bill = strip(claimed as unknown as Bill);
+      if (bill.customer) {
+        try {
+          await Customers.updateOne(
+            { id: bill.customer.id },
+            { $inc: { totalBilled: -bill.total, totalPaid: -bill.paid, billCount: -1 } },
+          );
+        } catch (err) {
+          await Bills.updateOne({ no }, { $set: { cancelled: false, cancelledAt: null } })
+            .catch(() => undefined);
+          throw err;
+        }
+      }
+      return bill;
+    },
+
     async todaySummary(): Promise<TodaySummary> {
       const { start, end } = dayBounds();
-      const docs = await Bills.find({ at: { $gte: start.toISOString(), $lt: end.toISOString() } })
+      // A cancelled bill is not a sale. `at` is still its own date, so it would otherwise keep
+      // counting towards the day it was written.
+      const docs = await Bills.find({
+        at: { $gte: start.toISOString(), $lt: end.toISOString() },
+        cancelled: { $ne: true },
+      })
         .select({ total: 1 })
         .lean();
       return {

@@ -609,6 +609,61 @@ async function main() {
     eq('nor does one appear beside them',
       (await call('/api/customers/' + settled.body.id, { headers: auth })).body.balanceAt, null);
 
+    console.log('\nAPI: cancelling a bill');
+    const takingsBefore = await call('/api/summary/today', { headers: auth });
+    const doomed = await post('/api/bills', {
+      lines: [{ itemId: 'z', qty: 1, rate: 300 }], customerId: created.body.id, paid: 100,
+    });
+    const owedAfter = (await call('/api/customers/' + created.body.id, { headers: auth }))
+      .body.customer.balance;
+
+    const cancelled = await post('/api/bills/' + doomed.body.no + '/cancel', {});
+    eq('the bill comes back cancelled', cancelled.body.cancelled, true);
+    check('and dated', typeof cancelled.body.cancelledAt === 'string');
+    eq('its lines are still there', cancelled.body.lines.length, 1);
+    eq('and its number is unchanged', cancelled.body.no, doomed.body.no);
+
+    // The whole point: the money comes back out of the customer's running figures.
+    const after = await call('/api/customers/' + created.body.id, { headers: auth });
+    eq('what they owe drops by what was cancelled',
+      after.body.customer.balance, Math.round((owedAfter - 200) * 100) / 100);
+    eq('so does what they were billed',
+      after.body.customer.totalBilled, detail.body.customer.totalBilled);
+    eq('and what they had paid', after.body.customer.totalPaid, detail.body.customer.totalPaid);
+    eq('and their bill count', after.body.customer.billCount, detail.body.customer.billCount);
+
+    // Still in the book, which is the difference between cancelling and deleting.
+    const stillThere = after.body.bills.find((b) => b.no === doomed.body.no);
+    check('the bill is still in their history', stillThere != null);
+    eq('marked cancelled', stillThere && stillThere.cancelled, true);
+    eq('and it can still be fetched on its own',
+      (await call('/api/bills/' + doomed.body.no, { headers: auth })).body.cancelled, true);
+
+    const todayNow = await call('/api/summary/today', { headers: auth });
+    eq("today's takings are back where they were", todayNow.body.total, takingsBefore.body.total);
+    eq('and so is the count', todayNow.body.count, takingsBefore.body.count);
+
+    // Twice must not subtract twice -- two tills, one slow tap, or a retried request.
+    const twice = await post('/api/bills/' + doomed.body.no + '/cancel', {});
+    eq('cancelling twice is not an error', twice.status, 200);
+    const afterTwice = await call('/api/customers/' + created.body.id, { headers: auth });
+    eq('and does not take the money out again',
+      afterTwice.body.customer.balance, after.body.customer.balance);
+
+    eq('cancelling a bill that does not exist is a 404',
+      (await post('/api/bills/999999/cancel', {})).status, 404);
+
+    // A cancelled bill must not date the next bill's carried balance either.
+    const settledCust = await post('/api/customers', { name: 'Void Test', phone: '9000000088' });
+    const onlyBill = await post('/api/bills', {
+      lines: [{ itemId: 'q', qty: 1, rate: 90 }], customerId: settledCust.body.id, paid: 0,
+    });
+    await post('/api/bills/' + onlyBill.body.no + '/cancel', {});
+    eq('a cancelled bill dates nothing',
+      (await call('/api/customers/' + settledCust.body.id, { headers: auth })).body.balanceAt, null);
+    eq('and leaves them owing nothing',
+      (await call('/api/customers/' + settledCust.body.id, { headers: auth })).body.customer.balance, 0);
+
     eq('a balance cannot be printed without a customer',
       (await post('/api/bills', { lines: LINES, showBalance: true })).status, 400);
     eq('an unknown customer is rejected',

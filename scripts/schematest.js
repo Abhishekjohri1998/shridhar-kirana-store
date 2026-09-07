@@ -127,6 +127,14 @@ function billDoc(lines) {
   check('and reads as carrying nothing', older.previousBalance === 0 && older.previousBalanceAt === null,
     JSON.stringify([older.previousBalance, older.previousBalanceAt]));
 
+  // Cancelling is a flag on the bill, so every bill written before the flag existed has to read
+  // as live rather than as undefined.
+  const voided = new Bill({ ...billDoc(line), cancelled: true, cancelledAt: '2026-09-07T10:00:00' });
+  check('a cancelled bill is valid', !voided.validateSync());
+  check('a bill written before cancelling existed reads as live',
+    older.cancelled === false && older.cancelledAt === null,
+    JSON.stringify([older.cancelled, older.cancelledAt]));
+
   // What must still be refused, so this has not simply turned validation off.
   const noRate = new Bill(billDoc([{ itemId: 'x', nameKn: '', nameEn: '', qty: 1 }]));
   check('a line with no rate is refused', Boolean(noRate.validateSync()));

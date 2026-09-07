@@ -1,39 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { buildReceipt, money, stamp, type Bill } from '@shridhar/shared';
-import { Dialog } from '../components/Dialog';
-import { ReceiptView } from '../components/ReceiptView';
-import { Button, Empty, ErrorText } from '../components/ui';
-import { usePrint } from '../lib/usePrint';
+import { money, stamp, type Bill } from '@shridhar/shared';
+import { BillDialog } from '../components/BillDialog';
+import { Empty } from '../components/ui';
 import { useShop } from '../lib/useShop';
 import { C, R, shadow } from '../theme';
 import { HistoryIcon } from '../components/Icons';
 
 export function HistoryScreen() {
   const shop = useShop();
-  const printer = usePrint();
   const t = shop.t;
   const [open, setOpen] = useState<Bill | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const doc = useMemo(
-    () => (open ? buildReceipt(open, shop.settings, shop.receiptLabels) : null),
-    [open, shop.settings, shop.receiptLabels],
-  );
-
-  const reprint = async (bill: Bill) => {
-    setError(null);
-    try {
-      await printer.printBill(bill, shop.settings);
-      setOpen(null);
-    } catch (e) {
-      setError(t('hist.couldNotPrint') + ': ' + (e instanceof Error ? e.message : String(e)));
-    }
-  };
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content}>
-      {error ? <ErrorText>{error}</ErrorText> : null}
 
       {/* Not a reports module -- the one number the shopkeeper counts the drawer against. */}
       <View style={styles.summary}>
@@ -54,31 +34,16 @@ export function HistoryScreen() {
               <Text style={styles.when}>
                 {stamp(bill.at)} ·{' '}
                 {bill.lines.length === 1 ? t('hist.oneItem') : t('hist.nItems', { n: bill.lines.length })}
+                {bill.cancelled ? ' · ' + t('hist.cancelled') : ''}
               </Text>
             </View>
-            <Text style={styles.total}>{money(bill.total)}</Text>
+            {/* A cancelled bill shows no amount: it is not money the shop took. */}
+            <Text style={styles.total}>{bill.cancelled ? '—' : money(bill.total)}</Text>
           </Pressable>
         ))
       )}
 
-      <Dialog
-        visible={open != null}
-        title={open ? t('hist.billNo', { no: open.no }) : ''}
-        onClose={() => setOpen(null)}
-        footer={
-          <>
-            <Button label={t('common.close')} tone="plain" onPress={() => setOpen(null)} style={{ flex: 1 }} />
-            <Button
-              label={printer.busy ? t('hist.printing') : t('hist.printAgain')}
-              onPress={() => open && void reprint(open)}
-              disabled={printer.busy}
-              style={{ flex: 1 }}
-            />
-          </>
-        }
-      >
-        {doc ? <ReceiptView doc={doc} /> : null}
-      </Dialog>
+      <BillDialog bill={open} onClose={() => setOpen(null)} />
     </ScrollView>
   );
 }

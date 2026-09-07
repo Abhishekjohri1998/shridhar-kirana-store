@@ -74,6 +74,8 @@ export const api = {
   listBills: (limit = 100) => request<Bill[]>('/bills?limit=' + limit),
   createBill: (payload: { lines: BillLine[]; customerId?: string; paid?: number; showBalance?: boolean }) =>
     request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }),
+  /** Marks a bill cancelled and takes it out of the customer's totals. Not a delete. */
+  cancelBill: (no: number) => request<Bill>('/bills/' + no + '/cancel', { method: 'POST' }),
   today: () => request<TodaySummary>('/summary/today'),
 
   listCustomers: () => request<Customer[]>('/customers'),

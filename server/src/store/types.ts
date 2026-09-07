@@ -41,6 +41,14 @@ export type Repo = {
    * forward. Never trusts a total from the browser.
    */
   createBill(input: NewBill): Promise<Bill>;
+  /**
+   * Marks a bill cancelled and takes it back out of the customer's running figures.
+   *
+   * Not a delete: the customer may hold the printed slip, and later bills of theirs carry this
+   * one's balance as a snapshot, so removing it would leave those quietly wrong. Idempotent --
+   * cancelling twice must not subtract twice. Returns null when there is no such bill.
+   */
+  cancelBill(no: number): Promise<Bill | null>;
   todaySummary(): Promise<TodaySummary>;
 
   listCustomers(): Promise<Customer[]>;

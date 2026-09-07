@@ -80,8 +80,8 @@ npm run apk      # build an installable .apk (needs an Expo account)
 ```
 
 ```bash
-npm test     # typecheck, then 673 checks: 301 field-rule, 45 translation,
-             # 39 rasteriser-parity, 99 printer/Bluetooth, 13 schema, 176 pipeline/API
+npm test     # typecheck, then 725 checks: 304 field-rule, 47 translation,
+             # 47 rasteriser-parity, 99 printer/Bluetooth, 27 schema, 201 pipeline/API
 npm run build && npm start     # production: one process on port 4000 serving API + app
 ```
 
@@ -429,6 +429,7 @@ Everything except `/api/health` and `/api/auth/login` needs `Authorization: Bear
 | `PUT` `DELETE` | `/api/customers/:id` | Edit or remove |
 | `GET` | `/api/bills?limit=&customerId=` | Newest first |
 | `GET` | `/api/bills/:no` | One bill |
+| `POST` | `/api/bills/:no/cancel` | Marks a bill cancelled and takes it back out of the customer's totals. Not a delete: the customer may hold the slip, and later bills carry this one's balance as a snapshot |
 | `POST` | `/api/bills` | `{ lines, customerId?, paid?, showBalance? }`. **The server assigns the number and computes the total and the balance** — figures sent by the browser are ignored |
 | `GET` | `/api/summary/today` | `{ count, total }` |
 

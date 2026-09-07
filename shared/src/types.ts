@@ -84,6 +84,16 @@ export type Bill = {
   previousBalanceAt?: string | null;
   /** Whether the paid and balance lines print. The shop wants this optional per bill. */
   showBalance: boolean;
+  /**
+   * Set when the bill has been cancelled.
+   *
+   * Cancelled rather than deleted, and the record stays whole: the customer may be holding the
+   * printed slip, and a later bill of theirs has this one's balance baked into it, so a bill that
+   * simply vanished would leave the ones after it quietly wrong. A cancelled bill keeps its
+   * number and its lines and stops counting towards any total.
+   */
+  cancelled?: boolean;
+  cancelledAt?: string | null;
 };
 
 /** A customer, plus the running figures the shop asked to see for each of them. */

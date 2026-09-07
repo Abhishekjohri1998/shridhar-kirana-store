@@ -108,7 +108,7 @@ api.get('/customers/:id', handler(async (req, res) => {
    * The bill screen asks for it when it attaches a customer who owes something, so the preview
    * shows the same date the paper will.
    */
-  const owing = bills.find((b) => b.paid < b.total);
+  const owing = bills.find((b) => !b.cancelled && b.paid < b.total);
   res.json({ customer, bills, balanceAt: owing ? owing.at : null });
 }));
 
@@ -144,6 +144,15 @@ api.get('/bills', handler(async (req, res) => {
 api.get('/bills/:no', handler(async (req, res) => {
   const no = z.coerce.number().int().positive().parse(req.params.no);
   const bill = await getRepo().getBill(no);
+  if (!bill) throw new HttpError(404, 'No such bill');
+  res.json(bill);
+}));
+
+/* Cancelled, not deleted: see Repo.cancelBill. A POST rather than a DELETE because the bill is
+   still there afterwards -- it is a state change, not a removal. */
+api.post('/bills/:no/cancel', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const bill = await getRepo().cancelBill(no);
   if (!bill) throw new HttpError(404, 'No such bill');
   res.json(bill);
 }));

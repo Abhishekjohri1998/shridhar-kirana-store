@@ -105,7 +105,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
             // by subtracting this bill back out of the after state.
             previousBalance = customerBalance(row);
             const owing = db.bills
-              .filter((b) => b.customer?.id === customerId && b.paid < b.total)
+              .filter((b) => b.customer?.id === customerId && !b.cancelled && b.paid < b.total)
               .sort((a, b) => b.no - a.no)[0];
             previousBalanceAt = owing ? owing.at : null;
 
@@ -137,9 +137,34 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       });
     },
 
+    cancelBill(no) {
+      // Serialised, so the read-then-write cannot interleave and subtract twice.
+      return serial(async () => {
+        const bill = db.bills.find((b) => b.no === no);
+        if (!bill) return null;
+        // Already cancelled is not an error, and must not subtract a second time.
+        if (bill.cancelled) return { ...bill };
+
+        bill.cancelled = true;
+        bill.cancelledAt = new Date().toISOString();
+        if (bill.customer) {
+          const row = db.customers.find((c) => c.id === bill.customer?.id);
+          if (row) {
+            row.totalBilled = round2(row.totalBilled - bill.total);
+            row.totalPaid = round2(row.totalPaid - bill.paid);
+            row.billCount = Math.max(0, row.billCount - 1);
+          }
+        }
+        await flush();
+        return { ...bill };
+      });
+    },
+
     async todaySummary(): Promise<TodaySummary> {
       const { start, end } = dayBounds();
+      // A cancelled bill is not a sale, though it keeps its own date.
       const today = db.bills.filter((b) => {
+        if (b.cancelled) return false;
         const t = new Date(b.at).getTime();
         return t >= start.getTime() && t < end.getTime();
       });
