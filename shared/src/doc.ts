@@ -11,8 +11,9 @@ export const PAPER_WIDTH = 384;
  *  survive the print head, short enough that a long bill still fits on a sensible length of roll. */
 export const INK_ROW_HEIGHT = 46;
 
-/** Printed thickness of a pen stroke, in dots. Thin enough to keep Kannada legible at 58mm. */
-export const INK_STROKE_DOTS = 3;
+// The pen's thickness, its overhang and the gutter before it all live with the rest of the
+// handwriting geometry; re-exported here because every renderer already imports them from doc.
+export { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS } from './ink';
 
 /**
  * Measurements both rasterisers need. They live here because there are two of them -- the web

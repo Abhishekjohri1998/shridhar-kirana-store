@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { INK_STROKE_DOTS, RASTER, type ReceiptDoc } from '@shridhar/shared';
+import { INK_GUTTER, INK_STROKE_DOTS, RASTER, type ReceiptDoc } from '@shridhar/shared';
 import { InkView } from './InkView';
 import { C } from '../theme';
 
@@ -47,7 +47,7 @@ export function ReceiptView({ doc, width = 300 }: { doc: ReceiptDoc; width?: num
         return (
           <View key={i} style={styles.item}>
             <Text style={[styles.text, st, { width: px(RASTER.qtyCol) }]}>{row.no}</Text>
-            <View style={styles.middle}>
+            <View style={[styles.middle, { paddingLeft: px(INK_GUTTER) }]}>
               {row.t === 'ink' ? (
                 <InkView
                   ink={row.ink}

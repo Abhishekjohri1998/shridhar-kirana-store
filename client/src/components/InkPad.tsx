@@ -165,9 +165,15 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
     // Bounded by the content box -- the same box `box()` records and `redraw()` paints into --
     // so a saved point can never sit outside the box it is measured against.
     const canvas = e.currentTarget;
+    // Held half a pen-width in from the edges. Clamped to 0 the line is drawn centred on the
+    // boundary and half of it falls off the bitmap, which is exactly the content box -- so the
+    // shopkeeper saw the first letter cut while writing it. In pad pixels, not printer dots.
+    const edge = STROKE_WIDTH / 2;
+    const span = (v: number, size: number) =>
+      Math.min(Math.max(v, edge), Math.max(edge, size - edge));
     return {
-      x: Math.min(Math.max(e.clientX - rect.left, 0), canvas.clientWidth),
-      y: Math.min(Math.max(e.clientY - rect.top, 0), canvas.clientHeight),
+      x: span(e.clientX - rect.left, canvas.clientWidth),
+      y: span(e.clientY - rect.top, canvas.clientHeight),
     };
   };
 

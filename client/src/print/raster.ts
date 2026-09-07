@@ -1,5 +1,5 @@
 import {
-  INK_ROW_HEIGHT, INK_STROKE_DOTS, RASTER, fitPrefix, inkBounds, inkMaxWidth,
+  INK_BLEED, INK_GUTTER, INK_ROW_HEIGHT, INK_STROKE_DOTS, RASTER, fitPrefix, inkBounds,
   type Ink, type ReceiptDoc,
 } from '@shridhar/shared';
 
@@ -150,14 +150,20 @@ export function rasterize(doc: ReceiptDoc): Raster {
 
     meas.font = font(ITEM, false);
     const amountW = meas.measureText(row.amount).width;
-    const nameX = PAD + RASTER.qtyCol;
+    // The gutter belongs to the whole description column, not to the handwriting alone: indent
+    // only the ink and a typed line like "Old bal." would sit a millimetre to its left.
+    const nameX = PAD + RASTER.qtyCol + INK_GUTTER;
     const nameMax = Math.max(40, W - PAD - amountW - 12 - nameX);
     ops.push({ op: 'text', text: row.no, x: PAD, y, size: ITEM, bold: false, align: 'left' });
     ops.push({ op: 'text', text: row.amount, x: W - PAD, y, size: ITEM, bold: false, align: 'right' });
 
     if (row.t === 'ink') {
-      const inkMax = Math.min(inkMaxWidth(W), nameMax);
-      ops.push({ op: 'ink', ink: row.ink, x: nameX, y, scale: row.scale, originY: row.originY });
+      // Shifted by the pen's overhang so its painted edge lands on the column, not half outside
+      // it. The width cap is already in row.scale, worked out by planInk across the whole slip.
+      ops.push({
+        op: 'ink', ink: row.ink, x: nameX + INK_BLEED, y: y + INK_BLEED,
+        scale: row.scale, originY: row.originY,
+      });
       // A shared scale means nothing overruns the row, so the row height is simply the row.
       y += INK_ROW_HEIGHT;
       if (row.note) {

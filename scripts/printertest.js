@@ -299,7 +299,8 @@ function phoneRasterize(doc) {
       threshold: shared.RASTER.threshold,
       inkRowHeight: shared.INK_ROW_HEIGHT,
       inkStrokeDots: shared.INK_STROKE_DOTS,
-      inkMaxWidth: shared.inkMaxWidth(doc.width),
+      inkGutter: shared.INK_GUTTER,
+      inkBleed: shared.INK_BLEED,
     }),
   );
   const result = messages[messages.length - 1];

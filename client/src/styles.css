@@ -1134,9 +1134,12 @@ select.input {
   gap: calc(var(--dot) * 8);
 }
 
+/* First column is the 44-dot number column plus the 8 dots of gutter the rasterisers add to
+   nameX, so the description starts where the printed one does and the number does not move.
+   INK_GUTTER in shared/src/ink.ts is that 8. */
 .receipt .r-item {
   display: grid;
-  grid-template-columns: calc(var(--dot) * 44) minmax(0, 1fr) auto;
+  grid-template-columns: calc(var(--dot) * 52) minmax(0, 1fr) auto;
   gap: calc(var(--dot) * 8);
   align-items: start;
 }

@@ -166,7 +166,8 @@ function phoneRasterize(doc) {
       threshold: shared.RASTER.threshold,
       inkRowHeight: shared.INK_ROW_HEIGHT,
       inkStrokeDots: shared.INK_STROKE_DOTS,
-      inkMaxWidth: shared.inkMaxWidth(doc.width),
+      inkGutter: shared.INK_GUTTER,
+      inkBleed: shared.INK_BLEED,
     }),
   );
   const result = messages[messages.length - 1];
@@ -318,7 +319,65 @@ for (const [label, theBill, settingsPatch] of CASES) {
   let black = 0;
   for (const byte of a) for (let bit = 0; bit < 8; bit++) if (byte & (1 << bit)) black++;
   check(label + ': actually drew something', black > 200, black + ' black dots');
+
 }
+
+/*
+ * Where the ink actually lands.
+ *
+ * Everything above is differential: it proves the two rasterisers agree, not that either is
+ * right. Shift the writing in both and every check still passes. So this rasterises a document
+ * built by hand -- one ink row, nothing else -- whose strokes start at x = 0 in their own
+ * coordinates. That is the stroke that used to be drawn hard against the column edge and shaved.
+ *
+ * The fake canvas plots one-pixel centrelines and ignores lineWidth, so this measures the pen's
+ * path rather than its painted edge: the path should sit a bleed inside the gutter.
+ */
+console.log('');
+console.log('The writing starts clear of the column');
+
+const EDGE_INK = { w: 200, h: 100, strokes: [[0, 0, 40, 50, 0, 100], [70, 0, 70, 100]] };
+const NAME_X = shared.RASTER.pad + shared.RASTER.qtyCol;
+
+for (const paper of ['58mm', '80mm']) {
+  const width = shared.paperProfile(paper).dots;
+  const plan = shared.planInk([EDGE_INK], shared.inkMaxWidth(width), shared.INK_ROW_HEIGHT);
+  const inkDoc = {
+    width,
+    rows: [{ t: 'ink', no: '1', ink: EDGE_INK, amount: '5', scale: plan.scale, originY: plan.originY }],
+  };
+
+  for (const [who, rasterise] of [['web', webRasterize], ['phone', phoneRasterize]]) {
+    const img = rasterise(inkDoc);
+    const bpr = Math.ceil(img.width / 8);
+    const on = (row, col) => ((img.bits[row * bpr + (col >> 3)] >> (7 - (col & 7))) & 1) === 1;
+
+    // Only the description column: the serial number is drawn at `pad` and would always win.
+    let leftmost = Infinity;
+    for (let row = 0; row < img.height; row++) {
+      for (let col = NAME_X; col < img.width; col++) {
+        if (on(row, col)) { if (col < leftmost) leftmost = col; break; }
+      }
+    }
+    /*
+     * Deliberately measured against literal dots rather than against INK_GUTTER. Asserting
+     * `leftmost >= NAME_X + INK_GUTTER` reads well and proves nothing: set the gutter to zero
+     * and the expectation moves with it, so the check passes on exactly the layout it exists to
+     * forbid. Tried it -- it passed. These are the numbers a person would hold a ruler to.
+     */
+    check(
+      paper + ' ' + who + ': the writing starts clear of the column, not on its edge',
+      leftmost >= NAME_X + 4,
+      'leftmost stroke at ' + leftmost + ', wanted at least half a millimetre in, ' + (NAME_X + 4),
+    );
+    check(
+      paper + ' ' + who + ': and is not shoved halfway across the column',
+      leftmost <= NAME_X + 16,
+      'leftmost stroke at ' + leftmost + ', more than two millimetres in',
+    );
+  }
+}
+
 
 fs.rmSync(BUILD, { recursive: true, force: true });
 

@@ -1,5 +1,5 @@
 import Svg, { Path } from 'react-native-svg';
-import { inkBounds, inkToSvgPath, type Ink } from '@shridhar/shared';
+import { INK_BLEED, inkBounds, inkToSvgPath, type Ink } from '@shridhar/shared';
 
 /**
  * Handwriting drawn from the stored strokes. Vectors, so the same ink is sharp in a cart row and
@@ -24,14 +24,23 @@ export function InkView({
   strokeDots: number;
   color?: string;
 }) {
+  /*
+   * The box is grown by the pen's overhang before anything is drawn in it.
+   *
+   * `inkBounds` measures the path; the stroke is centred on that path and capped round, so half
+   * its width lies outside. react-native-svg has no `overflow: visible` -- the SVG canvas *is*
+   * the native view frame -- so sizing to the raw bounds shaved the outer edge of every letter,
+   * and the round cap took a bite out of the first one. That is the cut the shop reported.
+   */
   const box = inkBounds(ink);
-  const viewW = Math.max(1, box.maxX - box.minX);
-  const viewH = Math.max(1, box.maxY - originY);
+  const bleed = INK_BLEED / scale;
+  const viewW = Math.max(1, box.maxX - box.minX) + 2 * bleed;
+  const viewH = Math.max(1, box.maxY - originY) + 2 * bleed;
   return (
     <Svg
       width={viewW * scale * dot}
       height={viewH * scale * dot}
-      viewBox={box.minX + ' ' + originY + ' ' + viewW + ' ' + viewH}
+      viewBox={(box.minX - bleed) + ' ' + (originY - bleed) + ' ' + viewW + ' ' + viewH}
       preserveAspectRatio="xMinYMid meet"
     >
       <Path

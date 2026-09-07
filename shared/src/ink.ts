@@ -1,5 +1,24 @@
 import type { Ink } from './types';
 
+/** Printed thickness of a pen stroke, in dots. Thin enough to keep Kannada legible at 58mm. */
+export const INK_STROKE_DOTS = 3;
+
+/**
+ * How far the pen overhangs its own path, in dots.
+ *
+ * A stroke is centred on the path and capped round, so half its width lies outside the box
+ * `inkBounds` returns. Size a viewport to those bounds, clip to it, and the outer edge of every
+ * letter is shaved -- the first one most visibly, which is what the shop reported.
+ */
+export const INK_BLEED = Math.ceil(INK_STROKE_DOTS / 2);
+
+/**
+ * Space before the writing starts, in dots. A dot is an eighth of a millimetre at 203 dpi, so
+ * this is about a millimetre: enough that the first letter never sits against the edge of the
+ * column, cheap against the 260 the column has on a 58mm roll.
+ */
+export const INK_GUTTER = 8;
+
 export type InkBox = { minX: number; minY: number; maxX: number; maxY: number };
 
 /** The box the strokes actually occupy, which is usually smaller than the box drawn in. */
@@ -63,6 +82,11 @@ export type InkPlan = {
  *
  * The tallest line fills the row; the rest keep their true size against it. The vertical origin
  * is shared so the lines rest on a common baseline rather than each being trimmed to its own box.
+ *
+ * The gutter and the pen's overhang come out of the budget here, before a scale is chosen, rather
+ * than being subtracted from the drawing afterwards -- otherwise the writing is sized to a space
+ * it no longer has and the tallest line overruns its row. The row layout depends on that not
+ * happening: it advances by a flat INK_ROW_HEIGHT.
  */
 export function planInk(inks: readonly Ink[], maxWidth: number, targetHeight: number): InkPlan {
   let minY = Infinity;
@@ -78,7 +102,9 @@ export function planInk(inks: readonly Ink[], maxWidth: number, targetHeight: nu
   if (!Number.isFinite(minY)) return { scale: 1, originY: 0, height: 0 };
 
   const unionH = Math.max(1, maxY - minY);
-  const scale = Math.min(targetHeight / unionH, maxWidth / widest);
+  const roomH = Math.max(1, targetHeight - 2 * INK_BLEED);
+  const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
+  const scale = Math.min(roomH / unionH, roomW / widest);
   return { scale, originY: minY, height: unionH * scale };
 }
 

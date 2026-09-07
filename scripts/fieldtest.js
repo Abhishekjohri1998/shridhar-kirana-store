@@ -202,7 +202,17 @@ const ROW = 46;
 const WIDTH = SH.inkMaxWidth(384);
 
 const both = SH.planInk([TALL, SMALL], WIDTH, ROW);
-check('the tallest line fills the row', Math.abs(both.height - ROW) < 0.001, String(both.height));
+/*
+ * The row less the pen's overhang, top and bottom. A stroke is centred on its path and capped
+ * round, so sizing the writing to the full row height put half the pen outside the row -- and
+ * outside the box the phone's preview clips to, which is what cut the first letter.
+ */
+const ROOM = ROW - 2 * SH.INK_BLEED;
+check('the tallest line fills the row, less the pen', Math.abs(both.height - ROOM) < 0.001,
+  both.height + ' vs ' + ROOM);
+check('and the pen has somewhere to go', SH.INK_BLEED * 2 >= SH.INK_STROKE_DOTS,
+  'bleed ' + SH.INK_BLEED + ' vs stroke ' + SH.INK_STROKE_DOTS);
+check('the gutter is real', SH.INK_GUTTER > 0, String(SH.INK_GUTTER));
 check('the origin is the top of the union', both.originY === 10, String(both.originY));
 const drawnSmall = (SH.inkBounds(SMALL).maxY - both.originY) * both.scale;
 const drawnTall = (SH.inkBounds(TALL).maxY - both.originY) * both.scale;
@@ -210,8 +220,16 @@ check('the small line stays smaller than the tall one', drawnSmall < drawnTall *
   drawnSmall + ' vs ' + drawnTall);
 check('order does not change the plan',
   JSON.stringify(SH.planInk([SMALL, TALL], WIDTH, ROW)) === JSON.stringify(both));
-check('a line on its own is unchanged',
-  Math.abs(SH.planInk([TALL], WIDTH, ROW).scale - SH.inkFit(TALL, WIDTH, ROW).scale) < 1e-9);
+// inkFit still fits the space it is given exactly -- it is the thumbnail's rule, not the slip's.
+// Give it the same reduced space and the two agree, which is what says planInk subtracts the
+// gutter and the pen rather than doing something else to the scale.
+check('a line on its own matches a plain fit of the room it has',
+  Math.abs(
+    SH.planInk([TALL], WIDTH, ROW).scale
+      - SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROOM).scale,
+  ) < 1e-9,
+  SH.planInk([TALL], WIDTH, ROW).scale + ' vs '
+    + SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROOM).scale);
 const wide = SH.planInk([WIDE, SMALL], WIDTH, ROW);
 check('a line too wide for the paper caps the scale',
   (SH.inkBounds(WIDE).maxX - SH.inkBounds(WIDE).minX) * wide.scale <= WIDTH + 0.001,

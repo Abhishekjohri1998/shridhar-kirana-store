@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
-  INK_STROKE_DOTS, inkBounds, inkToSvgPath,
+  INK_BLEED, INK_STROKE_DOTS, inkBounds, inkToSvgPath,
   type Ink, type ReceiptDoc,
 } from '@shridhar/shared';
 
@@ -22,14 +22,18 @@ function InkMark({
 }: { ink: Ink; scale: number; originY: number; alt: string }) {
   // scale and originY are the slip's, not this line's: sizing each line to its own box is what
   // printed a short word as large as a tall one.
+  // Grown by the pen's overhang, so the stroke sits inside its own box rather than hanging out
+  // of it. This one is saved by `overflow: visible` below, but a box that does not contain what
+  // is drawn in it also mis-measures the layout around it.
   const box = inkBounds(ink);
-  const viewW = Math.max(1, box.maxX - box.minX);
-  const viewH = Math.max(1, box.maxY - originY);
+  const bleed = INK_BLEED / scale;
+  const viewW = Math.max(1, box.maxX - box.minX) + 2 * bleed;
+  const viewH = Math.max(1, box.maxY - originY) + 2 * bleed;
   return (
     <svg
       width={dots(viewW * scale)}
       height={dots(viewH * scale)}
-      viewBox={box.minX + ' ' + originY + ' ' + viewW + ' ' + viewH}
+      viewBox={(box.minX - bleed) + ' ' + (originY - bleed) + ' ' + viewW + ' ' + viewH}
       preserveAspectRatio="xMinYMid meet"
       style={{ display: 'block', overflow: 'visible' }}
       aria-label={alt}

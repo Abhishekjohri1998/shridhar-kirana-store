@@ -149,7 +149,8 @@ export const RASTER_SCRIPT = `
       var QTY_COL = payload.qtyCol;
       var THRESHOLD = payload.threshold;
       var INK_H = payload.inkRowHeight;
-      var INK_W = payload.inkMaxWidth;
+      var INK_GUTTER = payload.inkGutter;
+      var INK_BLEED = payload.inkBleed;
       var INK_S = payload.inkStrokeDots;
       var W = doc.width;
 
@@ -182,14 +183,21 @@ export const RASTER_SCRIPT = `
 
         meas.font = font(ITEM, false);
         var amtW = meas.measureText(row.amount).width;
-        var nameX = PAD + QTY_COL;
+        // The gutter belongs to the whole description column, not to the handwriting alone.
+        // The gutter belongs to the whole description column, not to the handwriting alone:
+        // indent only the ink and a typed line like "Old bal." would sit a millimetre left of it.
+        var nameX = PAD + QTY_COL + INK_GUTTER;
         var nameMax = Math.max(40, (W - PAD - amtW - 12) - nameX);
         ops.push({ op: 'text', text: row.no, x: PAD, y: y, size: ITEM, bold: false, align: 'left' });
         ops.push({ op: 'text', text: row.amount, x: W - PAD, y: y, size: ITEM, bold: false, align: 'right' });
 
         if (row.t === 'ink') {
-          var inkMax = Math.min(INK_W, nameMax);
-          ops.push({ op: 'ink', ink: row.ink, x: nameX, y: y, scale: row.scale, originY: row.originY });
+          // Shifted by the pen's overhang so its painted edge lands on the column, not half
+          // outside it. The width cap is already in row.scale, from planInk.
+          ops.push({
+            op: 'ink', ink: row.ink, x: nameX + INK_BLEED, y: y + INK_BLEED,
+            scale: row.scale, originY: row.originY
+          });
           // A shared scale means nothing overruns the row.
           y += INK_H;
           if (row.note) {

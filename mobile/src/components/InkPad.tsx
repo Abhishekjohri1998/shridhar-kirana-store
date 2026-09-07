@@ -94,7 +94,14 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
    *  shrink the handwriting once it is scaled to fit the receipt column. */
   const clamp = useCallback((x: number, y: number): Point => {
     const { w, h } = sizeRef.current;
-    return { x: Math.min(Math.max(x, 0), w), y: Math.min(Math.max(y, 0), h) };
+    // Held half a pen-width in from the edges. Clamped to 0 the line was drawn centred on the
+    // boundary, so half of it fell outside a pad that is overflow: hidden -- the shopkeeper saw
+    // the first letter cut while writing it. In pad pixels, not printer dots.
+    const edge = STROKE_WIDTH / 2;
+    return {
+      x: Math.min(Math.max(x, edge), Math.max(edge, w - edge)),
+      y: Math.min(Math.max(y, edge), Math.max(edge, h - edge)),
+    };
   }, []);
 
   /**
