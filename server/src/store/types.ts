@@ -75,6 +75,32 @@ export function customerBalance(c: { totalBilled: number; totalPaid: number }): 
   return Math.round((c.totalBilled - c.totalPaid) * 100) / 100;
 }
 
+/**
+ * The update document for "set these fields, and seed the rest if the row is new".
+ *
+ * MongoDB rejects an update whose operators touch the same path twice -- error 40,
+ * ConflictingUpdateOperators -- so a field in `$set` must not also appear in `$setOnInsert`. It
+ * did: settings were saved with `{ $set: patch, $setOnInsert: { ...DEFAULT_SETTINGS } }`, and
+ * every settings field is in the defaults, so *every* save failed against Atlas with a 500 while
+ * passing against the JSON file store the tests drive. The shop found it by trying to rename
+ * itself.
+ *
+ * Empty operators are left out entirely: Mongo rejects `$set: {}` as well.
+ */
+export function upsertDoc(
+  patch: Record<string, unknown>,
+  seed: Record<string, unknown>,
+): Record<string, Record<string, unknown>> {
+  const onInsert: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(seed)) {
+    if (!(k in patch)) onInsert[k] = v;
+  }
+  const doc: Record<string, Record<string, unknown>> = {};
+  if (Object.keys(patch).length > 0) doc.$set = patch;
+  if (Object.keys(onInsert).length > 0) doc.$setOnInsert = onInsert;
+  return doc;
+}
+
 /** The cutoff a customer must have been seen after to count as active. */
 export function inactiveCutoff(days: number, now = new Date()): Date {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);

@@ -1,6 +1,6 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
 import { lineAmount, money, round2 } from './money';
-import { planInk } from './ink';
+import { INK_BLEED, planInk } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 
@@ -8,8 +8,13 @@ import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 export const PAPER_WIDTH = 384;
 
 /** Dot height a handwritten description is scaled to. Tall enough for Kannada vowel signs to
- *  survive the print head, short enough that a long bill still fits on a sensible length of roll. */
-export const INK_ROW_HEIGHT = 46;
+ *  survive the print head, short enough that a long bill still fits on a sensible length of roll.
+ *  Raised from 46 at the shop's asking: their own hand is the point of the slip, and it was
+ *  printing smaller than the machine text beside it. */
+export const INK_ROW_HEIGHT = 64;
+
+/** What a hand-written row advances by: the writing, plus room for the pen above and below it. */
+export const INK_ROW_ADVANCE = INK_ROW_HEIGHT + 2 * INK_BLEED;
 
 // The pen's thickness, its overhang and the gutter before it all live with the rest of the
 // handwriting geometry; re-exported here because every renderer already imports them from doc.

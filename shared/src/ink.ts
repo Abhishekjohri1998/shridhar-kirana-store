@@ -83,10 +83,9 @@ export type InkPlan = {
  * The tallest line fills the row; the rest keep their true size against it. The vertical origin
  * is shared so the lines rest on a common baseline rather than each being trimmed to its own box.
  *
- * The gutter and the pen's overhang come out of the budget here, before a scale is chosen, rather
- * than being subtracted from the drawing afterwards -- otherwise the writing is sized to a space
- * it no longer has and the tallest line overruns its row. The row layout depends on that not
- * happening: it advances by a flat INK_ROW_HEIGHT.
+ * The gutter comes out of the width budget here, before a scale is chosen, rather than being
+ * subtracted from the drawing afterwards -- otherwise the writing is sized to a space it no
+ * longer has and a long line overruns the column.
  */
 export function planInk(inks: readonly Ink[], maxWidth: number, targetHeight: number): InkPlan {
   let minY = Infinity;
@@ -102,9 +101,12 @@ export function planInk(inks: readonly Ink[], maxWidth: number, targetHeight: nu
   if (!Number.isFinite(minY)) return { scale: 1, originY: 0, height: 0 };
 
   const unionH = Math.max(1, maxY - minY);
-  const roomH = Math.max(1, targetHeight - 2 * INK_BLEED);
+  // targetHeight is what the writing gets, not what the row is: the row is taller by the pen's
+  // overhang (INK_ROW_ADVANCE). Taking the overhang out of the writing instead made every slip's
+  // handwriting a little smaller, which the shop noticed. Width is different -- the column is a
+  // fixed width, so the gutter and the overhang genuinely come out of it.
   const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
-  const scale = Math.min(roomH / unionH, roomW / widest);
+  const scale = Math.min(targetHeight / unionH, roomW / widest);
   return { scale, originY: minY, height: unionH * scale };
 }
 

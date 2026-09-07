@@ -164,7 +164,7 @@ function phoneRasterize(doc) {
       itemSize: shared.RASTER.itemSize,
       qtyCol: shared.RASTER.qtyCol,
       threshold: shared.RASTER.threshold,
-      inkRowHeight: shared.INK_ROW_HEIGHT,
+      inkRowAdvance: shared.INK_ROW_ADVANCE,
       inkStrokeDots: shared.INK_STROKE_DOTS,
       inkGutter: shared.INK_GUTTER,
       inkBleed: shared.INK_BLEED,

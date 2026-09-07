@@ -203,13 +203,15 @@ const WIDTH = SH.inkMaxWidth(384);
 
 const both = SH.planInk([TALL, SMALL], WIDTH, ROW);
 /*
- * The row less the pen's overhang, top and bottom. A stroke is centred on its path and capped
- * round, so sizing the writing to the full row height put half the pen outside the row -- and
- * outside the box the phone's preview clips to, which is what cut the first letter.
+ * The writing gets the whole height it is given; the pen's overhang is added to the *row* around
+ * it (INK_ROW_ADVANCE), not taken out of the writing. Taking it out of the writing was the first
+ * attempt and made every slip's handwriting slightly smaller, which the shop noticed at once.
  */
-const ROOM = ROW - 2 * SH.INK_BLEED;
-check('the tallest line fills the row, less the pen', Math.abs(both.height - ROOM) < 0.001,
-  both.height + ' vs ' + ROOM);
+check('the tallest line fills the height it is given', Math.abs(both.height - ROW) < 0.001,
+  both.height + ' vs ' + ROW);
+check('and the row is taller than the writing, to hold the pen',
+  SH.INK_ROW_ADVANCE === SH.INK_ROW_HEIGHT + 2 * SH.INK_BLEED,
+  SH.INK_ROW_ADVANCE + ' vs ' + SH.INK_ROW_HEIGHT);
 check('and the pen has somewhere to go', SH.INK_BLEED * 2 >= SH.INK_STROKE_DOTS,
   'bleed ' + SH.INK_BLEED + ' vs stroke ' + SH.INK_STROKE_DOTS);
 check('the gutter is real', SH.INK_GUTTER > 0, String(SH.INK_GUTTER));
@@ -226,10 +228,10 @@ check('order does not change the plan',
 check('a line on its own matches a plain fit of the room it has',
   Math.abs(
     SH.planInk([TALL], WIDTH, ROW).scale
-      - SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROOM).scale,
+      - SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROW).scale,
   ) < 1e-9,
   SH.planInk([TALL], WIDTH, ROW).scale + ' vs '
-    + SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROOM).scale);
+    + SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROW).scale);
 const wide = SH.planInk([WIDE, SMALL], WIDTH, ROW);
 check('a line too wide for the paper caps the scale',
   (SH.inkBounds(WIDE).maxX - SH.inkBounds(WIDE).minX) * wide.scale <= WIDTH + 0.001,

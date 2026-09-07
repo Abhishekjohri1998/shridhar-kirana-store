@@ -42,6 +42,8 @@ const mongoose = require(path.join(ROOT, 'node_modules', 'mongoose'));
  * `validateSync` runs entirely in memory.
  */
 require(path.join(BUILD, 'store', 'mongo.js'));
+// Loaded here, not at the point of use: the build directory is deleted before the checks end.
+const { upsertDoc } = require(path.join(BUILD, 'store', 'types.js'));
 function models() {
   return mongoose.models;
 }
@@ -148,6 +150,39 @@ function billDoc(lines) {
 
   await mongoose.disconnect().catch(() => {});
   fs.rmSync(BUILD, { recursive: true, force: true });
+
+  /*
+   * Update operators that Mongo will actually accept.
+   *
+   * This file exists because the JSON file store the rest of the suite drives cannot reproduce
+   * MongoDB's rules. This is the second bug of that kind: settings were saved with the same field
+   * in both `$set` and `$setOnInsert`, which Mongo rejects as error 40, so every settings save
+   * returned a 500 against Atlas and passed against the file store. The shop found it by trying
+   * to rename itself.
+   */
+  console.log('\nUpdate documents Mongo will accept');
+  const DEFAULTS = { shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
+    showRate: false, inactiveAfterDays: 30, key: 'shop' };
+
+  const renamed = upsertDoc({ shopName: 'Shridhar Kirani Stores' }, DEFAULTS);
+  check('a field being set is not also seeded on insert',
+    !('shopName' in (renamed.$setOnInsert || {})), JSON.stringify(renamed.$setOnInsert));
+  check('and it is still set', renamed.$set.shopName === 'Shridhar Kirani Stores');
+  check('the untouched defaults are still seeded',
+    renamed.$setOnInsert.footer === 'Thanks' && renamed.$setOnInsert.key === 'shop');
+
+  // The rule, over every field there is: no path may appear in two operators.
+  for (const field of Object.keys(DEFAULTS)) {
+    const doc = upsertDoc({ [field]: 'x' }, DEFAULTS);
+    const both = Object.keys(doc.$set || {}).filter((k) => k in (doc.$setOnInsert || {}));
+    check('no operator collision when patching ' + field, both.length === 0, both.join(','));
+  }
+
+  // Mongo rejects an empty operator too, so neither may be sent empty.
+  const nothing = upsertDoc({}, DEFAULTS);
+  check('an empty patch sends no $set', !('$set' in nothing));
+  const everything = upsertDoc({ ...DEFAULTS }, DEFAULTS);
+  check('a patch covering everything sends no $setOnInsert', !('$setOnInsert' in everything));
 
   console.log('');
   if (failures) {

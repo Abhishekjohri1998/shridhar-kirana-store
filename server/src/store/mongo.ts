@@ -4,7 +4,7 @@ import {
   type Bill, type BillLine, type Customer, type Ink, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, normalisePhone,
+  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, normalisePhone, upsertDoc,
   type CustomerInput, type NewBill, type Repo,
 } from './types';
 
@@ -161,7 +161,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
     async updateSettings(patch) {
       const doc = await SettingsModel.findOneAndUpdate(
         { key: 'shop' },
-        { $set: patch, $setOnInsert: { ...DEFAULT_SETTINGS, key: 'shop' } },
+        upsertDoc(patch as Record<string, unknown>, { ...DEFAULT_SETTINGS, key: 'shop' }),
         { upsert: true, new: true },
       ).lean();
       const { key, ...rest } = strip(doc as unknown as SettingsDoc);

@@ -1,5 +1,5 @@
 import {
-  INK_BLEED, INK_GUTTER, INK_ROW_HEIGHT, INK_STROKE_DOTS, RASTER, fitPrefix, inkBounds,
+  INK_BLEED, INK_GUTTER, INK_ROW_ADVANCE, INK_STROKE_DOTS, RASTER, fitPrefix, inkBounds,
   type Ink, type ReceiptDoc,
 } from '@shridhar/shared';
 
@@ -164,8 +164,9 @@ export function rasterize(doc: ReceiptDoc): Raster {
         op: 'ink', ink: row.ink, x: nameX + INK_BLEED, y: y + INK_BLEED,
         scale: row.scale, originY: row.originY,
       });
-      // A shared scale means nothing overruns the row, so the row height is simply the row.
-      y += INK_ROW_HEIGHT;
+      // A shared scale means nothing overruns the row, so the advance is simply the row: the
+      // writing, plus the room the pen needs above and below it.
+      y += INK_ROW_ADVANCE;
       if (row.note) {
         ops.push({ op: 'text', text: row.note, x: nameX, y, size: 18, bold: false, align: 'left' });
         y += lineHeight(18);
