@@ -653,6 +653,42 @@ async function main() {
     });
     eq('a bill freezes the Kannada name with the rest',
       knBillSaved.body.customer.nameKn, 'ಸುರೇಶ್');
+    /*
+     * An edit must not quietly erase a name it was not asked to touch.
+     *
+     * The apps were sending only {name, phone} when editing, and the body schema's
+     * `nameKn: default('')` turned that omission into an empty string -- so changing a phone
+     * number wiped the Kannada name the shopkeeper had typed on the keypad. It reached the shop.
+     */
+    const editPhone = await call('/api/customers/' + twoNames.body.id, {
+      method: 'PUT', headers: auth,
+      body: JSON.stringify({ name: 'Suresh Kumar', phone: '9000000126' }),
+    });
+    eq('the phone number changes', editPhone.body.phone, '9000000126');
+    eq('and a name the edit never mentioned survives it', editPhone.body.nameKn, 'ಸುರೇಶ್');
+    const editKn = await call('/api/customers/' + twoNames.body.id, {
+      method: 'PUT', headers: auth, body: JSON.stringify({ nameKn: 'ಸುರೇಶ ಕುಮಾರ' }),
+    });
+    eq('the Kannada name can be edited on its own', editKn.body.nameKn, 'ಸುರೇಶ ಕುಮಾರ');
+    eq('and the English one is left where it was', editKn.body.name, 'Suresh Kumar');
+    const clearKn = await call('/api/customers/' + twoNames.body.id, {
+      method: 'PUT', headers: auth, body: JSON.stringify({ nameKn: '' }),
+    });
+    eq('an empty one sent on purpose does clear it', clearKn.body.nameKn, '');
+    eq('but the English name still stands', clearKn.body.name, 'Suresh Kumar');
+    const editedBill = await post('/api/bills', {
+      lines: [{ itemId: 'k2', qty: 1, rate: 20 }], customerId: twoNames.body.id,
+    });
+    eq('and a later bill freezes what is stored now', editedBill.body.customer.nameKn, '');
+    // Put back, so the checks below read the name they were written against.
+    await call('/api/customers/' + twoNames.body.id, {
+      method: 'PUT', headers: auth, body: JSON.stringify({ nameKn: 'ಸುರೇಶ್' }),
+    });
+    eq('a customer stripped of every name is refused',
+      (await call('/api/customers/' + twoNames.body.id, {
+        method: 'PUT', headers: auth, body: JSON.stringify({ name: '', nameKn: '', phone: '' }),
+      })).status, 400);
+
     // Created, not updated: this endpoint answers 201.
     eq('a customer with only a Kannada name can be created',
       (await post('/api/customers', { nameKn: 'ಗೌಡ', phone: '9000000125' })).status, 201);

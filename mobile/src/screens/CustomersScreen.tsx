@@ -294,7 +294,7 @@ export function CustomersScreen() {
               key={draft.id ?? 'new'}
               label={t('cs.name')}
               value={draft.name}
-              onCommit={(name) => setDraft((d) => (d ? { ...d, name } : d))}
+              onChange={(name) => setDraft((d) => (d ? { ...d, name } : d))}
             />
             {/* Typed on a Kannada keypad. Either box will do, and whichever is filled is what
                 shows -- so a customer entered before this existed needs no revisiting. */}

@@ -16,14 +16,22 @@ import { useShop } from '../lib/useShop';
  * rather than being swallowed.
  */
 export function ScriptField({
-  id, label, value, onCommit, hint, ...props
+  id, label, value, onChange, onCommit, hint, ...props
 }: {
   id: string;
   label: string;
   /** The stored value. Held as typed while the field has focus. */
   value: string;
-  /** Called with what should be saved -- the Kannada when the toggle is on. */
-  onCommit: (value: string) => void;
+  /**
+   * Called on every keystroke with what should be saved -- the Kannada when the toggle is on.
+   *
+   * Reported per keystroke rather than on blur, which is what the phone needs: there, tapping a
+   * button leaves the field focused, so a form that waited for blur saved the old value. Both
+   * apps behave the same way for the same reason.
+   */
+  onChange: (value: string) => void;
+  /** Called when the shopkeeper leaves the field, for a caller that saves per field. */
+  onCommit?: (value: string) => void;
   hint?: string;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'value' | 'onChange' | 'onBlur'>) {
   const t = useShop().t;
@@ -31,6 +39,18 @@ export function ScriptField({
   const [kannada, setKannada] = useState(false);
 
   const shown = kannada ? latinToKannada(typed) : typed;
+
+  const type = (next: string) => {
+    setTyped(next);
+    onChange(kannada ? latinToKannada(next) : next);
+  };
+
+  // Flipping the toggle changes what the same letters mean, so what is stored changes with it.
+  const toggle = () => {
+    const next = !kannada;
+    setKannada(next);
+    onChange(next ? latinToKannada(typed) : typed);
+  };
   const showPreview = kannada && typed.trim().length > 0;
 
   return (
@@ -40,7 +60,7 @@ export function ScriptField({
         <button
           type="button"
           className={'script-toggle' + (kannada ? ' on' : '')}
-          onClick={() => setKannada((was) => !was)}
+          onClick={toggle}
           aria-pressed={kannada}
           title={t('common.typeKannada')}
           aria-label={t('common.typeKannada')}
@@ -57,8 +77,8 @@ export function ScriptField({
         id={id}
         className={'input ' + (props.className ?? '')}
         value={typed}
-        onChange={(e) => setTyped(e.target.value)}
-        onBlur={() => onCommit(shown)}
+        onChange={(e) => type(e.target.value)}
+        onBlur={() => onCommit?.(shown)}
       />
 
       {showPreview ? (

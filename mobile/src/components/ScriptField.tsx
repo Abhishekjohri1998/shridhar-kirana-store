@@ -19,20 +19,41 @@ import { C, R, SP, TYPE } from '../theme';
  * rather than being swallowed.
  */
 export function ScriptField({
-  label, value, onCommit, hint, ...props
+  label, value, onChange, onCommit, hint, ...props
 }: {
   label: string;
   /** The stored value. Held as typed while the field has focus. */
   value: string;
-  /** Called with what should be saved -- the Kannada when the toggle is on. */
-  onCommit: (value: string) => void;
+  /**
+   * Called on every keystroke with what should be saved -- the Kannada when the toggle is on.
+   *
+   * This used to be reported on blur alone, and on Android tapping a button does not take focus
+   * off a TextInput: the shopkeeper edited a name, pressed Save, and the old name was sent,
+   * because blur had never happened. So a form binds to this and is never out of date.
+   */
+  onChange: (value: string) => void;
+  /** Called when the shopkeeper leaves the field, for a caller that saves per field. */
+  onCommit?: (value: string) => void;
   hint?: string;
-} & Omit<TextInputProps, 'value' | 'onChangeText' | 'onBlur'>) {
+} & Omit<TextInputProps, 'value' | 'onChange' | 'onChangeText' | 'onBlur'>) {
   const t = useShop().t;
   const [typed, setTyped] = useState(value);
   const [kannada, setKannada] = useState(false);
 
   const shown = kannada ? latinToKannada(typed) : typed;
+
+  const type = (next: string) => {
+    setTyped(next);
+    onChange(kannada ? latinToKannada(next) : next);
+  };
+
+  // Flipping the toggle changes what the same letters mean, so what is stored has to change with
+  // it -- otherwise `akki` stays `akki` until the next keystroke.
+  const toggle = () => {
+    const next = !kannada;
+    setKannada(next);
+    onChange(next ? latinToKannada(typed) : typed);
+  };
 
   return (
     <View>
@@ -40,7 +61,7 @@ export function ScriptField({
         <Text style={styles.label}>{label}</Text>
         <Pressable
           style={[styles.toggle, kannada && styles.toggleOn]}
-          onPress={() => setKannada((was) => !was)}
+          onPress={toggle}
           accessibilityRole="switch"
           accessibilityState={{ checked: kannada }}
           accessibilityLabel={t('common.typeKannada')}
@@ -56,8 +77,8 @@ export function ScriptField({
         {...props}
         label=""
         value={typed}
-        onChangeText={setTyped}
-        onBlur={() => onCommit(shown)}
+        onChangeText={type}
+        onBlur={() => onCommit?.(shown)}
         hint={kannada && typed.trim() ? t('common.typed') + ': ' + typed : hint}
       />
     </View>

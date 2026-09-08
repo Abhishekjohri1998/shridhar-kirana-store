@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Dimensions, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions,
 } from 'react-native';
@@ -113,6 +113,73 @@ export function SettingsScreen() {
     }
   };
 
+  /**
+   * Run something once the shopkeeper stops typing.
+   *
+   * This section has no Save button -- each box saves itself -- and it used to do that on blur
+   * alone. On Android tapping elsewhere does not take focus off a TextInput, so a shop name
+   * typed and then left alone was never saved at all. Waiting for a pause in the typing needs no
+   * blur and is not a request per keystroke either.
+   */
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const afterTyping = useCallback((fn: () => void) => {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = setTimeout(fn, 900);
+  }, []);
+  useEffect(() => () => {
+    if (pending.current) clearTimeout(pending.current);
+  }, []);
+
+  /*
+   * Two ways into the same save, and they differ on purpose.
+   *
+   * `typing` is the pause after a keystroke: it saves what is valid and otherwise does nothing.
+   * Clearing the box to retype must not put an error on screen and snap the old name back while
+   * the shopkeeper is still mid-word. `left` is blur, where an invalid value is worth saying so
+   * about, because the shopkeeper has finished.
+   */
+  const commitShopName = (next: string, typing: boolean) => {
+    const checked = checkShopName(next);
+    if (!checked.ok) {
+      if (typing) return;
+      setError(checked.error);
+      setShopName(shop.settings.shopName);
+      return;
+    }
+    setError(null);
+    if (checked.value !== shop.settings.shopName) {
+      void save({ shopName: checked.value }, 'set.savedShopName');
+    }
+  };
+
+  const commitFooter = (next: string, typing: boolean) => {
+    const checked = checkFooter(next);
+    if (!checked.ok) {
+      if (typing) return;
+      setError(checked.error);
+      setFooter(shop.settings.footer);
+      return;
+    }
+    setError(null);
+    if (checked.value !== shop.settings.footer) {
+      void save({ footer: checked.value }, 'set.savedFooter');
+    }
+  };
+
+  const commitShopNameKn = (next: string) => {
+    const value = next.trim();
+    if (value !== (shop.settings.shopNameKn ?? '')) {
+      void save({ shopNameKn: value }, 'set.savedShopName');
+    }
+  };
+
+  const commitFooterKn = (next: string) => {
+    const value = next.trim();
+    if (value !== (shop.settings.footerKn ?? '')) {
+      void save({ footerKn: value }, 'set.savedFooter');
+    }
+  };
+
   const guard = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
@@ -134,31 +201,25 @@ export function SettingsScreen() {
         <ScriptField
           label={t('set.shopName')}
           value={shopName}
+          onChange={(next) => {
+            setShopName(next);
+            afterTyping(() => commitShopName(next, true));
+          }}
           onCommit={(next) => {
             setShopName(next);
-            const checked = checkShopName(next);
-            if (!checked.ok) {
-              setError(checked.error);
-              setShopName(shop.settings.shopName);
-              return;
-            }
-            setError(null);
-            if (checked.value !== shop.settings.shopName) void save({ shopName: checked.value }, 'set.savedShopName');
+            commitShopName(next, false);
           }}
         />
         <ScriptField
           label={t('set.footer')}
           value={footer}
+          onChange={(next) => {
+            setFooter(next);
+            afterTyping(() => commitFooter(next, true));
+          }}
           onCommit={(next) => {
             setFooter(next);
-            const checked = checkFooter(next);
-            if (!checked.ok) {
-              setError(checked.error);
-              setFooter(shop.settings.footer);
-              return;
-            }
-            setError(null);
-            if (checked.value !== shop.settings.footer) void save({ footer: checked.value }, 'set.savedFooter');
+            commitFooter(next, false);
           }}
         />
         {/* Boxes of their own, for a Kannada keypad. Shown and printed in place of the English
@@ -166,26 +227,20 @@ export function SettingsScreen() {
         <Field
           label={t('set.shopNameKn')}
           value={shopNameKn}
-          onChangeText={setShopNameKn}
-          onBlur={() => {
-            const next = shopNameKn.trim();
+          onChangeText={(next) => {
             setShopNameKn(next);
-            if (next !== (shop.settings.shopNameKn ?? '')) {
-              void save({ shopNameKn: next }, 'set.savedShopName');
-            }
+            afterTyping(() => commitShopNameKn(next));
           }}
+          onBlur={() => commitShopNameKn(shopNameKn)}
         />
         <Field
           label={t('set.footerKn')}
           value={footerKn}
-          onChangeText={setFooterKn}
-          onBlur={() => {
-            const next = footerKn.trim();
+          onChangeText={(next) => {
             setFooterKn(next);
-            if (next !== (shop.settings.footerKn ?? '')) {
-              void save({ footerKn: next }, 'set.savedFooter');
-            }
+            afterTyping(() => commitFooterKn(next));
           }}
+          onBlur={() => commitFooterKn(footerKn)}
         />
 
         {/* Not a ScriptField: a GST number is fifteen Latin characters by definition. */}

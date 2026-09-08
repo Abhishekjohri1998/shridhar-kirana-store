@@ -54,6 +54,21 @@ const customerBody = z.object({
   phone: z.string().trim().max(24).default(''),
 });
 
+/**
+ * The same fields, but nothing defaulted.
+ *
+ * An edit must not be able to erase a field it never mentioned. With `.default('')` an older app
+ * -- or one with a bug, which is how this was found -- that sends only a name and a phone has the
+ * schema hand the route an empty `nameKn`, and the customer's Kannada name is written away. Left
+ * `undefined`, the route can tell "not mentioned" from "cleared on purpose" and keep what is
+ * stored.
+ */
+const customerPatch = z.object({
+  name: z.string().trim().max(80).optional(),
+  nameKn: z.string().trim().max(80).optional(),
+  phone: z.string().trim().max(24).optional(),
+});
+
 /** Readable ids, so the data stays legible if anyone ever looks at the collection directly. */
 
 export const api = Router();
@@ -131,12 +146,19 @@ api.post('/customers', handler(async (req, res) => {
 
 api.put('/customers/:id', handler(async (req, res) => {
   const id = z.string().trim().min(1).parse(req.params.id);
-  const body = customerBody.parse(req.body);
+  const patch = customerPatch.parse(req.body);
+  const existing = await getRepo().getCustomer(id);
+  if (!existing) throw new HttpError(404, 'No such customer');
+
+  // Whatever the request did not mention keeps the value it already had.
+  const body = {
+    name: patch.name ?? existing.name,
+    nameKn: patch.nameKn ?? existing.nameKn ?? '',
+    phone: patch.phone ?? existing.phone,
+  };
   if (!body.name && !body.nameKn && !body.phone) {
     throw new HttpError(400, 'Give the customer a name or a phone number');
   }
-  const existing = await getRepo().getCustomer(id);
-  if (!existing) throw new HttpError(404, 'No such customer');
   res.json(await getRepo().upsertCustomer({ ...body, id }));
 }));
 

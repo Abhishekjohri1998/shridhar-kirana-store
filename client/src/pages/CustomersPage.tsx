@@ -318,7 +318,7 @@ export function CustomersPage() {
               id="c-name"
               label={t('cs.name')}
               value={draft.name}
-              onCommit={(name) => setDraft((d) => (d ? { ...d, name } : d))}
+              onChange={(name) => setDraft((d) => (d ? { ...d, name } : d))}
               autoFocus
             />
             {/* Typed on a Kannada keypad. Either box will do, and whichever is filled is what

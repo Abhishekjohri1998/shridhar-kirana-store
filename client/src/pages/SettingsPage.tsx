@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   checkFooter,
   checkGstin,
@@ -72,6 +72,70 @@ export function SettingsPage() {
     }
   };
 
+  /**
+   * Run something once the shopkeeper stops typing.
+   *
+   * This section has no Save button -- each box saves itself. Blur alone was enough in a browser
+   * but not on the tablet, where tapping elsewhere leaves the field focused, so both apps now
+   * save on a pause in the typing as well and behave the same way.
+   */
+  const pending = useRef<number | null>(null);
+  const afterTyping = useCallback((fn: () => void) => {
+    if (pending.current) window.clearTimeout(pending.current);
+    pending.current = window.setTimeout(fn, 900);
+  }, []);
+  useEffect(() => () => {
+    if (pending.current) window.clearTimeout(pending.current);
+  }, []);
+
+  /*
+   * Two ways into the same save, and they differ on purpose. `typing` is the pause after a
+   * keystroke: it saves what is valid and otherwise does nothing, because clearing the box to
+   * retype must not put an error on screen and snap the old name back mid-word. Blur is where an
+   * invalid value is worth saying so about.
+   */
+  const commitShopName = (next: string, typing: boolean) => {
+    const checked = checkShopName(next);
+    if (!checked.ok) {
+      if (typing) return;
+      setError(checked.error);
+      setShopName(shop.settings.shopName);
+      return;
+    }
+    setError(null);
+    if (checked.value !== shop.settings.shopName) {
+      void save({ shopName: checked.value }, 'set.savedShopName');
+    }
+  };
+
+  const commitFooter = (next: string, typing: boolean) => {
+    const checked = checkFooter(next);
+    if (!checked.ok) {
+      if (typing) return;
+      setError(checked.error);
+      setFooter(shop.settings.footer);
+      return;
+    }
+    setError(null);
+    if (checked.value !== shop.settings.footer) {
+      void save({ footer: checked.value }, 'set.savedFooter');
+    }
+  };
+
+  const commitShopNameKn = (next: string) => {
+    const value = next.trim();
+    if (value !== (shop.settings.shopNameKn ?? '')) {
+      void save({ shopNameKn: value }, 'set.savedShopName');
+    }
+  };
+
+  const commitFooterKn = (next: string) => {
+    const value = next.trim();
+    if (value !== (shop.settings.footerKn ?? '')) {
+      void save({ footerKn: value }, 'set.savedFooter');
+    }
+  };
+
   /** Surfaces a thrown message instead of losing it, for the connect and print buttons. */
   const guard = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -95,32 +159,26 @@ export function SettingsPage() {
           id="s-name"
           label={t('set.shopName')}
           value={shopName}
+          onChange={(next) => {
+            setShopName(next);
+            afterTyping(() => commitShopName(next, true));
+          }}
           onCommit={(next) => {
             setShopName(next);
-            const checked = checkShopName(next);
-            if (!checked.ok) {
-              setError(checked.error);
-              setShopName(shop.settings.shopName);
-              return;
-            }
-            setError(null);
-            if (checked.value !== shop.settings.shopName) void save({ shopName: checked.value }, 'set.savedShopName');
+            commitShopName(next, false);
           }}
         />
         <ScriptField
           id="s-footer"
           label={t('set.footer')}
           value={footer}
+          onChange={(next) => {
+            setFooter(next);
+            afterTyping(() => commitFooter(next, true));
+          }}
           onCommit={(next) => {
             setFooter(next);
-            const checked = checkFooter(next);
-            if (!checked.ok) {
-              setError(checked.error);
-              setFooter(shop.settings.footer);
-              return;
-            }
-            setError(null);
-            if (checked.value !== shop.settings.footer) void save({ footer: checked.value }, 'set.savedFooter');
+            commitFooter(next, false);
           }}
         />
 
@@ -132,14 +190,12 @@ export function SettingsPage() {
             id="s-name-kn"
             className="input"
             value={shopNameKn}
-            onChange={(e) => setShopNameKn(e.target.value)}
-            onBlur={() => {
-              const next = shopNameKn.trim();
+            onChange={(e) => {
+              const next = e.target.value;
               setShopNameKn(next);
-              if (next !== (shop.settings.shopNameKn ?? '')) {
-                void save({ shopNameKn: next }, 'set.savedShopName');
-              }
+              afterTyping(() => commitShopNameKn(next));
             }}
+            onBlur={() => commitShopNameKn(shopNameKn)}
           />
         </div>
         <div className="field">
@@ -148,14 +204,12 @@ export function SettingsPage() {
             id="s-footer-kn"
             className="input"
             value={footerKn}
-            onChange={(e) => setFooterKn(e.target.value)}
-            onBlur={() => {
-              const next = footerKn.trim();
+            onChange={(e) => {
+              const next = e.target.value;
               setFooterKn(next);
-              if (next !== (shop.settings.footerKn ?? '')) {
-                void save({ footerKn: next }, 'set.savedFooter');
-              }
+              afterTyping(() => commitFooterKn(next));
             }}
+            onBlur={() => commitFooterKn(footerKn)}
           />
         </div>
 

@@ -88,7 +88,10 @@ export const api = {
     input.id
       ? request<Customer>('/customers/' + encodeURIComponent(input.id), {
           method: 'PUT',
-          body: JSON.stringify({ name: input.name, phone: input.phone }),
+          // The whole customer, not a hand-picked pair. Sending {name, phone} alone left the
+          // server's schema to fill nameKn with its '' default, so editing a phone number wiped
+          // the Kannada name the shopkeeper had typed.
+          body: JSON.stringify(input),
         })
       : request<Customer>('/customers', { method: 'POST', body: JSON.stringify(input) }),
   deleteCustomer: (id: string) => request<void>('/customers/' + encodeURIComponent(id), { method: 'DELETE' }),
