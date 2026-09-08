@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import {
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
-  isDraftEmpty, money, parsePaid, parsePrice, round2,
+  isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer,
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
@@ -63,6 +63,16 @@ export function BillScreen() {
   /** The same, for the price boxes, so one line's price can hand on to the next one's. */
   const prices = useRef<Record<string, TextInput | null>>({});
   const sheet = useRef<ScrollView>(null);
+  /*
+   * What the slip actually measures, so the page can be turned rather than guessed at.
+   *
+   * A row is not a fixed height -- the compact and wide layouts differ, and so does the writing
+   * strip on a roomy screen -- so every one of these is taken from a layout event.
+   */
+  const rowY = useRef<Record<string, number>>({});
+  const rowH = useRef(0);
+  const offset = useRef(0);
+  const [viewport, setViewport] = useState(0);
 
   /** Keep one empty line at the foot, always: on paper the next line is simply there. */
   useEffect(() => {
@@ -80,9 +90,39 @@ export function BillScreen() {
    * from under the pen mid-word. Leaving the price field is the unambiguous "done with this one"
    * moment, and it can never land mid-stroke.
    */
+  /** Set when a line is finished; read after the render that adds the next blank one. */
+  const wantFlip = useRef(false);
+
   const goToNewestLine = useCallback(() => {
-    requestAnimationFrame(() => sheet.current?.scrollToEnd({ animated: true }));
+    // Asked for here, done once the row it is about exists: pricing the last line appends a
+    // fresh blank one, and that lands after this. Measuring straight away asks about the wrong
+    // row and finds it comfortably in view.
+    wantFlip.current = true;
   }, []);
+
+  const turnPage = useCallback(() => {
+    requestAnimationFrame(() => {
+      const cart = shop.cart;
+      const newest = cart[cart.length - 1];
+      if (!newest) return;
+      // Scrolling to the very end pinned the line being written to the bottom edge, so every
+      // item was written at the foot of the glass. This turns the page instead: the newest line
+      // goes to the top, with a page of room under it, and only once it has fallen out of view.
+      const y = pageFlip({
+        rowTop: rowY.current[newest.itemId] ?? 0,
+        rowHeight: rowH.current,
+        offset: offset.current,
+        viewport,
+      });
+      if (y != null) sheet.current?.scrollTo({ y, animated: true });
+    });
+  }, [shop.cart, viewport]);
+
+  useEffect(() => {
+    if (!wantFlip.current) return;
+    wantFlip.current = false;
+    turnPage();
+  });
 
   /**
    * Price entered, on to the next one.
@@ -347,8 +387,14 @@ export function BillScreen() {
           <ScrollView
             ref={sheet}
             style={styles.sheet}
-            contentContainerStyle={styles.sheetContent}
+            contentContainerStyle={[
+              styles.sheetContent,
+              { paddingBottom: 8 + slipTailPadding(viewport, rowH.current) },
+            ]}
             keyboardShouldPersistTaps="handled"
+            onLayout={(e) => setViewport(Math.round(e.nativeEvent.layout.height))}
+            onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y; }}
+            scrollEventThrottle={16}
           >
 
           {shop.cart.map((line, index) => {
@@ -357,6 +403,11 @@ export function BillScreen() {
               <View
                 style={[styles.slipLine, compact && styles.slipLineCompact]}
                 key={line.itemId}
+                onLayout={(e) => {
+                  const { y, height } = e.nativeEvent.layout;
+                  rowY.current[line.itemId] = y;
+                  rowH.current = Math.round(height);
+                }}
               >
                 {/* Narrow screens split the row in two so the writing takes the whole width;
                     wide ones keep everything on one line. Same children either way. */}

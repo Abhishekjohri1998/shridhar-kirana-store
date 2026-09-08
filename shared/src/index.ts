@@ -4,6 +4,7 @@ export * from './phone';
 export * from './paper';
 export * from './doc';
 export * from './drafts';
+export * from './slip';
 export * from './ink';
 export * from './kannada';
 export * from './text';

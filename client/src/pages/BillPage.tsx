@@ -7,9 +7,11 @@ import {
   isDraftEmpty,
   MAX_PARKED,
   money,
+  pageFlip,
   parsePaid,
   parsePrice,
   round2,
+  slipTailPadding,
   carriedBalance,
   dateStamp,
   type Bill,
@@ -48,6 +50,58 @@ export function BillPage() {
   const [priceText, setPriceText] = useState<Record<string, string>>({});
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
+  /** The scrolling slip and its rows, for turning the page -- see `pageFlip`. */
+  const sheet = useRef<HTMLOListElement>(null);
+  const rows = useRef<Record<string, HTMLLIElement | null>>({});
+  const [tail, setTail] = useState(0);
+
+  /*
+   * A page of blank slip under the last line, so the newest row can reach the top.
+   *
+   * Measured rather than assumed: the row is one height on a wide screen and another where it
+   * has stacked into two lines.
+   */
+  useEffect(() => {
+    const list = sheet.current;
+    const last = shop.cart[shop.cart.length - 1];
+    const row = last ? rows.current[last.itemId] : null;
+    if (!list || !row) return;
+    setTail(slipTailPadding(list.clientHeight, row.offsetHeight));
+  }, [shop.cart, shop.activeDraftId]);
+
+  /**
+   * Turn the page when the newest line has fallen out of sight.
+   *
+   * Leaving the price box is the moment: it means "done with this one" and can never land
+   * mid-stroke, which is what makes it safe to move the page at all.
+   */
+  const goToNewestLine = () => {
+    const list = sheet.current;
+    const last = shop.cart[shop.cart.length - 1];
+    const row = last ? rows.current[last.itemId] : null;
+    if (!list || !row) return;
+    const y = pageFlip({
+      rowTop: row.offsetTop,
+      rowHeight: row.offsetHeight,
+      offset: list.scrollTop,
+      viewport: list.clientHeight,
+    });
+    if (y != null) list.scrollTo({ top: y, behavior: 'smooth' });
+  };
+
+  /*
+   * Asked for on leaving the price box, done once the row it is about exists.
+   *
+   * Pricing the last line appends a fresh blank one, and that happens after the blur -- so
+   * measuring straight away asks about the wrong row and finds it comfortably in view. The flag
+   * is read after the render that added it.
+   */
+  const wantFlip = useRef(false);
+  useEffect(() => {
+    if (!wantFlip.current) return;
+    wantFlip.current = false;
+    goToNewestLine();
+  });
 
   /**
    * Keep one empty line at the foot, always. The shopkeeper should never have to ask for
@@ -292,11 +346,15 @@ export function BillPage() {
             <span className="slip-head-price">{t('bill.price')}</span>
           </div>
 
-          <ol className="slip-lines">
+          <ol className="slip-lines" ref={sheet} style={{ paddingBottom: tail }}>
             {shop.cart.map((line, index) => {
               const blank = !line.ink && line.rate === 0;
               return (
-                <li className="slip-line" key={line.itemId}>
+                <li
+                  className="slip-line"
+                  key={line.itemId}
+                  ref={(el) => { rows.current[line.itemId] = el; }}
+                >
                   <span className="slip-no">{index + 1}</span>
 
                   <div className="slip-write">
@@ -326,6 +384,7 @@ export function BillPage() {
                     placeholder="—"
                     value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
+                    onBlur={() => { wantFlip.current = true; }}
                   />
 
                   <button

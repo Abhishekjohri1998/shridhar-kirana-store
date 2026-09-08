@@ -499,6 +499,10 @@ button, input, select, textarea {
 .slip-head-price { grid-column: 3; text-align: right; }
 
 .slip-lines {
+  /* Positioned so it is the offset parent of its own rows: `pageFlip` needs each row's top
+     measured inside the slip, and without this offsetTop is relative to some ancestor further
+     out and every answer is wrong by the height of the header above. */
+  position: relative;
   list-style: none;
   margin: 0;
   padding: 0;

@@ -483,6 +483,38 @@ check('the same size is left alone, object and all', SH.rescaleStrokes(moved, { 
 check('a zero-width origin does not divide by zero', SH.rescaleStrokes([[{ x: 1, y: 1 }]], { w: 0, h: 0 }, { w: 9, h: 9 })[0][0].x === 1);
 
 /* ------------------------------------------------------------------ *
+ * Turning the page on the slip                                        *
+ *                                                                     *
+ * Scrolling to the end kept the line being written at the bottom edge *
+ * of the glass. The slip should fill a page and then start a fresh    *
+ * one, the way paper does.                                            *
+ * ------------------------------------------------------------------ */
+console.log('');
+console.log('Turning the page');
+
+const flip = (v) => SH.pageFlip(v);
+// A page five rows tall, rows a hundred tall.
+const page = { rowHeight: 100, offset: 0, viewport: 500 };
+
+eqs('a row well inside the page leaves it alone', flip({ ...page, rowTop: 200 }), null);
+eqs('the last row that fits leaves it alone too', flip({ ...page, rowTop: 400 }), null);
+eqs('one pixel past the fold turns the page', flip({ ...page, rowTop: 401 }), 401);
+eqs('and the row lands at the top, not one row up', flip({ ...page, rowTop: 900 }), 900);
+eqs('a row scrolled off the top comes back', flip({ ...page, offset: 600, rowTop: 300 }), 300);
+eqs('the first row never scrolls above the slip', flip({ ...page, offset: 50, rowTop: 0 }), 0);
+eqs('nothing measured yet, nothing moves', flip({ rowTop: 900, rowHeight: 0, offset: 0, viewport: 500 }), null);
+eqs('no viewport either', flip({ rowTop: 900, rowHeight: 100, offset: 0, viewport: 0 }), null);
+check('the answer is never negative',
+  [0, 50, 400, 401, 900].every((rowTop) => {
+    const y = flip({ ...page, rowTop });
+    return y === null || y >= 0;
+  }));
+
+eqs('the tail is a page less one row', SH.slipTailPadding(500, 100), 400);
+eqs('a slip shorter than a row asks for nothing', SH.slipTailPadding(80, 100), 0);
+eqs('and nothing measured asks for nothing', SH.slipTailPadding(0, 100), 0);
+
+/* ------------------------------------------------------------------ *
  * The server address the phone is given                               *
  *                                                                     *
  * Android has blocked cleartext by default since API 28, so guessing  *

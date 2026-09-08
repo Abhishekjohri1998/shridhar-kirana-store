@@ -13,6 +13,7 @@ import { Dialog } from '../components/Dialog';
 import { ScriptField } from '../components/ScriptField';
 import { Button, Card, ErrorText, Field, Notice, SectionTitle } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
+import { useHeldInsets } from '../lib/screenEdges';
 import { useShop } from '../lib/useShop';
 import type { PairedPrinter } from '../print/bluetooth';
 import { C } from '../theme';
@@ -81,6 +82,7 @@ export function SettingsScreen() {
    * `shell` against `window` says whether the layout then used what it had.
    */
   const insets = useSafeAreaInsets();
+  const edges = useHeldInsets();
   const win = useWindowDimensions();
   const screen = Dimensions.get('screen');
   const build = Constants.expoConfig?.android?.versionCode ?? '?';
@@ -372,6 +374,12 @@ export function SettingsScreen() {
         <Text style={styles.probe}>screen {size(screen.width, screen.height)}</Text>
         <Text style={styles.probe}>
           insets top {Math.round(insets.top)} · bottom {Math.round(insets.bottom)}
+        </Text>
+        {/* The two apart is the whole question when the tab bar sits off the bottom edge: `live`
+            follows the window, including while a dialog is up, and `held` is what the layout is
+            actually drawn against. Equal means the holding is not hiding anything. */}
+        <Text style={styles.probe}>
+          held top {edges.top} · bottom {edges.bottom}
         </Text>
 
         <View style={{ height: 10 }} />
