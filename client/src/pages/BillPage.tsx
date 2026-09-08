@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import {
   buildReceipt,
   checkCustomer,
+  customerName,
+  draftTotal,
+  isDraftEmpty,
+  MAX_PARKED,
   money,
   parsePaid,
   parsePrice,
@@ -36,6 +40,9 @@ export function BillPage() {
   const [error, setError] = useState<string | null>(null);
   /** The bill just saved, so a copy can go to the customer while they are still standing here. */
   const [justSaved, setJustSaved] = useState<Bill | null>(null);
+  // Cleared when the shopkeeper moves to another bill: "Bill #14 saved" offering to share a
+  // different bill's slip is worse than not offering at all.
+  useEffect(() => setJustSaved(null), [shop.activeDraftId]);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
@@ -187,7 +194,15 @@ export function BillPage() {
       setError(e instanceof Error ? e.message : String(e));
       return;
     }
-    setPriceText({});
+    const printed = bill;
+    // Only this bill's lines: the map is keyed by line id and shared with the bills still
+    // parked, so wiping it wholesale would blank their half-typed prices too.
+    setPriceText((prev) => {
+      const gone = new Set(printed.lines.map((l) => l.itemId));
+      const left: Record<string, string> = {};
+      for (const [id, text] of Object.entries(prev)) if (!gone.has(id)) left[id] = text;
+      return left;
+    });
     setJustSaved(bill);
     try {
       await printer.printBill(bill, shop.settings);
@@ -199,6 +214,43 @@ export function BillPage() {
 
   return (
     <div className="bill-layout">
+      {/* One tab per bill in progress. A second customer in a hurry no longer means making them
+          wait or throwing the slip away -- park this one, serve them, come back. */}
+      <div className="bill-tabs" role="tablist">
+        {shop.drafts.map((d, i) => {
+          const total = draftTotal(d);
+          const label = d.customer
+            ? customerName(d.customer, shop.lang) || d.customer.phone
+            : d.typed.name.trim() || d.typed.nameKn.trim() || t('bill.billN', { n: i + 1 });
+          const on = d.id === shop.activeDraftId;
+          return (
+            <span key={d.id} className={'bill-tab' + (on ? ' on' : '')}>
+              <button type="button" role="tab" aria-selected={on} onClick={() => shop.switchBill(d.id)}>
+                <span className="ellipsis">{label}</span>
+                {total > 0 ? <span className="bill-tab-total">{money(total)}</span> : null}
+              </button>
+              {shop.drafts.length > 1 ? (
+                <button
+                  type="button"
+                  className="bill-tab-close"
+                  aria-label={t('bill.closeBill')}
+                  onClick={() => {
+                    if (isDraftEmpty(d) || window.confirm(t('bill.closeBillAsk'))) shop.closeBill(d.id);
+                  }}
+                >
+                  ×
+                </button>
+              ) : null}
+            </span>
+          );
+        })}
+        {shop.drafts.length < MAX_PARKED ? (
+          <button type="button" className="bill-tab-new" onClick={shop.newBill}>
+            {t('bill.newBill')}
+          </button>
+        ) : null}
+      </div>
+
       {/* Pinned at the top, above the writing. Forty lines into a bill these fields used to be
           off-screen, so attaching somebody meant scrolling back and losing your place. */}
       <CustomerBar />

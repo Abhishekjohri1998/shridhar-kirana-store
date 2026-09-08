@@ -3,6 +3,7 @@ export * from './money';
 export * from './phone';
 export * from './paper';
 export * from './doc';
+export * from './drafts';
 export * from './ink';
 export * from './kannada';
 export * from './text';

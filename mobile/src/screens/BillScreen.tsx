@@ -3,7 +3,8 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
-  buildReceipt, carriedBalance, checkCustomer, dateStamp, money, parsePaid, parsePrice, round2,
+  MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
+  isDraftEmpty, money, parsePaid, parsePrice, round2,
   type Bill, type Customer,
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
@@ -49,6 +50,11 @@ export function BillScreen() {
   const [error, setError] = useState<string | null>(null);
   /** The bill just saved, so a copy can go to the customer while they are still standing here. */
   const [justSaved, setJustSaved] = useState<Bill | null>(null);
+  /** Which parked bill is being thrown away, once it has something on it worth asking about. */
+  const [closing, setClosing] = useState<string | null>(null);
+  // Cleared when the shopkeeper moves to another bill: "Bill #14 saved" offering to share a
+  // different bill's slip is worse than not offering at all.
+  useEffect(() => setJustSaved(null), [shop.activeDraftId]);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
@@ -226,7 +232,15 @@ export function BillScreen() {
       setError(e instanceof Error ? e.message : String(e));
       return;
     }
-    setPriceText({});
+    const printed = bill;
+    // Only this bill's lines: the map is keyed by line id and shared with the bills still
+    // parked, so wiping it wholesale would blank their half-typed prices too.
+    setPriceText((prev) => {
+      const gone = new Set(printed.lines.map((l) => l.itemId));
+      const left: Record<string, string> = {};
+      for (const [id, text] of Object.entries(prev)) if (!gone.has(id)) left[id] = text;
+      return left;
+    });
     setJustSaved(bill);
     try {
       await printer.printBill(bill, shop.settings);
@@ -241,6 +255,50 @@ export function BillScreen() {
       {/* Pinned at the top, above the writing. Forty lines down a bill these fields used to be
           off the top of the screen, so attaching somebody meant scrolling back and losing your
           place in what you were writing. */}
+      {/* One tab per bill in progress. A second customer in a hurry no longer means making them
+          wait or throwing the slip away -- park this one, serve them, come back. Scrolls
+          sideways: a second row here would come straight out of the writing area. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabs}
+        contentContainerStyle={styles.tabsRow}
+      >
+        {shop.drafts.map((d, i) => {
+          const total = draftTotal(d);
+          const label = d.customer
+            ? customerName(d.customer, shop.lang) || d.customer.phone
+            : d.typed.name.trim() || d.typed.nameKn.trim() || t('bill.billN', { n: i + 1 });
+          const on = d.id === shop.activeDraftId;
+          return (
+            <View key={d.id} style={[styles.tab, on && styles.tabOn]}>
+              <Pressable onPress={() => shop.switchBill(d.id)} style={styles.tabFace}>
+                <Text style={[styles.tabLabel, on && styles.tabLabelOn]} numberOfLines={1}>
+                  {label}
+                </Text>
+                {total > 0 ? (
+                  <Text style={[styles.tabTotal, on && styles.tabLabelOn]}>{money(total)}</Text>
+                ) : null}
+              </Pressable>
+              {shop.drafts.length > 1 ? (
+                <Pressable
+                  onPress={() => (isDraftEmpty(d) ? shop.closeBill(d.id) : setClosing(d.id))}
+                  accessibilityLabel={t('bill.closeBill')}
+                  style={styles.tabClose}
+                >
+                  <Text style={styles.tabCloseText}>×</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
+        {shop.drafts.length < MAX_PARKED ? (
+          <Pressable onPress={shop.newBill} style={styles.tabNew}>
+            <Text style={styles.tabNewText}>{t('bill.newBill')}</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+
       <View style={styles.top}>
         <CustomerBar />
         {error ? <ErrorText>{error}</ErrorText> : null}
@@ -457,6 +515,28 @@ export function BillScreen() {
       </View>
 
       <Dialog
+        visible={closing != null}
+        title={t('bill.closeBill')}
+        onClose={() => setClosing(null)}
+        footer={
+          <>
+            <Button label={t('common.cancel')} tone="plain" onPress={() => setClosing(null)} style={{ flex: 1 }} />
+            <Button
+              label={t('bill.closeBill')}
+              tone="danger"
+              onPress={() => {
+                if (closing) shop.closeBill(closing);
+                setClosing(null);
+              }}
+              style={{ flex: 1 }}
+            />
+          </>
+        }
+      >
+        <Text style={styles.offline}>{t('bill.closeBillAsk')}</Text>
+      </Dialog>
+
+      <Dialog
         visible={preview != null}
         title={t('bill.receiptPreview')}
         onClose={() => setPreview(null)}
@@ -474,6 +554,24 @@ const styles = StyleSheet.create({
   /* Padding lives here rather than on the wrap, so the totals strip below keeps its full-width
      border instead of being inset from the edges of the screen. */
   top: { paddingHorizontal: 12, paddingTop: 12 },
+  tabs: { flexGrow: 0, backgroundColor: C.bg },
+  tabsRow: { flexDirection: 'row', alignItems: 'stretch', gap: 6, paddingHorizontal: 12, paddingTop: 8 },
+  tab: {
+    flexDirection: 'row', alignItems: 'stretch',
+    borderWidth: 1, borderColor: C.lineStrong, borderRadius: R.sm, backgroundColor: C.card,
+  },
+  tabOn: { borderColor: C.accentEdge, backgroundColor: C.accentWash },
+  tabFace: { flexDirection: 'row', alignItems: 'center', gap: 7, maxWidth: 180, paddingHorizontal: 10, paddingVertical: 7 },
+  tabLabel: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: C.soft },
+  tabLabelOn: { color: C.accentDeep },
+  tabTotal: { fontSize: 13, fontWeight: '700', color: C.soft, fontVariant: ['tabular-nums'] },
+  tabClose: { justifyContent: 'center', paddingRight: 8, paddingLeft: 2 },
+  tabCloseText: { fontSize: 16, color: C.faint },
+  tabNew: {
+    justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: C.lineStrong,
+    borderRadius: R.sm, paddingHorizontal: 11,
+  },
+  tabNewText: { fontSize: 13, fontWeight: '700', color: C.soft },
   savedRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10,
     backgroundColor: C.accentWash, borderWidth: 1, borderColor: C.accentEdge,

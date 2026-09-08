@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { INK_LIMITS, type Ink } from '@shridhar/shared';
+import { INK_LIMITS, rescaleStrokes, type Ink } from '@shridhar/shared';
 
 /** Ink coordinates are CSS pixels of the pad, so the stored box is whatever the pad measured. */
 const STROKE_WIDTH = 2.8;
@@ -67,6 +67,28 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
     if (!canvas) return { w: 1, h: 1 };
     return { w: canvas.clientWidth || 1, h: canvas.clientHeight || 1 };
   }, []);
+
+  /**
+   * The pad size the strokes in `strokesRef` are measured in.
+   *
+   * Only ever different from the pad's own size just after seeding from a bill written on a
+   * differently sized pad, or after the window has been resized. `align` closes that gap.
+   */
+  const spaceRef = useRef<{ w: number; h: number } | null>(null);
+
+  const align = useCallback(() => {
+    const now = box();
+    // A pad that is not laid out yet measures 1x1; stamping that as the space would scale the
+    // handwriting to nothing the moment it did get a size.
+    if (now.w <= 1 || now.h <= 1) return;
+    const was = spaceRef.current;
+    spaceRef.current = now;
+    if (!was || (was.w === now.w && was.h === now.h)) return;
+    const moved = rescaleStrokes(strokesRef.current, was, now);
+    if (moved === strokesRef.current) return;
+    strokesRef.current = moved;
+    setStrokes(moved);
+  }, [box]);
 
   const emit = useCallback(
     (next: Point[][]) => {
@@ -143,16 +165,23 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
       for (let i = 0; i + 1 < flat.length; i += 2) points.push({ x: flat[i]!, y: flat[i + 1]! });
       return points;
     });
+    // The space they were written in, so the first new stroke does not land beside them at a
+    // different scale.
+    spaceRef.current = { w: value.w, h: value.h };
     strokesRef.current = restored;
     setStrokes(restored);
-  }, [value]);
+    align();
+  }, [value, align]);
 
   useEffect(() => {
     redraw();
   }, [redraw]);
 
   useEffect(() => {
-    const onResize = () => redraw();
+    const onResize = () => {
+      align();
+      redraw();
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [redraw]);

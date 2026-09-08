@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, PointerType } from 'react-native-gesture-handler';
 import Svg, { Line, Path } from 'react-native-svg';
-import { INK_LIMITS, inkToSvgPath, type Ink } from '@shridhar/shared';
+import { INK_LIMITS, inkToSvgPath, rescaleStrokes, type Ink } from '@shridhar/shared';
 import { Button } from './ui';
 import { C, R } from '../theme';
 
@@ -63,6 +63,29 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   const sizeRef = useRef({ w: 1, h: 1 });
   const [strokes, setStrokes] = useState<Point[][]>([]);
   const [current, setCurrent] = useState<Point[]>([]);
+
+  /**
+   * The pad size the strokes in `strokesRef` are measured in.
+   *
+   * Only ever different from the pad's own size just after seeding from a bill written on a
+   * differently sized pad -- a bill parked before the tablet was turned. `align` closes that gap,
+   * so a new stroke is never added to strokes measured in another space.
+   */
+  const spaceRef = useRef<{ w: number; h: number } | null>(null);
+
+  const align = useCallback(() => {
+    const now = sizeRef.current;
+    // A pad that is not laid out yet measures 1x1; stamping that as the space would scale the
+    // handwriting to nothing the moment it did get a size.
+    if (now.w <= 1 || now.h <= 1) return;
+    const was = spaceRef.current;
+    spaceRef.current = { ...now };
+    if (!was || (was.w === now.w && was.h === now.h)) return;
+    const moved = rescaleStrokes(strokesRef.current, was, now);
+    if (moved === strokesRef.current) return;
+    strokesRef.current = moved;
+    setStrokes(moved);
+  }, []);
 
   const emit = useCallback(
     (next: Point[][]) => {
@@ -185,9 +208,11 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
       for (let i = 0; i + 1 < flat.length; i += 2) points.push({ x: flat[i]!, y: flat[i + 1]! });
       return points;
     });
+    spaceRef.current = { w: value.w, h: value.h };
     strokesRef.current = restored;
     setStrokes(restored);
-  }, [value]);
+    align();
+  }, [value, align]);
 
   // A slip row draws no buttons of its own, so it reaches in for these.
   useImperativeHandle(ref, () => ({
@@ -202,6 +227,7 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height: h } = e.nativeEvent.layout;
     sizeRef.current = { w: Math.max(1, width), h: Math.max(1, h) };
+    align();
   };
 
   const asPath = useCallback(

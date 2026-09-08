@@ -173,3 +173,26 @@ function round(n: number): number {
 export function inkPointCount(ink: Ink): number {
   return ink.strokes.reduce((sum, s) => sum + Math.floor(s.length / 2), 0);
 }
+
+/**
+ * Move points from one pad size to another.
+ *
+ * A pad seeds itself from ink the bill already holds, but those coordinates are in the pad that
+ * wrote them. Draw one more stroke on a pad of a different width -- after a rotation, or after a
+ * bill was parked on the tablet and picked up on a wider screen -- and the two spaces end up in
+ * one strokes array under a single `w`/`h`, which prints as handwriting of two sizes on one line.
+ * So the restored strokes are brought into the current space before anything is added to them.
+ *
+ * Aspect is deliberately not preserved: x and y scale independently, because that is exactly what
+ * the pad itself does when it changes shape.
+ */
+export function rescaleStrokes<P extends { x: number; y: number }>(
+  strokes: P[][],
+  from: { w: number; h: number },
+  to: { w: number; h: number },
+): P[][] {
+  const sx = from.w > 0 ? to.w / from.w : 1;
+  const sy = from.h > 0 ? to.h / from.h : 1;
+  if (sx === 1 && sy === 1) return strokes;
+  return strokes.map((s) => s.map((p) => ({ ...p, x: p.x * sx, y: p.y * sy })));
+}

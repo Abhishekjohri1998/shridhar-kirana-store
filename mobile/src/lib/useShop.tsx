@@ -1,13 +1,61 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  DEFAULT_SETTINGS, billTotal, makeT, receiptLabelsFor, round2,
-  type Bill, type BillLine, type Customer, type Ink, type Item, type Lang, type ReceiptLabels,
-  type Settings, type T, type TodaySummary,
+  DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
+  nextLineId, receiptLabelsFor, round2,
+  type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
+  type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
 import { ApiError, api, getBaseUrl, getToken, loadStoredConfig, setServerUrl, setToken } from './api';
 
 const CACHE_KEY = 'shridhar.cache';
+/* One key per parked bill, and a small index saying which exist and which is showing.
+ *
+ * Per bill rather than one blob because handwriting is the bulk of it -- a written line is a few
+ * kilobytes of stroke coordinates, and a long bill runs to a hundred and more. Small keys keep
+ * each write cheap and stop one enormous bill taking the others down with it if storage is full. */
+const DRAFTS_KEY = 'shridhar.drafts';
+const DRAFT_KEY = 'shridhar.draft.';
+
+type Parked = { list: Draft[]; activeId: string };
+
+async function readParked(): Promise<Parked | null> {
+  try {
+    const raw = await AsyncStorage.getItem(DRAFTS_KEY);
+    if (!raw) return null;
+    const index = JSON.parse(raw) as { ids: string[]; activeId: string };
+    const pairs = await AsyncStorage.multiGet(index.ids.map((id) => DRAFT_KEY + id));
+    const list = pairs
+      .map(([, value]) => (value ? (JSON.parse(value) as Draft) : null))
+      .filter((d): d is Draft => d != null);
+    if (list.length === 0) return null;
+    return { list, activeId: list.some((d) => d.id === index.activeId) ? index.activeId : list[0]!.id };
+  } catch {
+    return null;
+  }
+}
+
+async function writeParked(parked: Parked): Promise<void> {
+  try {
+    const ids = parked.list.map((d) => d.id);
+    await AsyncStorage.multiSet([
+      [DRAFTS_KEY, JSON.stringify({ ids, activeId: parked.activeId })],
+      ...parked.list.map((d) => [DRAFT_KEY + d.id, JSON.stringify(d)] as [string, string]),
+    ]);
+    // Bills that have been printed or closed since the last write.
+    const keys = await AsyncStorage.getAllKeys();
+    const stale = keys.filter(
+      (k) => k.startsWith(DRAFT_KEY) && !ids.includes(k.slice(DRAFT_KEY.length)),
+    );
+    if (stale.length > 0) await AsyncStorage.multiRemove(stale);
+  } catch {
+    // Storage full or unavailable. A parked bill will not survive a restart; the one on screen
+    // is untouched, which is the part that matters.
+  }
+}
+
 
 type Cache = { settings: Settings };
 
@@ -62,6 +110,14 @@ type Shop = {
   setCustomer: (customer: Customer | null) => void;
   /** ISO date the attached customer's balance was last added to, or null. */
   customerBalanceAt: string | null;
+
+  /** Every bill in progress, the one showing first among equals. */
+  drafts: Draft[];
+  activeDraftId: string;
+  /** Put this bill aside and start a fresh one. Does nothing once MAX_PARKED are waiting. */
+  newBill: () => void;
+  switchBill: (id: string) => void;
+  closeBill: (id: string) => void;
   saveCustomer: (input: { id?: string; name: string; nameKn?: string; phone: string }) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
@@ -81,17 +137,113 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [bills, setBills] = useState<Bill[]>([]);
   const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
-  const [cart, setCart] = useState<BillLine[]>([]);
-  const [customer, setCustomerState] = useState<Customer | null>(null);
-  /** The date their balance was last added to. Held beside the customer, not on them: only this
-   *  screen needs it, and only the customer-detail endpoint can answer it honestly. */
-  const [customerBalanceAt, setCustomerBalanceAt] = useState<string | null>(null);
   const [inactive, setInactive] = useState<Customer[]>([]);
-  // Part of the bill draft, not of one screen: a phone unmounts screens as you switch tabs, and
-  // a part payment typed and then forgotten must not be silently discarded.
-  const [paidInput, setPaidInput] = useState('');
-  const [printBalance, setPrintBalanceState] = useState(false);
-  const [printBalanceTouched, setPrintBalanceTouched] = useState(false);
+
+  /*
+   * Several bills at once, one of them showing.
+   *
+   * A second customer arriving while the first bill is half-written used to mean making them wait
+   * or throwing the slip away. So the draft that used to be seven separate pieces of state is now
+   * a list of them, and everything the screens already read -- cart, customer, paidInput and the
+   * rest -- is a view onto whichever is active. That is what keeps this out of the dozens of call
+   * sites that use them.
+   */
+  const [parked, setParked] = useState<Parked>(() => {
+    const first = emptyDraft(nextLineId('bill'));
+    return { list: [first], activeId: first.id };
+  });
+  /** Held back until the saved bills have been read, so the first write cannot erase them. */
+  const parkedLoaded = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    void readParked().then((saved) => {
+      if (alive && saved) setParked(saved);
+      parkedLoaded.current = true;
+    });
+    return () => { alive = false; };
+  }, []);
+
+  /*
+   * Written a beat after the last change rather than on every pen stroke, which would be a write
+   * every few milliseconds while somebody is writing. A crash between beats loses a second of the
+   * bill on screen; today a crash loses the whole thing, so this is strictly better.
+   */
+  useEffect(() => {
+    if (!parkedLoaded.current) return;
+    const timer = setTimeout(() => void writeParked(parked), 1200);
+    return () => clearTimeout(timer);
+  }, [parked]);
+  const active = parked.list.find((d) => d.id === parked.activeId) ?? parked.list[0]!;
+
+  /**
+   * Change the bill being written, leaving the parked ones alone.
+   *
+   * Returns the previous state untouched when nothing actually changed, which is not an
+   * optimisation but a correctness fix. Setting a piece of `useState` to the value it already
+   * holds is a no-op and React bails out; a setter that always builds a fresh object never does,
+   * so the two effects that re-suggest the print-balance switch and top up the blank line saw a
+   * new context on every render and re-ran forever. Four thousand state changes in three seconds,
+   * measured, before this line existed.
+   */
+  const patchActive = useCallback((fn: (d: Draft) => Draft) => {
+    setParked((prev) => {
+      const list = prev.list.map((d) => (d.id === prev.activeId ? fn(d) : d));
+      return list.every((d, i) => d === prev.list[i]) ? prev : { ...prev, list };
+    });
+  }, []);
+
+  const cart = active.lines;
+  const customer = active.customer;
+  const customerBalanceAt = active.customerBalanceAt;
+  const customerDraft = active.typed;
+  const paidInput = active.paidInput;
+  const printBalance = active.printBalance;
+  const printBalanceTouched = active.printBalanceTouched;
+
+  const setCart = useCallback(
+    (next: BillLine[] | ((prev: BillLine[]) => BillLine[])) => {
+      patchActive((d) => {
+        const lines = typeof next === 'function'
+          ? (next as (p: BillLine[]) => BillLine[])(d.lines)
+          : next;
+        // The mutators return the array they were given when they change nothing, and that has
+        // to travel all the way up or React cannot bail out.
+        return lines === d.lines ? d : { ...d, lines };
+      });
+    },
+    [patchActive],
+  );
+  const setCustomerState = useCallback(
+    (next: Customer | null) => patchActive((d) => (d.customer === next ? d : { ...d, customer: next })),
+    [patchActive],
+  );
+  const setCustomerBalanceAt = useCallback(
+    (next: string | null) =>
+      patchActive((d) => (d.customerBalanceAt === next ? d : { ...d, customerBalanceAt: next })),
+    [patchActive],
+  );
+  const setCustomerDraft = useCallback(
+    (typed: { name: string; nameKn: string; phone: string }) =>
+      patchActive((d) =>
+        d.typed.name === typed.name && d.typed.nameKn === typed.nameKn && d.typed.phone === typed.phone
+          ? d
+          : { ...d, typed }),
+    [patchActive],
+  );
+  const setPaidInput = useCallback(
+    (value: string) => patchActive((d) => (d.paidInput === value ? d : { ...d, paidInput: value })),
+    [patchActive],
+  );
+  const setPrintBalanceState = useCallback(
+    (value: boolean) => patchActive((d) => (d.printBalance === value ? d : { ...d, printBalance: value })),
+    [patchActive],
+  );
+  const setPrintBalanceTouched = useCallback(
+    (value: boolean) =>
+      patchActive((d) => (d.printBalanceTouched === value ? d : { ...d, printBalanceTouched: value })),
+    [patchActive],
+  );
 
   const lang: Lang = settings.language === 'kn' ? 'kn' : 'en';
   const t = useMemo(() => makeT(lang), [lang]);
@@ -121,25 +273,30 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /**
-   * What has been typed into the customer fields but not yet attached to anyone.
-   *
-   * It lives here rather than inside the customer bar for two reasons: switching tabs used to
-   * lose it, and the bill needs to see it. A shopkeeper who has typed a name and a number has
-   * said what they want; printing without it because a button went unpressed is the software
-   * being pedantic with someone else's receipt.
-   */
-  const [customerDraft, setCustomerDraft] =
-    useState<{ name: string; nameKn: string; phone: string }>({ name: '', nameKn: '', phone: '' });
-
+  /** Empty the bill being written, keeping any others parked. */
   const resetDraft = useCallback(() => {
-    setCart([]);
-    setCustomerState(null);
-    setCustomerBalanceAt(null);
-    setCustomerDraft({ name: '', nameKn: '', phone: '' });
-    setPaidInput('');
-    setPrintBalanceState(false);
-    setPrintBalanceTouched(false);
+    patchActive((d) => ({ ...emptyDraft(d.id) }));
+  }, [patchActive]);
+
+  /** Put this bill aside and start a fresh one. Refuses past MAX_PARKED rather than doing nothing. */
+  const newBill = useCallback(() => {
+    setParked((prev) => {
+      if (prev.list.length >= MAX_PARKED) return prev;
+      const fresh = emptyDraft(nextLineId('bill'));
+      return { list: [...prev.list, fresh], activeId: fresh.id };
+    });
+  }, []);
+
+  const switchBill = useCallback((id: string) => {
+    setParked((prev) => (prev.list.some((d) => d.id === id) ? { ...prev, activeId: id } : prev));
+  }, []);
+
+  const closeBill = useCallback((id: string) => {
+    setParked((prev) => {
+      const nextActive = afterClosing(prev.list, id, prev.activeId);
+      const list = closeDraft(prev.list, id, nextLineId('bill'));
+      return { list, activeId: list.some((d) => d.id === nextActive) ? nextActive : list[0]!.id };
+    });
   }, []);
 
   const refreshInactive = useCallback(async () => {
@@ -272,7 +429,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setCart((prev) => [
         ...prev,
         {
-          itemId: 'loose-' + Date.now() + '-' + prev.length,
+          itemId: nextLineId('loose'),
           nameKn: trimmed,
           nameEn: trimmed,
           ...(ink && ink.strokes.length > 0 ? { ink } : {}),
@@ -321,7 +478,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const addBlankLine = useCallback(() => {
     setCart((prev) => [
       ...prev,
-      { itemId: 'line-' + Date.now() + '-' + prev.length, nameKn: '', nameEn: '', qty: 1, rate: 0 },
+      { itemId: nextLineId(), nameKn: '', nameEn: '', qty: 1, rate: 0 },
     ]);
   }, []);
 
@@ -344,7 +501,19 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...(options.paid == null ? {} : { paid: options.paid }),
         showBalance: Boolean(options.showBalance && billTo),
       });
-      resetDraft();
+      /*
+       * A printed bill leaves the stack. When it was the only one, the slip is simply cleared --
+       * there has to be something to write on. With others parked, closing takes the shopkeeper
+       * back to one of those, which is where they were going anyway.
+       */
+      setParked((prev) => {
+        if (prev.list.length <= 1) {
+          return { ...prev, list: prev.list.map((d) => (d.id === prev.activeId ? emptyDraft(d.id) : d)) };
+        }
+        const nextActive = afterClosing(prev.list, prev.activeId, prev.activeId);
+        const list = closeDraft(prev.list, prev.activeId, nextLineId('bill'));
+        return { list, activeId: list.some((d) => d.id === nextActive) ? nextActive : list[0]!.id };
+      });
       setBills((prev) => [bill, ...prev].slice(0, 100));
       setToday((prev) => ({ count: prev.count + 1, total: round2(prev.total + bill.total) }));
       if (bill.customer) setInactive((prev) => prev.filter((c) => c.id !== bill.customer?.id));
@@ -381,6 +550,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
       saveSettings,
     }),
@@ -389,6 +559,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, customerDraft, saveSettings,
     ],
   );

@@ -427,6 +427,62 @@ check('a unit is trimmed', F.checkUnit(' kg ').value === 'kg');
 rejects(F.checkUnit, 'unit', 'x'.repeat(17));
 
 /* ------------------------------------------------------------------ *
+ * Bills set aside                                                     *
+ *                                                                     *
+ * The list operations, the id that must never repeat, and the JSON    *
+ * round trip that parking a bill on the tablet depends on.            *
+ * ------------------------------------------------------------------ */
+console.log('');
+console.log('Parked bills');
+
+const D = require(path.join(BUILD_SHARED, 'drafts.js'));
+
+const blank = D.emptyDraft('a');
+check('a fresh draft is empty', D.isDraftEmpty(blank));
+check('and comes to nothing', D.draftTotal(blank) === 0);
+check('a typed name alone makes it worth keeping', !D.isDraftEmpty({ ...blank, typed: { name: 'Ramesh', nameKn: '', phone: '' } }));
+check('so does a Kannada name alone', !D.isDraftEmpty({ ...blank, typed: { name: '', nameKn: RAMESH_KN, phone: '' } }));
+check('so does an attached customer', !D.isDraftEmpty({ ...blank, customer: { id: 'c1', name: 'Ramesh', phone: '9000000007', balance: 0 } }));
+
+const written = {
+  ...blank,
+  lines: [{ itemId: 'line-1', nameEn: '', nameKn: '', qty: 1, unit: 'pc', rate: 0, amount: 0,
+            ink: { w: 300, h: 64, strokes: [[10, 20, 12, 22, 40, 30]] } }],
+};
+check('a blank line with handwriting is not empty', !D.isDraftEmpty(written));
+check('an untouched blank line still is', D.isDraftEmpty({ ...blank, lines: [{ ...written.lines[0], ink: null }] }));
+check('a priced line is not empty either', !D.isDraftEmpty({ ...blank, lines: [{ ...written.lines[0], ink: null, rate: 20 }] }));
+
+const three = ['a', 'b', 'c'].map(D.emptyDraft);
+eqs('closing the middle one leaves the others', D.closeDraft(three, 'b', 'z').map((d) => d.id).join(','), 'a,c');
+eqs('and the one showing does not move', D.afterClosing(three, 'b', 'a'), 'a');
+eqs('closing the one showing falls back to its neighbour', D.afterClosing(three, 'b', 'b'), 'a');
+eqs('closing the first falls forward instead', D.afterClosing(three, 'a', 'a'), 'b');
+eqs('closing the last of all leaves a fresh one', D.closeDraft([D.emptyDraft('a')], 'a', 'z').map((d) => d.id).join(','), 'z');
+check('and that fresh one is blank', D.isDraftEmpty(D.closeDraft([written], 'a', 'z')[0]));
+check('there is a ceiling on parked bills', D.MAX_PARKED >= 2 && D.MAX_PARKED <= 20);
+
+// The collision the old 'line-' + Date.now() + '-' + cart.length could not survive: two bills
+// making a line in the same millisecond at the same length shared an id, and the writing strips
+// are keyed by it -- one bill's handwriting appeared on another's line.
+const ids = new Set();
+for (let i = 0; i < 5000; i++) ids.add(D.nextLineId());
+eqs('five thousand line ids, none repeated', ids.size, 5000);
+check('a prefix is honoured', D.nextLineId('row').startsWith('row-'));
+
+const trip = JSON.parse(JSON.stringify({ ...written, paidInput: '50', customerBalanceAt: '2026-09-01' }));
+eqs('handwriting survives the round trip to storage', JSON.stringify(trip.lines[0].ink), JSON.stringify(written.lines[0].ink));
+eqs('and so does the part payment', trip.paidInput, '50');
+eqs('and the date the balance was carried from', trip.customerBalanceAt, '2026-09-01');
+
+// A pad seeded from a bill written before the tablet was turned holds coordinates in the old
+// pad's space; a new stroke beside them would print at a different size.
+const moved = SH.rescaleStrokes([[{ x: 10, y: 20 }], [{ x: 100, y: 40 }]], { w: 200, h: 40 }, { w: 400, h: 80 });
+eqs('strokes double with the pad', JSON.stringify(moved), JSON.stringify([[{ x: 20, y: 40 }], [{ x: 200, y: 80 }]]));
+check('the same size is left alone, object and all', SH.rescaleStrokes(moved, { w: 5, h: 5 }, { w: 5, h: 5 }) === moved);
+check('a zero-width origin does not divide by zero', SH.rescaleStrokes([[{ x: 1, y: 1 }]], { w: 0, h: 0 }, { w: 9, h: 9 })[0][0].x === 1);
+
+/* ------------------------------------------------------------------ *
  * The server address the phone is given                               *
  *                                                                     *
  * Android has blocked cleartext by default since API 28, so guessing  *
