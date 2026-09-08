@@ -83,11 +83,11 @@ type Shop = {
   setCustomer: (customer: Customer | null) => void;
   /** ISO date the attached customer's balance was last added to, or null. */
   customerBalanceAt: string | null;
-  saveCustomer: (input: { id?: string; name: string; phone: string }) => Promise<Customer>;
+  saveCustomer: (input: { id?: string; name: string; nameKn?: string; phone: string }) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
-  customerDraft: { name: string; phone: string };
-  setCustomerDraft: (draft: { name: string; phone: string }) => void;
+  customerDraft: { name: string; nameKn: string; phone: string };
+  setCustomerDraft: (draft: { name: string; nameKn: string; phone: string }) => void;
 
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
 };
@@ -207,13 +207,14 @@ export function ShopProvider({ children }: { children: ReactNode }) {
    * said what they want; printing without it because a button went unpressed is the software
    * being pedantic with someone else's receipt.
    */
-  const [customerDraft, setCustomerDraft] = useState<{ name: string; phone: string }>({ name: '', phone: '' });
+  const [customerDraft, setCustomerDraft] =
+    useState<{ name: string; nameKn: string; phone: string }>({ name: '', nameKn: '', phone: '' });
 
   const resetDraft = useCallback(() => {
     setCart([]);
     setCustomerState(null);
     setCustomerBalanceAt(null);
-    setCustomerDraft({ name: '', phone: '' });
+    setCustomerDraft({ name: '', nameKn: '', phone: '' });
     setPaidInput('');
     setPrintBalanceState(false);
     setPrintBalanceTouched(false);
@@ -324,7 +325,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     [cart, customer, resetDraft, t],
   );
 
-  const saveCustomer = useCallback(async (input: { id?: string; name: string; phone: string }) => {
+  const saveCustomer = useCallback(async (input: { id?: string; name: string; nameKn?: string; phone: string }) => {
     const saved = await api.saveCustomer(input);
     setCustomer(saved);
     return saved;

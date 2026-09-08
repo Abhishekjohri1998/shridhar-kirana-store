@@ -9,7 +9,7 @@ import { Caveat_700Bold } from '@expo-google-fonts/caveat/700Bold';
 import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { money, type MsgKey } from '@shridhar/shared';
+import { money, pickLang, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { PrintProvider } from './src/lib/usePrint';
 import { ShopProvider, useShop } from './src/lib/useShop';
@@ -130,6 +130,7 @@ function Shell() {
   if (!shop.signedIn) return <LoginScreen />;
 
   const index = TABS.findIndex((t) => t.key === tab);
+  const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
 
   const go = (next: TabKey) => {
     setTab(next);
@@ -151,8 +152,8 @@ function Shell() {
       >
         <View style={styles.header}>
           <Mark size={24} color={C.accent} />
-          <Text style={[styles.headerText, handFont(shop.settings.shopName, 19)]} numberOfLines={1}>
-            {shop.settings.shopName}
+          <Text style={[styles.headerText, handFont(shopName, 19)]} numberOfLines={1}>
+            {shopName}
           </Text>
           <Text style={styles.badge}>{shop.t('app.today', { amount: money(shop.today.total) })}</Text>
         </View>

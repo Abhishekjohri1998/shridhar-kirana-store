@@ -12,6 +12,7 @@ import {
 type CustomerDoc = {
   id: string;
   name: string;
+  nameKn?: string;
   phone: string;
   since: string;
   totalBilled: number;
@@ -51,6 +52,9 @@ const billCustomerSchema = new Schema(
   {
     id: { type: String, required: true },
     name: { type: String, required: true, default: '' },
+    // Optional with a plain default -- never `required: true` beside one, the pairing that made
+    // every print return 500 once.
+    nameKn: { type: String, required: false, default: '' },
     phone: { type: String, required: true, default: '' },
   },
   { _id: false, versionKey: false },
@@ -83,6 +87,8 @@ const customerSchema = new Schema<CustomerDoc>(
   {
     id: { type: String, required: true, unique: true, index: true },
     name: { type: String, required: true, default: '' },
+    // Optional with a plain default -- see the note on the bill's copy above.
+    nameKn: { type: String, required: false, default: '' },
     phone: { type: String, required: true, default: '' },
     since: { type: String, required: true },
     totalBilled: { type: Number, required: true, default: 0 },
@@ -104,6 +110,8 @@ const settingsSchema = new Schema<SettingsDoc>(
     // Optional with a plain default, never `required: true` alongside one -- that pairing is
     // what made every print return 500 once, and schematest exists because of it.
     gstin: { type: String, required: false, default: '' },
+    shopNameKn: { type: String, required: false, default: '' },
+    footerKn: { type: String, required: false, default: '' },
     showRate: { type: Boolean, required: true },
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
   },
@@ -249,7 +257,14 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         no,
         at: new Date().toISOString(),
         ...(customerDoc
-          ? { customer: { id: customerDoc.id, name: customerDoc.name, phone: customerDoc.phone } }
+          ? {
+              customer: {
+                id: customerDoc.id,
+                name: customerDoc.name,
+                nameKn: customerDoc.nameKn ?? '',
+                phone: customerDoc.phone,
+              },
+            }
           : {}),
         lines,
         total,
@@ -368,7 +383,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return doc ? toCustomer(doc as unknown as CustomerDoc) : null;
     },
 
-    async upsertCustomer({ id, name, phone }) {
+    async upsertCustomer({ id, name, nameKn, phone }) {
       const digits = normalisePhone(phone);
       // An existing record is found by id, or by phone when one is given -- which is what stops
       // the same person being saved twice as they get re-entered at the counter.
@@ -381,15 +396,16 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       if (existing) {
         const doc = await Customers.findOneAndUpdate(
           { id: (existing as unknown as CustomerDoc).id },
-          { $set: { name, phone: digits } },
+          { $set: { name, nameKn: nameKn ?? '', phone: digits } },
           { new: true },
         ).lean();
         return toCustomer(doc as unknown as CustomerDoc);
       }
 
       const fresh: CustomerDoc = {
-        id: id ?? makeCustomerId(name, digits),
+        id: id ?? makeCustomerId(name || (nameKn ?? ''), digits),
         name,
+        nameKn: nameKn ?? '',
         phone: digits,
         since: new Date().toISOString(),
         totalBilled: 0,

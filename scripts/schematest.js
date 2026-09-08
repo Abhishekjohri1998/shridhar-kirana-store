@@ -186,6 +186,21 @@ function billDoc(lines) {
     check('settings with one are valid too', !withGst.validateSync());
   }
 
+  // The Kannada twins: optional, defaulting to '', so a record written before they existed reads
+  // as empty rather than undefined -- which is what lets pickLang fall back cleanly.
+  const oldCustomer = new Customer({
+    id: 'p1', name: 'Ramesh', phone: '9886012345',
+    since: new Date().toISOString(), totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+  });
+  check('a customer written before the Kannada box is valid', !oldCustomer.validateSync());
+  check('and reads as empty rather than missing', oldCustomer.nameKn === '',
+    JSON.stringify(oldCustomer.nameKn));
+  const bothNames = new Customer({
+    id: 'p2', name: 'Suresh', nameKn: 'ಸುರೇಶ್', phone: '9886012399',
+    since: new Date().toISOString(), totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+  });
+  check('a customer with both names is valid', !bothNames.validateSync());
+
   console.log('\nUpdate documents Mongo will accept');
   const DEFAULTS = { shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
     showRate: false, inactiveAfterDays: 30, key: 'shop' };

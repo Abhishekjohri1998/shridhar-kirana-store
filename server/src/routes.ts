@@ -41,6 +41,8 @@ const settingsBody = z.object({
   // Accepted as typed and normalised by checkGstin on the way in: a number the shop insists on
   // is the shop's business, and a settings screen that refuses to save is not a validator.
   gstin: z.string().trim().max(24).optional(),
+  shopNameKn: z.string().trim().max(80).optional(),
+  footerKn: z.string().trim().max(120).optional(),
   showRate: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
 });
@@ -48,6 +50,7 @@ const settingsBody = z.object({
 const customerBody = z.object({
   id: z.string().trim().min(1).max(80).optional(),
   name: z.string().trim().max(80).default(''),
+  nameKn: z.string().trim().max(80).default(''),
   phone: z.string().trim().max(24).default(''),
 });
 
@@ -120,14 +123,18 @@ api.get('/customers/:id', handler(async (req, res) => {
 
 api.post('/customers', handler(async (req, res) => {
   const body = customerBody.parse(req.body);
-  if (!body.name && !body.phone) throw new HttpError(400, 'Give the customer a name or a phone number');
+  if (!body.name && !body.nameKn && !body.phone) {
+    throw new HttpError(400, 'Give the customer a name or a phone number');
+  }
   res.status(201).json(await getRepo().upsertCustomer(body));
 }));
 
 api.put('/customers/:id', handler(async (req, res) => {
   const id = z.string().trim().min(1).parse(req.params.id);
   const body = customerBody.parse(req.body);
-  if (!body.name && !body.phone) throw new HttpError(400, 'Give the customer a name or a phone number');
+  if (!body.name && !body.nameKn && !body.phone) {
+    throw new HttpError(400, 'Give the customer a name or a phone number');
+  }
   const existing = await getRepo().getCustomer(id);
   if (!existing) throw new HttpError(404, 'No such customer');
   res.json(await getRepo().upsertCustomer({ ...body, id }));

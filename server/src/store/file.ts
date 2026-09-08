@@ -12,6 +12,8 @@ import {
 type CustomerRow = {
   id: string;
   name: string;
+  /** Their name on a Kannada keypad. Absent on every row written before the field existed. */
+  nameKn?: string;
   phone: string;
   since: string;
   totalBilled: number;
@@ -122,7 +124,13 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         const bill: Bill = {
           no: db.billNo,
           at: new Date().toISOString(),
-          ...(row ? { customer: { id: row.id, name: row.name, phone: row.phone } } : {}),
+          ...(row
+            ? {
+                customer: {
+                  id: row.id, name: row.name, nameKn: row.nameKn ?? '', phone: row.phone,
+                },
+              }
+            : {}),
           lines,
           total,
           paid: takings,
@@ -189,7 +197,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return row ? toCustomer(row) : null;
     },
 
-    upsertCustomer({ id, name, phone }) {
+    upsertCustomer({ id, name, nameKn, phone }) {
       return serial(async () => {
         const digits = normalisePhone(phone);
         // Found by id, or by phone when one is given -- which is what stops the same person
@@ -202,14 +210,16 @@ export async function createFileRepo(dir: string): Promise<Repo> {
 
         if (existing) {
           existing.name = name;
+          existing.nameKn = nameKn ?? '';
           existing.phone = digits;
           await flush();
           return toCustomer(existing);
         }
 
         const fresh: CustomerRow = {
-          id: id ?? makeCustomerId(name, digits),
+          id: id ?? makeCustomerId(name || (nameKn ?? ''), digits),
           name,
+          nameKn: nameKn ?? '',
           phone: digits,
           since: new Date().toISOString(),
           totalBilled: 0,

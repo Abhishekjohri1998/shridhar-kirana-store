@@ -40,6 +40,8 @@ export function SettingsPage() {
   const [shopName, setShopName] = useState(shop.settings.shopName);
   const [footer, setFooter] = useState(shop.settings.footer);
   const [gstin, setGstin] = useState(shop.settings.gstin ?? '');
+  const [shopNameKn, setShopNameKn] = useState(shop.settings.shopNameKn ?? '');
+  const [footerKn, setFooterKn] = useState(shop.settings.footerKn ?? '');
   const [inactiveDays, setInactiveDays] = useState(String(shop.settings.inactiveAfterDays));
   const [error, setError] = useState<string | null>(null);
   // The key, not the rendered text: switching to Kannada would otherwise leave the
@@ -51,8 +53,13 @@ export function SettingsPage() {
     setShopName(shop.settings.shopName);
     setFooter(shop.settings.footer);
     setGstin(shop.settings.gstin ?? '');
+    setShopNameKn(shop.settings.shopNameKn ?? '');
+    setFooterKn(shop.settings.footerKn ?? '');
     setInactiveDays(String(shop.settings.inactiveAfterDays));
-  }, [shop.settings.shopName, shop.settings.footer, shop.settings.gstin, shop.settings.inactiveAfterDays]);
+  }, [
+    shop.settings.shopName, shop.settings.footer, shop.settings.gstin,
+    shop.settings.shopNameKn, shop.settings.footerKn, shop.settings.inactiveAfterDays,
+  ]);
 
   const save = async (patch: Parameters<typeof shop.saveSettings>[0], labelKey: Parameters<typeof t>[0]) => {
     setError(null);
@@ -116,6 +123,41 @@ export function SettingsPage() {
             if (checked.value !== shop.settings.footer) void save({ footer: checked.value }, 'set.savedFooter');
           }}
         />
+
+        {/* Boxes of their own, for a Kannada keypad. Shown and printed in place of the English
+            ones whenever the shop is set to Kannada; left empty, the English ones stand. */}
+        <div className="field">
+          <label htmlFor="s-name-kn">{t('set.shopNameKn')}</label>
+          <input
+            id="s-name-kn"
+            className="input"
+            value={shopNameKn}
+            onChange={(e) => setShopNameKn(e.target.value)}
+            onBlur={() => {
+              const next = shopNameKn.trim();
+              setShopNameKn(next);
+              if (next !== (shop.settings.shopNameKn ?? '')) {
+                void save({ shopNameKn: next }, 'set.savedShopName');
+              }
+            }}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="s-footer-kn">{t('set.footerKn')}</label>
+          <input
+            id="s-footer-kn"
+            className="input"
+            value={footerKn}
+            onChange={(e) => setFooterKn(e.target.value)}
+            onBlur={() => {
+              const next = footerKn.trim();
+              setFooterKn(next);
+              if (next !== (shop.settings.footerKn ?? '')) {
+                void save({ footerKn: next }, 'set.savedFooter');
+              }
+            }}
+          />
+        </div>
 
         {/* Not a ScriptField: a GST number is fifteen Latin characters by definition. */}
         <div className="field">

@@ -109,6 +109,7 @@ const EN = {
   'cs.lastVisit': ' · last in {date}',
   'cs.noBills': 'No bills yet.',
   'cs.paidOf': 'paid {amount}',
+  'cs.nameKn': 'Name in Kannada',
   'cs.name': 'Name',
   'cs.phone': 'Contact no.',
   'cs.newTitle': 'New customer',
@@ -148,6 +149,8 @@ const EN = {
   'set.slipSection': 'What prints on the slip',
   'set.shopName': 'Shop name',
   'set.footer': 'Footer line',
+  'set.shopNameKn': 'Shop name in Kannada',
+  'set.footerKn': 'Footer line in Kannada',
   'set.gstin': 'GST number',
   'set.gstinHint': 'Prints under the shop name. Leave it empty if the shop has none.',
   'set.showRate': 'Show the rate under each item',
@@ -299,6 +302,7 @@ const KN: Record<MsgKey, string> = {
   'cs.lastVisit': ' · ಕೊನೆಯ ಬಾರಿ {date}',
   'cs.noBills': 'ಇನ್ನೂ ಬಿಲ್ ಇಲ್ಲ.',
   'cs.paidOf': 'ಕೊಟ್ಟದ್ದು {amount}',
+  'cs.nameKn': 'ಹೆಸರು (ಕನ್ನಡ)',
   'cs.name': 'ಹೆಸರು',
   'cs.phone': 'ಸಂಪರ್ಕ ಸಂಖ್ಯೆ',
   'cs.newTitle': 'ಹೊಸ ಗ್ರಾಹಕ',
@@ -338,6 +342,8 @@ const KN: Record<MsgKey, string> = {
   'set.slipSection': 'ರಸೀದಿಯಲ್ಲಿ ಪ್ರಿಂಟ್ ಆಗುವುದು',
   'set.shopName': 'ಅಂಗಡಿಯ ಹೆಸರು',
   'set.footer': 'ಕೊನೆಯ ಸಾಲು',
+  'set.shopNameKn': 'ಅಂಗಡಿಯ ಹೆಸರು (ಕನ್ನಡ)',
+  'set.footerKn': 'ಕೊನೆಯ ಸಾಲು (ಕನ್ನಡ)',
   'set.gstin': 'ಜಿಎಸ್‌ಟಿ ಸಂಖ್ಯೆ',
   'set.gstinHint': 'ಅಂಗಡಿಯ ಹೆಸರಿನ ಕೆಳಗೆ ಪ್ರಿಂಟ್ ಆಗುತ್ತದೆ. ಇಲ್ಲದಿದ್ದರೆ ಖಾಲಿ ಬಿಡಿ.',
   'set.showRate': 'ಪ್ರತಿ ಸಾಮಾನಿನ ಕೆಳಗೆ ದರ ತೋರಿಸಿ',
@@ -399,6 +405,19 @@ function interpolate(template: string, vars?: Vars): string {
 }
 
 export type T = (key: MsgKey, vars?: Vars) => string;
+
+/**
+ * The Kannada version when the shop is in Kannada and there is one; otherwise whatever exists.
+ *
+ * Not the same rule as an item's `nameKn || nameEn`, which always prefers Kannada. A shop that
+ * switches back to English has to get its English name back -- but a customer who only ever had
+ * one of the two must never show as blank, which is why each side falls through to the other.
+ */
+export function pickLang(en: string | undefined, kn: string | undefined, lang: Lang): string {
+  const english = (en ?? '').trim();
+  const kannada = (kn ?? '').trim();
+  return lang === 'kn' ? kannada || english : english || kannada;
+}
 
 export function makeT(lang: Lang): T {
   const dict = STRINGS[lang] ?? EN;

@@ -250,6 +250,53 @@ async function main() {
   eq('paid prints when the balance is shown', paidRow && paidRow.right, '1000');
   eq('balance prints when the balance is shown', balanceRow && balanceRow.right, '422');
 
+  console.log('\nReceipt document: which script it speaks');
+  const KN_SET = {
+    ...SETTINGS,
+    shopNameKn: 'ಶ್ರೀಧರ ಕಿರಾಣಿ',
+    footerKn: 'ಧನ್ಯವಾದಗಳು',
+  };
+  const knBill = {
+    ...BILL,
+    customer: {
+      id: 'p9886012345', name: 'Ramesh', nameKn: 'ರಮೇಶ್', phone: '9886012345',
+    },
+  };
+
+  const inKn = shared.buildReceipt(knBill, { ...KN_SET, language: 'kn' }, shared.receiptLabelsFor('kn'));
+  const knHead = inKn.rows.find((r) => r.t === 'center');
+  eq('a Kannada slip carries the Kannada shop name', knHead && knHead.text, KN_SET.shopNameKn);
+  const knName = inKn.rows.find((r) => r.t === 'kv' && r.left === 'ಹೆಸರು');
+  eq('and the customer in Kannada', knName && knName.right, knBill.customer.nameKn);
+  check('and the Kannada footer',
+    inKn.rows.some((r) => r.t === 'center' && r.text === KN_SET.footerKn));
+
+  // Switching back has to bring the English ones with it.
+  const inEn = shared.buildReceipt(knBill, { ...KN_SET, language: 'en' });
+  const enHead = inEn.rows.find((r) => r.t === 'center');
+  eq('an English slip carries the English shop name', enHead && enHead.text, SETTINGS.shopName);
+  const enName = inEn.rows.find((r) => r.t === 'kv' && r.left === 'Name');
+  eq('and the customer in English', enName && enName.right, 'Ramesh');
+
+  // A shop that has not typed the Kannada names yet must not get blank lines.
+  const noKn = shared.buildReceipt(
+    { ...BILL, customer: { id: 'p1', name: 'Ramesh', phone: '9886012345' } },
+    { ...SETTINGS, language: 'kn' },
+    shared.receiptLabelsFor('kn'),
+  );
+  const fellBack = noKn.rows.find((r) => r.t === 'center');
+  eq('with no Kannada shop name the English one stands', fellBack && fellBack.text, SETTINGS.shopName);
+  const fellBackName = noKn.rows.find((r) => r.t === 'kv' && r.left === 'ಹೆಸರು');
+  eq('and so does the English customer name', fellBackName && fellBackName.right, 'Ramesh');
+
+  // And a customer who only ever had the Kannada box shows in English mode too.
+  const knOnly = shared.buildReceipt(
+    { ...BILL, customer: { id: 'p1', name: '', nameKn: 'ರಮೇಶ್', phone: '9886012345' } },
+    SETTINGS,
+  );
+  const knOnlyRow = knOnly.rows.find((r) => r.t === 'kv' && r.left === 'Name');
+  eq('a Kannada-only customer is never blank', knOnlyRow && knOnlyRow.right, 'ರಮೇಶ್');
+
   console.log('\nReceipt document: the GST number');
   const withGst = shared.buildReceipt(BILL, { ...SETTINGS, gstin: '29ABCDE1234F1Z5' });
   const gstRow = withGst.rows.find((r) => r.t === 'center' && String(r.text).includes('GSTIN'));
@@ -593,6 +640,24 @@ async function main() {
      */
     const knName = 'ರಮೇಶ್ ಗೌಡ';
     const knCust = await post('/api/customers', { name: knName, phone: '9000000123' });
+    // A customer entered on a Kannada keypad, in the box of its own.
+    const twoNames = await post('/api/customers', {
+      name: 'Suresh Kumar', nameKn: 'ಸುರೇಶ್', phone: '9000000124',
+    });
+    eq('a customer keeps both names', twoNames.body.nameKn, 'ಸುರೇಶ್');
+    eq('and the English one too', twoNames.body.name, 'Suresh Kumar');
+    const knFound = await call('/api/customers/search?q=suresh', { headers: auth });
+    check('and is found by either', knFound.body.some((c) => c.id === twoNames.body.id));
+    const knBillSaved = await post('/api/bills', {
+      lines: [{ itemId: 'k', qty: 1, rate: 20 }], customerId: twoNames.body.id,
+    });
+    eq('a bill freezes the Kannada name with the rest',
+      knBillSaved.body.customer.nameKn, 'ಸುರೇಶ್');
+    // Created, not updated: this endpoint answers 201.
+    eq('a customer with only a Kannada name can be created',
+      (await post('/api/customers', { nameKn: 'ಗೌಡ', phone: '9000000125' })).status, 201);
+    eq('but nothing at all is still refused',
+      (await post('/api/customers', { name: '', nameKn: '', phone: '' })).status, 400);
     eq('a Kannada name is stored as it was typed', knCust.body.name, knName);
     const byEnglish = await call('/api/customers/search?q=ramesh', { headers: auth });
     check('typing English finds a customer stored in Kannada',
@@ -742,6 +807,15 @@ async function main() {
 
     // Normalised on the way in, like every other figure the browser sends: the number goes on
     // paper, so it should read the same however it was typed.
+    // Both Kannada boxes round-trip; the receipt tests above prove what they then do.
+    eq('the Kannada shop name is saved', (await call('/api/settings', {
+      method: 'PUT', headers: auth,
+      body: JSON.stringify({ shopNameKn: 'ಶ್ರೀಧರ' }),
+    })).body.shopNameKn, 'ಶ್ರೀಧರ');
+    eq('and the Kannada footer', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ footerKn: 'ಧನ್ಯವಾದ' }),
+    })).body.footerKn, 'ಧನ್ಯವಾದ');
+
     eq('a GST number is saved, upper-cased and stripped of spacing', (await call('/api/settings', {
       method: 'PUT', headers: auth, body: JSON.stringify({ gstin: '29 abcde 1234 f1z5' }),
     })).body.gstin, '29ABCDE1234F1Z5');

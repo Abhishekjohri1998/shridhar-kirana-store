@@ -288,6 +288,45 @@ check('and it too is handed back', F.checkGstin('2XABCDE1234F1Z5').value.length 
 check('the check is stable under itself',
   F.checkGstin(F.checkGstin('29 abcde 1234 f1z5').value).value === GOOD);
 
+console.log('\nA Kannada name of its own');
+/*
+ * Two boxes, and whichever is filled is what shows. Not the item rule (nameKn || nameEn, always
+ * Kannada): a shop that switches back to English has to get its English name back, while a
+ * customer who only ever had one name must never render as blank.
+ */
+const RAMESH_KN = '\u0cb0\u0cae\u0cc7\u0cb6\u0ccd';
+const eqs = (label, actual, expected) => check(label, actual === expected, JSON.stringify(actual));
+
+eqs('Kannada mode prefers the Kannada name', SH.pickLang('Ramesh', RAMESH_KN, 'kn'), RAMESH_KN);
+eqs('English mode prefers the English one', SH.pickLang('Ramesh', RAMESH_KN, 'en'), 'Ramesh');
+eqs('Kannada mode falls back with no Kannada', SH.pickLang('Ramesh', '', 'kn'), 'Ramesh');
+eqs('English mode falls back with no English', SH.pickLang('', RAMESH_KN, 'en'), RAMESH_KN);
+eqs('both empty is empty, not undefined', SH.pickLang('', '', 'kn'), '');
+eqs('undefined on either side is tolerated', SH.pickLang(undefined, undefined, 'en'), '');
+eqs('whitespace counts as empty', SH.pickLang('Ramesh', '   ', 'kn'), 'Ramesh');
+
+// The helper the screens use, so the argument order cannot be got wrong at ten call sites.
+eqs('customerName in Kannada', SH.customerName({ name: 'Ramesh', nameKn: RAMESH_KN }, 'kn'), RAMESH_KN);
+eqs('customerName in English', SH.customerName({ name: 'Ramesh', nameKn: RAMESH_KN }, 'en'), 'Ramesh');
+eqs('customerName with no Kannada at all', SH.customerName({ name: 'Ramesh' }, 'kn'), 'Ramesh');
+
+// A name in either box is enough, as a name or a phone always was.
+check('a Kannada name alone is accepted', F.checkCustomer('', '', RAMESH_KN).ok);
+eqs('and comes back on the Kannada side', F.checkCustomer('', '', RAMESH_KN).nameKn, RAMESH_KN);
+check('all three empty is still refused', !F.checkCustomer('', '', '').ok);
+check('an over-long Kannada name is refused', !F.checkCustomer('', '', 'x'.repeat(81)).ok);
+
+// Searching must reach a customer who only has the Kannada box filled, or the second box makes
+// people harder to find rather than easier.
+const KN_ONLY = { name: '', nameKn: RAMESH_KN, phone: '9886012345' };
+check('English finds a Kannada-only customer', F.customerMatches(KN_ONLY, 'ramesh'));
+check('a prefix does too', F.customerMatches(KN_ONLY, 'rame'));
+check('Kannada finds them', F.customerMatches(KN_ONLY, '\u0cb0\u0cae\u0cc7'));
+check('a different name does not', !F.customerMatches(KN_ONLY, 'suresh'));
+const BOTH_NAMES = { name: 'Ramesha Kumar', nameKn: RAMESH_KN, phone: '9000000001' };
+check('either box can match: the English one', F.customerMatches(BOTH_NAMES, 'kumar'));
+check('and the Kannada one', F.customerMatches(BOTH_NAMES, '\u0cb0\u0cae\u0cc7'));
+
 console.log('\nFinding a customer by typing English');
 /*
  * The shop types at a counter, in English, and the names already in the book are in Kannada.

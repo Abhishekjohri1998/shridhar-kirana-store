@@ -1,5 +1,5 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { money } from '@shridhar/shared';
+import { money, pickLang } from '@shridhar/shared';
 import { SECTION_ICONS } from './components/Icons';
 import { Mark } from './components/Mark';
 import { PrintProvider } from './lib/usePrint';
@@ -38,7 +38,7 @@ export function App() {
         </div>
 
         <header className="topbar">
-          <h1>{shop.settings.shopName}</h1>
+          <h1>{pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang)}</h1>
           <span className="badge">{shop.t('app.today', { amount: money(shop.today.total) })}</span>
         </header>
 

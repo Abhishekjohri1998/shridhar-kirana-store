@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { pickLang } from '@shridhar/shared';
 import { Mark } from '../components/Mark';
 import { useShop } from '../lib/useShop';
 
@@ -30,7 +31,7 @@ export function LoginPage() {
     <div className="signin">
       <form className="signin-card" onSubmit={submit}>
         <Mark className="signin-mark" />
-        <h1>{shop.settings.shopName}</h1>
+        <h1>{pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang)}</h1>
         <p className="signin-sub">{shop.t('login.prompt')}</p>
 
         {error ? (

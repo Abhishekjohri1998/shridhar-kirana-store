@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
-  checkCustomer, customerMatches, money, stamp, type Bill, type Customer,
+  checkCustomer, customerMatches, customerName, money, stamp, type Bill, type Customer,
 } from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
@@ -25,7 +25,8 @@ export function CustomersScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<{ customer: Customer; bills: Bill[] } | null>(null);
-  const [draft, setDraft] = useState<{ id?: string; name: string; phone: string } | null>(null);
+  const [draft, setDraft] =
+    useState<{ id?: string; name: string; nameKn: string; phone: string } | null>(null);
   /** The one bill being looked at, from this customer's list. */
   const [bill, setBill] = useState<Bill | null>(null);
 
@@ -60,7 +61,7 @@ export function CustomersScreen() {
   const quietList = shop.inactive
     .slice(0, 6)
     .map((c) => {
-      const who = c.name || c.phone || t('cs.unnamed');
+      const who = customerName(c, shop.lang) || c.phone || t('cs.unnamed');
       const when = t('cs.inactiveRow', { n: daysSince(c.lastVisit) ?? 0 });
       const owes = c.balance > 0 ? t('cs.inactiveOwes', { amount: money(c.balance) }) : '';
       return '• ' + who + ' — ' + when + owes;
@@ -69,13 +70,18 @@ export function CustomersScreen() {
 
   const save = async () => {
     if (!draft) return;
-    const fields = checkCustomer(draft.name, draft.phone);
+    const fields = checkCustomer(draft.name, draft.phone, draft.nameKn);
     if (!fields.ok) {
       setError(fields.error);
       return;
     }
     try {
-      await api.saveCustomer({ ...(draft.id ? { id: draft.id } : {}), name: fields.name, phone: fields.phone });
+      await api.saveCustomer({
+        ...(draft.id ? { id: draft.id } : {}),
+        name: fields.name,
+        nameKn: fields.nameKn,
+        phone: fields.phone,
+      });
       setDraft(null);
       setError(null);
       await load();
@@ -141,7 +147,7 @@ export function CustomersScreen() {
             placeholder={t('cs.searchPlaceholder')}
             placeholderTextColor={C.soft}
           />
-          <Button label={t('common.new')} onPress={() => setDraft({ name: '', phone: '' })} style={styles.slim} />
+          <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '' })} style={styles.slim} />
         </View>
 
         {loading ? (
@@ -192,7 +198,13 @@ export function CustomersScreen() {
             <Button
               label={t('common.edit')}
               onPress={() =>
-                open && setDraft({ id: open.customer.id, name: open.customer.name, phone: open.customer.phone })
+                open
+                  && setDraft({
+                    id: open.customer.id,
+                    name: open.customer.name,
+                    nameKn: open.customer.nameKn ?? '',
+                    phone: open.customer.phone,
+                  })
               }
               style={{ flex: 1 }}
             />
@@ -283,6 +295,13 @@ export function CustomersScreen() {
               label={t('cs.name')}
               value={draft.name}
               onCommit={(name) => setDraft((d) => (d ? { ...d, name } : d))}
+            />
+            {/* Typed on a Kannada keypad. Either box will do, and whichever is filled is what
+                shows -- so a customer entered before this existed needs no revisiting. */}
+            <Field
+              label={t('cs.nameKn')}
+              value={draft.nameKn}
+              onChangeText={(nameKn) => setDraft((d) => (d ? { ...d, nameKn } : d))}
             />
             <Field
               label={t('cs.phone')}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { pickLang } from '@shridhar/shared';
 import { Mark } from '../components/Icons';
 import { Button, ErrorText, Fade, Field } from '../components/ui';
 import { useShop } from '../lib/useShop';
@@ -8,6 +9,7 @@ import { C, R, SP, TYPE, handFont, shadow } from '../theme';
 export function LoginScreen() {
   const shop = useShop();
   const [pin, setPin] = useState('');
+  const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -35,7 +37,7 @@ export function LoginScreen() {
           <View style={styles.markRow}>
             <Mark size={46} color={C.accent} />
           </View>
-          <Text style={[styles.title, handFont(shop.settings.shopName, 22)]}>{shop.settings.shopName}</Text>
+          <Text style={[styles.title, handFont(shopName, 22)]}>{shopName}</Text>
           <Text style={styles.lede}>{shop.t('login.prompt')}</Text>
 
           {error ? <ErrorText>{error}</ErrorText> : null}

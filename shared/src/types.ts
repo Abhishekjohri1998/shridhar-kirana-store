@@ -58,6 +58,8 @@ export type BillLine = {
 export type BillCustomer = {
   id: string;
   name: string;
+  /** Their name in Kannada, frozen with the rest: a reprint should read as the slip did. */
+  nameKn?: string;
   phone: string;
 };
 
@@ -101,6 +103,12 @@ export type Customer = {
   id: string;
   name: string;
   phone: string;
+  /**
+   * The same person's name in Kannada, typed on a Kannada keypad rather than guessed at.
+   * Either box may be empty; whichever exists is what shows, so a customer entered before this
+   * field existed keeps working untouched.
+   */
+  nameKn?: string;
   /** ISO timestamp of the first bill, or of when the record was created. */
   since: string;
   /** Everything ever billed to them -- the "customer total transaction" figure. */
@@ -122,6 +130,9 @@ export type Settings = {
   language: Lang;
   /** The shop's GST number. Prints under the shop name when it is filled in. */
   gstin: string;
+  /** The shop name and the footer line in Kannada, shown and printed when the shop is Kannada. */
+  shopNameKn: string;
+  footerKn: string;
   /** Print the per-unit rate under each item name. The shop's paper slip does not, so this is off by default. */
   showRate: boolean;
   /** A customer quiet for this many days is flagged as needing a nudge. */
@@ -134,6 +145,8 @@ export const DEFAULT_SETTINGS: Settings = {
   paper: '58mm',
   language: 'en',
   gstin: '',
+  shopNameKn: '',
+  footerKn: '',
   showRate: false,
   inactiveAfterDays: 30,
 };

@@ -109,12 +109,19 @@ export function BillPage() {
    */
   const previewCustomer = (): Bill['customer'] | undefined => {
     if (shop.customer) {
-      return { id: shop.customer.id, name: shop.customer.name, phone: shop.customer.phone };
+      return {
+        id: shop.customer.id,
+        name: shop.customer.name,
+        nameKn: shop.customer.nameKn ?? '',
+        phone: shop.customer.phone,
+      };
     }
-    const { name, phone } = shop.customerDraft;
-    if (!name.trim() && !phone.trim()) return undefined;
-    const checked = checkCustomer(name, phone);
-    return checked.ok ? { id: 'pending', name: checked.name, phone: checked.phone } : undefined;
+    const { name, nameKn, phone } = shop.customerDraft;
+    if (!name.trim() && !nameKn.trim() && !phone.trim()) return undefined;
+    const checked = checkCustomer(name, phone, nameKn);
+    return checked.ok
+      ? { id: 'pending', name: checked.name, nameKn: checked.nameKn, phone: checked.phone }
+      : undefined;
   };
 
   const draft = (): Bill => ({
@@ -141,9 +148,9 @@ export function BillPage() {
    * printing something that quietly omits them.
    */
   const attachTypedCustomer = async (): Promise<{ ok: boolean; customer?: Customer }> => {
-    const { name, phone } = shop.customerDraft;
-    if (shop.customer || (!name.trim() && !phone.trim())) return { ok: true };
-    const checked = checkCustomer(name, phone);
+    const { name, nameKn, phone } = shop.customerDraft;
+    if (shop.customer || (!name.trim() && !nameKn.trim() && !phone.trim())) return { ok: true };
+    const checked = checkCustomer(name, phone, nameKn);
     if (!checked.ok) {
       setError(checked.error);
       return { ok: false };
@@ -151,7 +158,9 @@ export function BillPage() {
     try {
       // Returned rather than only stored: commitBill closed over the customer as it was a moment
       // ago, so a customer attached in this very click is invisible to it unless handed over.
-      const saved = await shop.saveCustomer({ name: checked.name, phone: checked.phone });
+      const saved = await shop.saveCustomer({
+        name: checked.name, nameKn: checked.nameKn, phone: checked.phone,
+      });
       return { ok: true, customer: saved };
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

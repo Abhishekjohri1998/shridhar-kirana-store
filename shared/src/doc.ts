@@ -3,6 +3,7 @@ import { lineAmount, money, round2 } from './money';
 import { INK_BLEED, planInk } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
+import { pickLang } from './i18n';
 
 /** Kept for the 58mm default; the live width now comes from the shop's paper setting. */
 export const PAPER_WIDTH = 384;
@@ -89,8 +90,16 @@ export function buildReceipt(
   settings: Settings,
   labels: ReceiptLabels = EN_RECEIPT_LABELS,
 ): ReceiptDoc {
+  /*
+   * Which script the slip speaks. The shop's own language setting decides, and each name falls
+   * through to the other when only one was filled in -- so a shop that has not typed a Kannada
+   * name yet still gets its English one on the paper rather than a blank line.
+   */
+  const lang = settings.language === 'kn' ? 'kn' : 'en';
+  const shopName = pickLang(settings.shopName, settings.shopNameKn, lang);
+
   const rows: Row[] = [
-    { t: 'center', text: settings.shopName, size: 30, bold: true },
+    { t: 'center', text: shopName, size: 30, bold: true },
   ];
 
   // Under the shop name, where a customer and an inspector both look for it. Only when the shop
@@ -105,9 +114,12 @@ export function buildReceipt(
   );
 
   // Customer details sit at the top of the slip, above the item table.
-  if (bill.customer && (bill.customer.name || bill.customer.phone)) {
+  const customerName = bill.customer
+    ? pickLang(bill.customer.name, bill.customer.nameKn, lang)
+    : '';
+  if (bill.customer && (customerName || bill.customer.phone)) {
     rows.push({ t: 'sep' });
-    if (bill.customer.name) rows.push({ t: 'kv', left: labels.name, right: bill.customer.name, size: 20 });
+    if (customerName) rows.push({ t: 'kv', left: labels.name, right: customerName, size: 20 });
     if (bill.customer.phone) rows.push({ t: 'kv', left: labels.phone, right: bill.customer.phone, size: 20 });
   }
 
@@ -186,7 +198,7 @@ export function buildReceipt(
   rows.push(
     { t: 'sep' },
     { t: 'space', h: 8 },
-    { t: 'center', text: settings.footer, size: 22 },
+    { t: 'center', text: pickLang(settings.footer, settings.footerKn, lang), size: 22 },
     { t: 'space', h: 10 },
   );
 

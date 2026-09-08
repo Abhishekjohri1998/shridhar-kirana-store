@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   checkCustomer,
   customerMatches,
+  customerName,
   money,
   stamp,
   type Bill,
@@ -30,7 +31,8 @@ export function CustomersPage() {
   const [open, setOpen] = useState<{ customer: Customer; bills: Bill[] } | null>(null);
   /** The one bill being looked at, from this customer's list. */
   const [bill, setBill] = useState<Bill | null>(null);
-  const [draft, setDraft] = useState<{ id?: string; name: string; phone: string } | null>(null);
+  const [draft, setDraft] =
+    useState<{ id?: string; name: string; nameKn: string; phone: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -72,13 +74,18 @@ export function CustomersPage() {
 
   const save = async () => {
     if (!draft) return;
-    const fields = checkCustomer(draft.name, draft.phone);
+    const fields = checkCustomer(draft.name, draft.phone, draft.nameKn);
     if (!fields.ok) {
       setError(fields.error);
       return;
     }
     try {
-      await api.saveCustomer({ ...(draft.id ? { id: draft.id } : {}), name: fields.name, phone: fields.phone });
+      await api.saveCustomer({
+        ...(draft.id ? { id: draft.id } : {}),
+        name: fields.name,
+        nameKn: fields.nameKn,
+        phone: fields.phone,
+      });
       setDraft(null);
       setError(null);
       await load();
@@ -113,8 +120,8 @@ export function CustomersPage() {
           <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
             {shop.inactive.slice(0, 8).map((c) => (
               <li key={c.id}>
-                {c.name || c.phone || t('cs.unnamed')}
-                {c.phone && c.name ? ' · ' + c.phone : ''} — {t('cs.inactiveRow', { n: daysSince(c.lastVisit) ?? 0 })}
+                {customerName(c, shop.lang) || c.phone || t('cs.unnamed')}
+                {c.phone && customerName(c, shop.lang) ? ' · ' + c.phone : ''} — {t('cs.inactiveRow', { n: daysSince(c.lastVisit) ?? 0 })}
                 {c.balance > 0 ? t('cs.inactiveOwes', { amount: money(c.balance) }) : ''}
               </li>
             ))}
@@ -156,7 +163,7 @@ export function CustomersPage() {
         <button
           className="btn"
           style={{ flex: '0 0 auto', paddingInline: 16 }}
-          onClick={() => setDraft({ name: '', phone: '' })}
+          onClick={() => setDraft({ name: '', nameKn: '', phone: '' })}
         >
           {t('common.new')}
         </button>
@@ -175,7 +182,7 @@ export function CustomersPage() {
             return (
               <button key={c.id} className="list-row" onClick={() => void openCustomer(c)}>
                 <span className="grow">
-                  <span style={{ display: 'block', fontWeight: 700 }}>{c.name || t('cs.unnamed')}</span>
+                  <span style={{ display: 'block', fontWeight: 700 }}>{customerName(c, shop.lang) || t('cs.unnamed')}</span>
                   <span className="muted small">
                     {c.phone || t('cs.noNumber')} ·{' '}
                     {c.billCount === 0
@@ -220,7 +227,7 @@ export function CustomersPage() {
 
       {open ? (
         <Dialog
-          title={open.customer.name || open.customer.phone || 'Customer'}
+          title={customerName(open.customer, shop.lang) || open.customer.phone || t('cs.customers')}
           onClose={() => setOpen(null)}
           footer={
             <>
@@ -228,7 +235,12 @@ export function CustomersPage() {
               <button
                 className="btn"
                 onClick={() =>
-                  setDraft({ id: open.customer.id, name: open.customer.name, phone: open.customer.phone })
+                  setDraft({
+                    id: open.customer.id,
+                    name: open.customer.name,
+                    nameKn: open.customer.nameKn ?? '',
+                    phone: open.customer.phone,
+                  })
                 }
               >
                 {t('common.edit')}
@@ -309,6 +321,17 @@ export function CustomersPage() {
               onCommit={(name) => setDraft((d) => (d ? { ...d, name } : d))}
               autoFocus
             />
+            {/* Typed on a Kannada keypad. Either box will do, and whichever is filled is what
+                shows -- so a customer entered before this existed needs no revisiting. */}
+            <div className="field">
+              <label htmlFor="c-name-kn">{t('cs.nameKn')}</label>
+              <input
+                id="c-name-kn"
+                className="input"
+                value={draft.nameKn}
+                onChange={(e) => setDraft((d) => (d ? { ...d, nameKn: e.target.value } : d))}
+              />
+            </div>
             <div className="field">
               <label htmlFor="c-phone">{t('cs.phone')}</label>
               <input

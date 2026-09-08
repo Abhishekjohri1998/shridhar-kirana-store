@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { checkCustomer, money, type Customer } from '@shridhar/shared';
+import { checkCustomer, customerName, money, type Customer } from '@shridhar/shared';
 import { Button, ErrorText } from './ui';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
@@ -19,9 +19,11 @@ export function CustomerBar() {
   // Held in the shared draft, not here: the bill needs to read it at print time, and switching
   // tabs used to throw it away.
   const name = shop.customerDraft.name;
+  const nameKn = shop.customerDraft.nameKn;
   const phone = shop.customerDraft.phone;
-  const setName = (next: string) => shop.setCustomerDraft({ name: next, phone });
-  const setPhone = (next: string) => shop.setCustomerDraft({ name, phone: next });
+  const setName = (next: string) => shop.setCustomerDraft({ name: next, nameKn, phone });
+  const setNameKn = (next: string) => shop.setCustomerDraft({ name, nameKn: next, phone });
+  const setPhone = (next: string) => shop.setCustomerDraft({ name, nameKn, phone: next });
   const [matches, setMatches] = useState<Customer[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,14 +62,14 @@ export function CustomerBar() {
   };
 
   const saveNew = async () => {
-    const fields = checkCustomer(name, phone);
+    const fields = checkCustomer(name, phone, nameKn);
     if (!fields.ok) {
       setError(fields.error);
       return;
     }
     setError(null);
     try {
-      await shop.saveCustomer({ name: fields.name, phone: fields.phone });
+      await shop.saveCustomer({ name: fields.name, nameKn: fields.nameKn, phone: fields.phone });
       setOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -83,7 +85,7 @@ export function CustomerBar() {
             on the right -- and the bill-count sentence only when there is no balance to say
             instead, since that is the number the shopkeeper is actually looking for. */}
         <Text style={styles.chipName} numberOfLines={1}>
-          {c.name || t('cust.unnamed')}
+          {customerName(c, shop.lang) || t('cust.unnamed')}
           {c.phone ? <Text style={styles.small}> · {c.phone}</Text> : null}
         </Text>
         <Text style={styles.chipFigure} numberOfLines={1}>
@@ -98,8 +100,7 @@ export function CustomerBar() {
           tone="plain"
           onPress={() => {
             shop.setCustomer(null);
-            setName('');
-            setPhone('');
+            shop.setCustomerDraft({ name: '', nameKn: '', phone: '' });
             setOpen(true);
           }}
           style={styles.slim}
@@ -120,7 +121,7 @@ export function CustomerBar() {
             {matches.map((m) => (
               <Pressable key={m.id} style={styles.suggestion} onPress={() => attach(m)}>
                 <Text style={{ flex: 1, color: C.ink }} numberOfLines={1}>
-                  {m.name || t('cust.unnamed')}
+                  {customerName(m, shop.lang) || t('cust.unnamed')}
                   {m.phone ? <Text style={styles.small}> · {m.phone}</Text> : null}
                 </Text>
                 <Text style={styles.small}>
@@ -140,6 +141,15 @@ export function CustomerBar() {
           value={name}
           onChangeText={setName}
           placeholder={t('cust.namePlaceholder')}
+          placeholderTextColor={C.soft}
+        />
+        {/* A box of its own, for a Kannada keypad. The row wraps on a narrow screen, so this
+            falls to its own line rather than crushing the other two. */}
+        <TextInput
+          style={[styles.input, { flex: 2 }]}
+          value={nameKn}
+          onChangeText={setNameKn}
+          placeholder={t('cs.nameKn')}
           placeholderTextColor={C.soft}
         />
         <TextInput

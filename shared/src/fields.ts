@@ -1,5 +1,7 @@
 import { normalisePhone } from './phone';
 import { searchKey } from './kannada';
+import { pickLang } from './i18n';
+import type { Lang } from './types';
 import { round2 } from './money';
 
 /**
@@ -111,7 +113,7 @@ export function checkItemNames(rawKn: string, rawEn: string): ItemNames {
 }
 
 export type CustomerFields =
-  | { ok: true; name: string; phone: string }
+  | { ok: true; name: string; nameKn: string; phone: string }
   | { ok: false; error: string };
 
 export { normalisePhone };
@@ -134,7 +136,15 @@ export { normalisePhone };
  * A prefix rather than a substring, matching what the suggestions under the bill screen have
  * always done: typing `rame` reaches `ramesh`, but `mesh` does not.
  */
-export function customerMatches(c: { name: string; phone: string }, query: string): boolean {
+/** How a customer's name should read, in the language the shop is set to. */
+export function customerName(c: { name: string; nameKn?: string }, lang: Lang): string {
+  return pickLang(c.name, c.nameKn, lang);
+}
+
+export function customerMatches(
+  c: { name: string; nameKn?: string; phone: string },
+  query: string,
+): boolean {
   const typed = String(query ?? '').trim();
   if (!typed) return false;
 
@@ -150,14 +160,20 @@ export function customerMatches(c: { name: string; phone: string }, query: strin
    * does not. The whole string is tried too, so a two-word query still works.
    */
   const lower = typed.toLowerCase();
-  const words = c.name.split(/\s+/).filter(Boolean);
-  if (c.name.toLowerCase().startsWith(lower)) return true;
-  if (words.some((w) => w.toLowerCase().startsWith(lower))) return true;
-
   const key = searchKey(typed);
-  if (key.length === 0) return false;
-  if (searchKey(c.name).startsWith(key)) return true;
-  return words.some((w) => searchKey(w).startsWith(key));
+
+  // Both names, if there are two. A customer entered in Kannada and searched for in English has
+  // to be found by either, or the second box would make people harder to find rather than easier.
+  for (const name of [c.name, c.nameKn ?? '']) {
+    if (!name) continue;
+    const words = name.split(/\s+/).filter(Boolean);
+    if (name.toLowerCase().startsWith(lower)) return true;
+    if (words.some((w) => w.toLowerCase().startsWith(lower))) return true;
+    if (key.length === 0) continue;
+    if (searchKey(name).startsWith(key)) return true;
+    if (words.some((w) => searchKey(w).startsWith(key))) return true;
+  }
+  return false;
 }
 
 /**
@@ -185,8 +201,11 @@ export function checkGstin(raw: string): { value: string; warning: string | null
   return { value, warning: null };
 }
 
-export function checkCustomer(rawName: string, rawPhone: string): CustomerFields {
-  const name = rawName.trim();
+export function checkCustomer(rawName: string, rawPhone: string, rawNameKn = ''): CustomerFields {
+  const name = String(rawName ?? '').trim();
+  // The same person's name on a Kannada keypad. Either box will do -- requiring both would mean
+  // every customer already in the book had to be reopened and retyped.
+  const nameKn = String(rawNameKn ?? '').trim();
   const typedPhone = String(rawPhone ?? '').trim();
   const phone = normalisePhone(typedPhone);
 
@@ -196,8 +215,12 @@ export function checkCustomer(rawName: string, rawPhone: string): CustomerFields
   if (typedPhone.length > 0 && phone.length === 0) {
     return { ok: false, error: 'That phone number has no digits in it.' };
   }
-  if (!name && !phone) return { ok: false, error: 'Give the customer a name or a phone number.' };
-  if (name.length > 80) return { ok: false, error: 'That name is too long (80 characters).' };
+  if (!name && !nameKn && !phone) {
+    return { ok: false, error: 'Give the customer a name or a phone number.' };
+  }
+  if (name.length > 80 || nameKn.length > 80) {
+    return { ok: false, error: 'That name is too long (80 characters).' };
+  }
   // Indian mobiles are ten digits. Shorter is accepted down to six for a landline, but not so
   // short that it cannot be dialled.
   if (phone.length > 0 && (phone.length < 6 || phone.length > 15)) {
@@ -206,7 +229,7 @@ export function checkCustomer(rawName: string, rawPhone: string): CustomerFields
   if (phone.length > 0 && new Set(phone).size === 1) {
     return { ok: false, error: 'That phone number is the same digit repeated — check it.' };
   }
-  return { ok: true, name, phone };
+  return { ok: true, name, nameKn, phone };
 }
 
 export function checkUnit(raw: string): TextCheck {
