@@ -13,6 +13,7 @@ import { money, pickLang, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { PrintProvider } from './src/lib/usePrint';
 import { ShopProvider, useShop } from './src/lib/useShop';
+import { reportInsets, useHeldInsets } from './src/lib/screenEdges';
 import { BillScreen } from './src/screens/BillScreen';
 import { CustomersScreen } from './src/screens/CustomersScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
@@ -115,6 +116,7 @@ function Shell() {
   const barWidth = useRef(0);
   const slide = useRef(new Animated.Value(0)).current;
   const frame = useSafeFrame();
+  const insets = useHeldInsets();
 
   if (!shop.ready || !fontsReady) {
     return (
@@ -177,7 +179,7 @@ function Shell() {
         </View>
 
         <View
-          style={styles.tabBar}
+          style={[styles.tabBar, { paddingBottom: insets.bottom }]}
           onLayout={(e) => {
             barWidth.current = e.nativeEvent.layout.width;
             slide.setValue(index);
@@ -220,11 +222,29 @@ function Shell() {
 
 /** Plain padding rather than SafeAreaView, so the child is free to state its own height. */
 function SafeArea({ children }: { children: React.ReactNode }) {
-  const insets = useSafeAreaInsets();
+  const live = useSafeAreaInsets();
+  const measured = useHeldInsets();
+  /*
+   * Until something has actually been measured, the live figures are the best there is -- going
+   * through the effect first would draw the header under the status bar for a frame. After that
+   * the held ones win, which is the whole point.
+   */
+  const insets = measured.top === 0 && measured.bottom === 0 ? live : measured;
+
+  // Ignored while a dialog is up: see `held`.
+  useEffect(() => {
+    reportInsets(live.top, live.bottom);
+  }, [live.top, live.bottom]);
+
+  /*
+   * Padded at the top only. The gesture bar's share at the foot is padding *inside* the tab bar
+   * instead, so the bar's own surface reaches the bottom edge of the glass and there is no strip
+   * of background below it to mistake for the bar having moved.
+   */
   return (
     <View
-      style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
-      onLayout={(e) => reportSafeFrame(e.nativeEvent.layout.height - insets.top - insets.bottom)}
+      style={[styles.safe, { paddingTop: insets.top }]}
+      onLayout={(e) => reportSafeFrame(e.nativeEvent.layout.height - insets.top)}
     >
       {children}
     </View>

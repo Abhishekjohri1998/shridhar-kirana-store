@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { enterModal, exitModal } from '../lib/screenEdges';
 import { C } from '../theme';
 
 export function Dialog({
@@ -11,6 +12,20 @@ export function Dialog({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  /*
+   * Says so while it is up.
+   *
+   * A transparent Modal is a separate Android window, and the safe-area insets the app is told
+   * about change while one exists. The shell holds its last dialog-free measurements rather than
+   * following that, or the tab bar lifts off the bottom of the screen every time a bill preview
+   * opens -- which is exactly what it did.
+   */
+  useEffect(() => {
+    if (!visible) return;
+    enterModal();
+    return () => exitModal();
+  }, [visible]);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
