@@ -15,6 +15,12 @@
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_SCAN"
       ]
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "67146deb-e595-4e27-a3c6-7732d3f9bdbf"
+      }
+    },
+    "owner": "abhishek_jo-2"
   }
 }

@@ -5,3 +5,5 @@ ios/
 dist/
 *.log
 .DS_Store
+credentials/
+deploy/*.apk
