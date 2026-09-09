@@ -10,17 +10,23 @@ there is no reason to run a database on this box and every reason not to. The Re
 by the same server on the same address, so there is one URL for the shop to remember and none of
 it needs CORS.
 
-Roughly ₹0/month for the first twelve months on a new AWS account (t3.micro free tier), then about
-₹700–900/month. The domain is about ₹1,000/year.
+Roughly ₹0/month for the first twelve months on a new AWS account (t3.micro free tier), then
+about ₹700–900/month. The hostname is free.
 
 ---
 
 ## Step 0 — What you need before you start
 
-- **A domain name.** This is not optional. Android has blocked cleartext HTTP since API 28, and
-  the app forces `https://` for any public hostname (`shared/src/serverUrl.ts`). HTTPS needs a
-  certificate, and a certificate needs a domain you control. Any registrar will do; if you buy it
-  in Route 53 the DNS step is two clicks instead of five.
+- **A hostname.** Not optional, but it does not have to cost anything. Android has blocked
+  cleartext HTTP since API 28, and the app forces `https://` for any public hostname
+  (`shared/src/serverUrl.ts`); HTTPS needs a certificate, and a certificate needs a name that
+  resolves publicly. This runbook uses a free **DuckDNS** subdomain, set up in Step 5 — the shop
+  types it once in Settings and never sees it again, which is all it is for.
+
+  `shridhargeneralstores.com` was considered and is **not registered** (the lookup returns
+  NXDOMAIN), so it would have to be bought first. Nothing here stops you doing that later: if the
+  shop ever wants a website or email on its own name, buy it then, add an A record beside the
+  others, and change the address in Settings on the two devices. Everything else stays as it is.
 - **An AWS account** with billing set up.
 - **The Atlas connection string** — rotated first, see Step 1.
 - **A new JWT secret.** Generate it on your own machine and keep it out of chat:
@@ -30,8 +36,10 @@ Roughly ₹0/month for the first twelve months on a new AWS account (t3.micro fr
 - **The shop's PIN** (currently `104528`).
 - **An SSH client.** Windows has one built in; `ssh` in PowerShell or Git Bash works.
 
-Throughout, this runbook uses `billing.example.com` for your hostname and `/opt/shridhar` for the
-directory on the server. Substitute freely.
+Throughout, this runbook uses `shridhar-billing.duckdns.org` for the hostname and
+`/opt/shridhar` for the directory on the server. If you pick a different DuckDNS name in Step 5,
+substitute it everywhere — including in the Caddyfile, which is the one place where a wrong
+hostname fails in a confusing way.
 
 ---
 
@@ -109,25 +117,38 @@ your own IP temporarily and remove it afterwards.
 
 ---
 
-## Step 5 — Point the domain at it
+## Step 5 — Claim the free hostname and point it at the box
 
-At your registrar (or Route 53 → **Hosted zones** → your zone → **Create record**):
+1. Go to **https://www.duckdns.org** and sign in with Google, GitHub or Reddit. There is no
+   password to remember and nothing to pay.
+2. In the **domains** box type `shridhar-billing` and press **add domain**. If it is taken, try
+   `shridhar-kirani` or `shridhar-billing-ks`. You now own `shridhar-billing.duckdns.org` for as
+   long as you use it.
+3. In the **current ip** field for that row, put your `<ELASTIC-IP>` and press **update ip**.
+4. Copy the **token** shown at the top of the page and keep it with your other credentials. You
+   need it only if the IP ever changes — see the note below.
 
-| Field | Value |
-| --- | --- |
-| Record name | `billing` |
-| Type | **A** |
-| Value | `<ELASTIC-IP>` |
-| TTL | 300 |
-
-Then wait for it to resolve. Check from your own machine:
+Then wait for it to resolve, and check from your own machine:
 
 ```bash
-nslookup billing.example.com 1.1.1.1
+nslookup shridhar-billing.duckdns.org 1.1.1.1
 ```
 
 **Do not go on to Caddy until this returns your Elastic IP.** Caddy asks Let's Encrypt to verify
-the domain by connecting to it, and there are rate limits on failed attempts.
+the name by connecting to it, and there are rate limits on failed attempts — `duckdns.org` is a
+shared domain, so burning attempts is worth avoiding.
+
+### About the IP changing
+
+It should not. An Elastic IP stays yours until you release it, which is the whole reason for
+Step 3, so there is no need for the usual DuckDNS updater cron job. Should you ever rebuild the
+box on a different address, one command re-points it:
+
+```bash
+curl "https://www.duckdns.org/update?domains=shridhar-billing&token=<YOUR-TOKEN>&ip=<NEW-IP>"
+```
+
+It answers with `OK` or `KO`.
 
 ---
 
@@ -238,7 +259,7 @@ PORT=4000
 MONGO_URI=mongodb+srv://johriabhishek24_db_user:<NEW-PASSWORD>@cluster0.7nwkkjd.mongodb.net/simple-sales-book?retryWrites=true&w=majority
 JWT_SECRET=<THE 48-BYTE STRING FROM STEP 0>
 AUTH_PIN=104528
-CORS_ORIGIN=https://billing.example.com
+CORS_ORIGIN=https://shridhar-billing.duckdns.org
 ```
 
 ```bash
@@ -360,7 +381,7 @@ sudo nano /etc/caddy/Caddyfile
 Replace the whole file with:
 
 ```caddyfile
-billing.example.com {
+shridhar-billing.duckdns.org {
 	reverse_proxy 127.0.0.1:4000
 
 	# A bill with forty handwritten lines is a few hundred kilobytes of stroke coordinates.
@@ -392,17 +413,17 @@ pointing at the box (Step 5).
 From your own machine, not the server:
 
 ```bash
-curl -s https://billing.example.com/api/health
-curl -s -o /dev/null -w "%{http_code}\n" https://billing.example.com/
+curl -s https://shridhar-billing.duckdns.org/api/health
+curl -s -o /dev/null -w "%{http_code}\n" https://shridhar-billing.duckdns.org/
 ```
 
 Expect `{"ok":true,"storage":"mongo"}` and `200`. Then open
-`https://billing.example.com` in a browser and sign in with the PIN.
+`https://shridhar-billing.duckdns.org` in a browser and sign in with the PIN.
 
 An unauthenticated API call must be refused — check that the door is actually locked:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://billing.example.com/api/settings
+curl -s -o /dev/null -w "%{http_code}\n" https://shridhar-billing.duckdns.org/api/settings
 ```
 
 `401` is the right answer.
@@ -411,10 +432,10 @@ curl -s -o /dev/null -w "%{http_code}\n" https://billing.example.com/api/setting
 
 ## Step 14 — Point the shop's devices at it
 
-- **Tablet and phone:** Settings → **Change server** → enter `https://billing.example.com` →
+- **Tablet and phone:** Settings → **Change server** → enter `https://shridhar-billing.duckdns.org` →
   sign in with the PIN. The app normalises the address itself, so with or without the `https://`
   both work.
-- **Counter PC:** just open `https://billing.example.com` in the browser and bookmark it.
+- **Counter PC:** just open `https://shridhar-billing.duckdns.org` in the browser and bookmark it.
 
 Nothing about the app build changes, and over-the-air updates keep working exactly as before —
 the server address is stored on the device, not baked into the APK.
@@ -451,8 +472,11 @@ where snapshots are included. This is the one remaining single point of failure 
 spending a few dollars a month on.
 
 **Cost.** t3.micro is free for twelve months on a new account, then roughly $8–10/month; the
-Elastic IP is free while attached; outbound traffic for a shop this size is pennies. Budget
-₹1,000/month all in, plus the domain.
+Elastic IP is free while attached; the DuckDNS name and the certificate are free; outbound traffic
+for a shop this size is pennies. Budget ₹0 for the first year and about ₹1,000/month after it.
+
+The twelve-month mark is worth a calendar reminder — the free tier ends quietly and the first
+real bill is the notification.
 
 ---
 
