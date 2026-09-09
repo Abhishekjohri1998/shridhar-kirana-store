@@ -1,0 +1,28 @@
+{
+  "name": "kirana-billing",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild --platform android",
+    "typecheck": "tsc --noEmit",
+    "selftest": "node scripts/selftest.js",
+    "test": "npm run typecheck && npm run selftest"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "expo": "~53.0.0",
+    "react": "19.0.0",
+    "react-native": "0.79.5",
+    "react-native-bluetooth-classic": "1.73.0-rc.17",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-webview": "13.13.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3"
+  }
+}
