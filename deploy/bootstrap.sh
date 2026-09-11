@@ -27,8 +27,16 @@ die() { printf '\n\033[1;31mxx\033[0m %s\n\n' "$1" >&2; exit 1; }
 
 # ---------------------------------------------------------------- what it needs to know
 
+# Every value can arrive in the environment instead of being typed, so this can be driven from
+# a laptop as well as pasted into a terminal. Passed through the environment rather than as
+# arguments on purpose: arguments are visible to anyone running `ps` on the box.
 say "Where this box answers from"
-read -r -p "Hostname (e.g. shridhar-billing.duckdns.org): " HOSTNAME_IN
+HOSTNAME_IN="${APP_HOST:-}"
+if [ -n "$HOSTNAME_IN" ]; then
+  echo "    $HOSTNAME_IN"
+else
+  read -r -p "Hostname (e.g. shridhar-billing.duckdns.org): " HOSTNAME_IN
+fi
 [ -n "$HOSTNAME_IN" ] || die "A hostname is required: Caddy asks Let's Encrypt for a certificate in that name."
 
 # Checked before anything is installed, because a certificate request against a name that does
@@ -43,16 +51,26 @@ elif [ "$NAME_IP" != "$THIS_IP" ]; then
 fi
 echo "    $HOSTNAME_IN -> $THIS_IP, correct."
 
-say "The three secrets"
-echo "    Typed here and written straight to $APP_DIR/server/.env (mode 600). Nothing is echoed."
-read -r -s -p "MongoDB Atlas connection string: " MONGO_IN; echo
+say "The secrets"
+echo "    Written straight to $APP_DIR/server/.env (mode 600). Nothing is echoed."
+MONGO_IN="${MONGO_URI:-}"
+if [ -n "$MONGO_IN" ]; then
+  echo "    Atlas connection string: supplied."
+else
+  read -r -s -p "MongoDB Atlas connection string: " MONGO_IN; echo
+fi
 [ -n "$MONGO_IN" ] || die "Without this the server quietly stores bills in a JSON file instead of Atlas."
 case "$MONGO_IN" in
   mongodb+srv://*|mongodb://*) ;;
   *) die "That does not look like a connection string -- it should start with mongodb+srv://" ;;
 esac
 
-read -r -s -p "Shop PIN (the six digits the counter types): " PIN_IN; echo
+PIN_IN="${AUTH_PIN:-}"
+if [ -n "$PIN_IN" ]; then
+  echo "    Shop PIN: supplied."
+else
+  read -r -s -p "Shop PIN (the six digits the counter types): " PIN_IN; echo
+fi
 [ -n "$PIN_IN" ] || die "A PIN is required."
 [ "$PIN_IN" != "1234" ] || die "1234 is the insecure default. Pick the shop's real PIN."
 

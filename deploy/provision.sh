@@ -19,7 +19,9 @@ REGION="${REGION:-ap-south-1}"          # Mumbai: the closest region to Karnatak
 TYPE="${TYPE:-t3.micro}"                # Free for twelve months on a new account.
 KEY_FILE="${KEY_FILE:-$HOME/.ssh/$NAME.pem}"
 
-aws_() { "$AWS" --region "$REGION" --output json "$@"; }
+# MSYS_NO_PATHCONV keeps Git Bash from rewriting arguments that look like unix paths into
+# Windows ones before aws.exe sees them -- it turned a parameter name into "C:/..." once.
+aws_() { MSYS_NO_PATHCONV=1 "$AWS" --region "$REGION" --output json "$@"; }
 say() { printf '\n\033[1;32m==>\033[0m %s\n' "$1"; }
 die() { printf '\n\033[1;31mxx\033[0m %s\n\n' "$1" >&2; exit 1; }
 
@@ -82,12 +84,14 @@ INSTANCE_ID="$(aws_ ec2 describe-instances \
   --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || echo 'None')"
 
 if [ "$INSTANCE_ID" = "None" ] || [ -z "$INSTANCE_ID" ]; then
-  # Canonical's own published pointer to the current Ubuntu 24.04 image, rather than an AMI id
-  # copied from a guide -- those are per-region and go stale.
-  AMI="$(aws_ ssm get-parameters \
-    --names /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id \
-    --query 'Parameters[0].Value' --output text)"
-  [ -n "$AMI" ] && [ "$AMI" != "None" ] || die "Could not look up the Ubuntu 24.04 image id."
+  # The newest Ubuntu 24.04 image published by Canonical themselves (owner 099720109477),
+  # rather than an AMI id copied from a guide -- those are per-region and go stale within weeks.
+  # Asked of EC2 rather than SSM, because a key scoped to EC2 cannot read the SSM catalogue.
+  AMI="$(aws_ ec2 describe-images --owners 099720109477     --filters 'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*'               'Name=state,Values=available'     --query 'sort_by(Images, &CreationDate)[-1].ImageId' --output text)"
+  if [ -z "$AMI" ] || [ "$AMI" = "None" ]; then
+    AMI="$(aws_ ec2 describe-images --owners 099720109477       --filters 'Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-noble-24.04-amd64-server-*'                 'Name=state,Values=available'       --query 'sort_by(Images, &CreationDate)[-1].ImageId' --output text)"
+  fi
+  [ -n "$AMI" ] && [ "$AMI" != "None" ] || die "Could not find an Ubuntu 24.04 image in $REGION."
   echo "    Ubuntu 24.04 image: $AMI"
 
   INSTANCE_ID="$(aws_ ec2 run-instances \
