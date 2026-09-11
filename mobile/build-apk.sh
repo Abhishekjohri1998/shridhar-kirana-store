@@ -40,6 +40,18 @@ export EXPO_NO_METRO_WORKSPACE_ROOT=1
 
 [ -d android ] || npx expo prebuild --platform android --no-install
 
+# Keep the native version in step with app.json.
+#
+# prebuild writes versionCode into android/app/build.gradle once and never looks again, and this
+# script only prebuilds when android/ is missing -- so bumping app.json alone produced an APK
+# whose manifest still claimed the previous build. Android reads the manifest, not app.json, so
+# the shop would have been handed a "new" build it could refuse to install over the old one.
+VERSION_CODE="$(node -p "require('./app.json').expo.android.versionCode")"
+VERSION_NAME="$(node -p "require('./app.json').expo.version")"
+sed -i -E "s/^([[:space:]]*)versionCode .*/\1versionCode $VERSION_CODE/" android/app/build.gradle
+sed -i -E "s/^([[:space:]]*)versionName .*/\1versionName \"$VERSION_NAME\"/" android/app/build.gradle
+echo "  version $VERSION_NAME ($VERSION_CODE)"
+
 # Written with forward slashes on purpose: a .properties file treats a backslash as an escape,
 # so sdk.dir=C\:\android-sdk is read as C:android-sdk and the build dies twenty minutes later
 # saying "The filename, directory name, or volume label syntax is incorrect".
