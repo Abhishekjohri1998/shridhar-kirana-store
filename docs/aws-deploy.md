@@ -33,7 +33,7 @@ about ₹700–900/month. The hostname is free.
   ```bash
   openssl rand -base64 48
   ```
-- **The shop's PIN** (currently `104528`).
+- **The shop's PIN** (currently the six digits the shop already uses).
 - **An SSH client.** Windows has one built in; `ssh` in PowerShell or Git Bash works.
 
 Throughout, this runbook uses `shridhar-billing.duckdns.org` for the hostname and
@@ -47,7 +47,7 @@ hostname fails in a confusing way.
 
 The current password was pasted into a chat window in plain text, so treat it as public.
 
-1. Atlas → **Database Access** → the `johriabhishek24_db_user` row → **Edit**.
+1. Atlas → **Database Access** → the `<ATLAS-USER>` row → **Edit**.
 2. **Edit Password** → **Autogenerate Secure Password** → copy it somewhere safe (a password
    manager, not a chat window) → **Update User**.
 3. While you are there, change **Database User Privileges** from `readWriteAnyDatabase` to
@@ -56,7 +56,7 @@ The current password was pasted into a chat window in plain text, so treat it as
 4. Build the new connection string — same as the old one with the new password and the database
    name on the end:
    ```
-   mongodb+srv://johriabhishek24_db_user:<NEW-PASSWORD>@cluster0.7nwkkjd.mongodb.net/simple-sales-book?retryWrites=true&w=majority
+   mongodb+srv://<ATLAS-USER>:<NEW-PASSWORD>@<YOUR-CLUSTER>.mongodb.net/simple-sales-book?retryWrites=true&w=majority
    ```
 
 Anything still running with the old password stops working at this point. That is fine — the
@@ -149,6 +149,36 @@ curl "https://www.duckdns.org/update?domains=shridhar-billing&token=<YOUR-TOKEN>
 ```
 
 It answers with `OK` or `KO`.
+
+---
+
+## Steps 6 to 12 — one command
+
+Everything from here to a working HTTPS site is in `deploy/bootstrap.sh`. SSH in and run it:
+
+```bash
+ssh -i "C:/path/to/your-key.pem" ubuntu@<ELASTIC-IP>
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Abhishekjohri1998/shridhar-kirana-store/main/deploy/bootstrap.sh | bash
+```
+
+It asks for two things — the Atlas connection string and the shop's PIN — and generates the JWT
+secret itself. They are typed, not echoed, and go straight into `server/.env` with mode 600, so
+they never reach the repository or a shell history.
+
+Then it adds swap, installs Node 22, clones the code, builds it, installs the systemd service,
+installs Caddy, and waits for the certificate. It checks the hostname resolves to this machine
+*before* installing anything, because a certificate request against a name that points elsewhere
+burns one of a limited number of attempts. It refuses to finish unless `/api/health` says
+`"storage":"mongo"` — a `"file"` answer means the shop would be billing into a JSON file nobody
+backs up.
+
+Safe to run twice: every step checks whether it has already been done.
+
+The rest of this document is what the script does, step by step, for when something needs
+unpicking by hand.
 
 ---
 
@@ -256,9 +286,9 @@ nano .env
 ```ini
 NODE_ENV=production
 PORT=4000
-MONGO_URI=mongodb+srv://johriabhishek24_db_user:<NEW-PASSWORD>@cluster0.7nwkkjd.mongodb.net/simple-sales-book?retryWrites=true&w=majority
+MONGO_URI=mongodb+srv://<ATLAS-USER>:<NEW-PASSWORD>@<YOUR-CLUSTER>.mongodb.net/simple-sales-book?retryWrites=true&w=majority
 JWT_SECRET=<THE 48-BYTE STRING FROM STEP 0>
-AUTH_PIN=104528
+AUTH_PIN=<THE SHOP’S PIN>
 CORS_ORIGIN=https://shridhar-billing.duckdns.org
 ```
 

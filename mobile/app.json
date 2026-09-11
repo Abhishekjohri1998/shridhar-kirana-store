@@ -28,6 +28,8 @@
       ]
     },
     "extra": {
+      "//serverUrl": "The address this build ships knowing. Filled in once the server is live; a device that has been pointed elsewhere keeps its own setting.",
+      "serverUrl": "",
       "eas": {
         "projectId": "ba25ec93-194e-48c4-a250-3ffaa65ae051"
       }

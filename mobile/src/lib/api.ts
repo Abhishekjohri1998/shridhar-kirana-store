@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { normaliseServerUrl, type Bill, type BillLine, type Customer, type Item, type Settings, type TodaySummary } from '@shridhar/shared';
 
 const TOKEN_KEY = 'shridhar.token';
@@ -8,10 +9,20 @@ const SERVER_KEY = 'shridhar.server';
  * Where the server is.
  *
  * The web app never needed this -- it is served by the same process it talks to. A phone is a
- * different machine, so "localhost" would mean the phone itself. The address is therefore
- * something the shopkeeper enters once: the counter PC on the shop wifi, or the hosted URL.
+ * different machine, so "localhost" would mean the phone itself.
+ *
+ * The build carries the shop's own address, so an installed app goes straight to the PIN screen
+ * with nothing to type. It is only ever a default: anything the shopkeeper has saved wins over
+ * it, and Settings -> Change server still works, so a build is not welded to one server.
  */
 let baseUrl = '';
+
+/** The address this build was made for, or '' for a build made for nobody in particular. */
+export function defaultServerUrl(): string {
+  const extra = Constants.expoConfig?.extra as { serverUrl?: unknown } | undefined;
+  const raw = typeof extra?.serverUrl === 'string' ? extra.serverUrl : '';
+  return raw.trim() ? normaliseServerUrl(raw) : '';
+}
 let token: string | null = null;
 
 export function getBaseUrl(): string {
@@ -26,10 +37,13 @@ export function getToken(): string | null {
 export async function loadStoredConfig(): Promise<{ baseUrl: string; token: string | null }> {
   try {
     const pairs = await AsyncStorage.multiGet([SERVER_KEY, TOKEN_KEY]);
-    baseUrl = pairs[0]?.[1] ?? '';
+    // A saved address beats the built-in one. Someone who has pointed this device somewhere
+    // else meant it, and an app update must not drag them back.
+    baseUrl = pairs[0]?.[1] || defaultServerUrl();
     token = pairs[1]?.[1] ?? null;
   } catch {
-    // First run, or storage unavailable: the app will ask for the address.
+    // Storage unavailable. The built-in address still lets the app work; without one it asks.
+    baseUrl = defaultServerUrl();
   }
   return { baseUrl, token };
 }

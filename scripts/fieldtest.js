@@ -547,6 +547,29 @@ check('a null does not throw', url(null) === '');
 check('normalising twice changes nothing', url(url('192.168.1.5:4000')) === 'http://192.168.1.5:4000');
 check('and twice on a public host too', url(url('shop.example.com')) === 'https://shop.example.com');
 
+/* ------------------------------------------------------------------ *
+ * The address a build ships knowing                                   *
+ *                                                                     *
+ * The APK carries the shop's server so an install goes straight to    *
+ * the PIN screen. The precedence is the part worth pinning down: a    *
+ * device pointed somewhere else by hand must not be dragged back by   *
+ * an update.                                                          *
+ * ------------------------------------------------------------------ */
+console.log('');
+console.log('The built-in server address');
+
+// The rule as api.ts applies it: `stored || normalise(builtIn)`.
+const pick = (stored, builtIn) => stored || (builtIn.trim() ? U.normaliseServerUrl(builtIn) : '');
+
+eqs('a fresh install uses the address in the build',
+  pick('', 'shridhar-billing.duckdns.org'), 'https://shridhar-billing.duckdns.org');
+eqs('a saved address wins over it',
+  pick('http://192.168.1.5:4000', 'shridhar-billing.duckdns.org'), 'http://192.168.1.5:4000');
+eqs('a build made for nobody still asks', pick('', ''), '');
+eqs('and a blank built-in address is not turned into one', pick('', '   '), '');
+check('the built-in address is forced to https, so Android will not block it',
+  pick('', 'shridhar-billing.duckdns.org').startsWith('https://'));
+
 fs.rmSync(BUILD, { recursive: true, force: true });
 
 console.log('');
