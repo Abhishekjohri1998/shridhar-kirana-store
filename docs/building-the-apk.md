@@ -127,6 +127,11 @@ The switch that settles it, which that same function reads, is:
 export EXPO_NO_METRO_WORKSPACE_ROOT=1
 ```
 
-`build-apk.sh` sets it, and `mobile/metro.config.js` says the same thing to Metro directly so the
-two cannot drift apart. EAS configures the equivalent itself, which is why the cloud builds never
-hit any of this.
+`build-apk.sh` sets it, and that is the only place it belongs. Saying the same thing in
+`mobile/metro.config.js` with `server.unstable_serverRoot` was tried first and **breaks
+`expo export` and `eas update`**: those run from the app directory, so pinning the root there
+sends them looking for `mobile/mobile/index.js` -- the same doubled path, arrived at from the
+other direction. The environment variable reaches `resolveAppEntry` and expo-updates as well as
+Metro, which a config file cannot, and it is only set for the Gradle build that needs it.
+
+EAS configures the equivalent itself, which is why the cloud builds never hit any of this.
