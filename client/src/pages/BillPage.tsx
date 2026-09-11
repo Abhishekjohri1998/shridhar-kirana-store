@@ -6,6 +6,8 @@ import {
   draftTotal,
   isDraftEmpty,
   MAX_PARKED,
+  evaluateAmount,
+  looksLikeSum,
   money,
   pageFlip,
   parsePaid,
@@ -386,6 +388,16 @@ export function BillPage() {
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
                     onBlur={() => { wantFlip.current = true; }}
                   />
+                  {/* Two kilos at 44 is typed as 44*2 and priced at 88. The counter PC has a
+                      real keyboard, so the operators need no keys of their own here -- only the
+                      answer, shown before it is committed so a wrong sum is caught on the screen
+                      rather than on the paper. */}
+                  {looksLikeSum(priceText[line.itemId] ?? '')
+                    && evaluateAmount(priceText[line.itemId] ?? '') != null ? (
+                    <span className="calc-result">
+                      = {money(evaluateAmount(priceText[line.itemId] ?? '') as number)}
+                    </span>
+                  ) : null}
 
                   <button
                     className="slip-undo"
@@ -455,6 +467,10 @@ export function BillPage() {
                   onChange={(e) => shop.setPaidInput(e.target.value)}
                   placeholder={t('bill.paidPlaceholder', { amount: money(shop.cartTotal) })}
                 />
+                {/* Cash is counted out in notes, so it can be typed as one: 100+50+20. */}
+                {looksLikeSum(paid) && evaluateAmount(paid) != null ? (
+                  <span className="calc-result">= {money(evaluateAmount(paid) as number)}</span>
+                ) : null}
               </label>
               {/* The settling figure, one click away. Blank still means today's shopping only,
                   so clearing a debt has to be a thing the shopkeeper does on purpose. */}

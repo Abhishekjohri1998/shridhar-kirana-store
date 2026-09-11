@@ -1715,3 +1715,14 @@ select.input {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* The answer to a sum typed into a money box, shown while it is being typed. Beside the box
+   rather than under it: the eye is already there, reading what it just entered. */
+.calc-result {
+  display: inline-block;
+  margin-left: 8px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-deep, #0a5238);
+  white-space: nowrap;
+}

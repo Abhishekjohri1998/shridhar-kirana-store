@@ -4,9 +4,11 @@ import {
 } from 'react-native';
 import {
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
-  isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
+  evaluateAmount, isDraftEmpty, looksLikeSum, money, pageFlip, parsePaid, parsePrice, round2,
+  slipTailPadding,
   type Bill, type Customer,
 } from '@shridhar/shared';
+import { CalcKeys } from '../components/CalcKeys';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
@@ -50,6 +52,14 @@ export function BillScreen() {
   const [error, setError] = useState<string | null>(null);
   /** The bill just saved, so a copy can go to the customer while they are still standing here. */
   const [justSaved, setJustSaved] = useState<Bill | null>(null);
+  /**
+   * Which box the operator keys are sitting under: a line's id, 'paid', or nothing.
+   *
+   * Only one strip is ever on screen, because only one box can be typed into, and a row of keys
+   * under every line would cost more slip than the writing does.
+   */
+  const [calcOn, setCalcOn] = useState<string | null>(null);
+
   /** Which parked bill is being thrown away, once it has something on it worth asking about. */
   const [closing, setClosing] = useState<string | null>(null);
   // Cleared when the shopkeeper moves to another bill: "Bill #14 saved" offering to share a
@@ -452,6 +462,7 @@ export function BillScreen() {
                   accessibilityLabel={t('bill.priceOfLine', { n: index + 1 })}
                   value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
                   onChangeText={(text) => onPrice(index, line.itemId, text)}
+                  onFocus={() => setCalcOn(line.itemId)}
                   returnKeyType="next"
                   // Without this the keyboard closes on the way past, and the next field has to
                   // raise it again -- a flicker on every single line.
@@ -460,6 +471,15 @@ export function BillScreen() {
                   // The line is done; bring the fresh blank one into view.
                   onBlur={() => { if (index >= shop.cart.length - 2) goToNewestLine(); }}
                 />
+
+                {/* The answer before it is committed, so a wrong sum is caught on the glass
+                    rather than on the paper. */}
+                {calcOn === line.itemId && looksLikeSum(priceText[line.itemId] ?? '')
+                  && evaluateAmount(priceText[line.itemId] ?? '') != null ? (
+                  <Text style={styles.calcResult}>
+                    = {money(evaluateAmount(priceText[line.itemId] ?? '') as number)}
+                  </Text>
+                ) : null}
 
                 <Pressable
                   style={styles.colIcon}
@@ -479,6 +499,23 @@ export function BillScreen() {
                   <Text style={[styles.slipRemove, blank && styles.slipRemoveOff]}>×</Text>
                 </Pressable>
                 </View>
+
+                {/* Only under the box being typed into: a row of keys on every line would cost
+                    more of the slip than the writing does. */}
+                {calcOn === line.itemId ? (
+                  <CalcKeys
+                    value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
+                    onChange={(next) => onPrice(index, line.itemId, next)}
+                    onDone={() => {
+                      const text = priceText[line.itemId] ?? '';
+                      const answer = evaluateAmount(text);
+                      // Replaced by its answer, so what the box shows and what the bill totals
+                      // are the same thing. A sum still halfway typed is left alone.
+                      if (answer != null) onPrice(index, line.itemId, String(answer));
+                      goToNextPrice(index);
+                    }}
+                  />
+                ) : null}
               </View>
             );
           })}
@@ -507,7 +544,23 @@ export function BillScreen() {
                   placeholder={t('bill.paidPlaceholder', { amount: money(shop.cartTotal) })}
                   placeholderTextColor={C.faint}
                   onChangeText={shop.setPaidInput}
+                  onFocus={() => setCalcOn('paid')}
                 />
+                {/* Cash is counted out in notes, so it is natural to type it as one: 100+50+20. */}
+                {calcOn === 'paid' && looksLikeSum(paid) && evaluateAmount(paid) != null ? (
+                  <Text style={styles.calcResult}>= {money(evaluateAmount(paid) as number)}</Text>
+                ) : null}
+                {calcOn === 'paid' ? (
+                  <CalcKeys
+                    value={paid}
+                    onChange={shop.setPaidInput}
+                    onDone={() => {
+                      const answer = evaluateAmount(paid);
+                      if (answer != null) shop.setPaidInput(String(answer));
+                      setCalcOn(null);
+                    }}
+                  />
+                ) : null}
               </View>
               {/* The settling figure, one tap away. Blank still means today's shopping only,
                   so clearing a debt has to be a thing the shopkeeper does on purpose. */}
@@ -632,6 +685,8 @@ const styles = StyleSheet.create({
   savedButton: { minHeight: 38 },
   savedDismiss: { fontSize: 20, color: C.accentDeep, paddingHorizontal: 4 },
   /* Side by side once there is room: the slip on the left, the total parked on the right. */
+  /* Beside the box rather than under it: the eye is already there, reading what it typed. */
+  calcResult: { fontSize: 15, fontWeight: '700', color: C.accentDeep, marginTop: 2 },
   sheet: { flex: 1, minHeight: 0 },
   /* flexGrow so the sheet fills its half even when the slip is one line long -- without it the
      whole screen collapsed to the height of its contents and the footer rode up under the

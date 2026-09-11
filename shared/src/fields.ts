@@ -3,6 +3,7 @@ import { searchKey } from './kannada';
 import { pickLang } from './i18n';
 import type { Lang } from './types';
 import { round2 } from './money';
+import { evaluateAmount } from './calc';
 
 /**
  * Every rule about what may be typed into a field, in one place.
@@ -32,7 +33,9 @@ const MAX_QTY = 100_000;
 const MAX_PAID = 10_000_000;
 
 function money(raw: string, what: string, example: string): Parsed {
-  const n = parseDecimal(raw);
+  // A plain number first, and a typed sum second: two kilos at 44 can be entered as 44*2 rather
+  // than worked out in the shopkeeper's head. Every rule below still applies to the answer.
+  const n = parseDecimal(raw) ?? evaluateAmount(raw);
   if (n == null) return { ok: false, error: 'Enter the ' + what + ' in digits, for example ' + example + '.' };
   if (n <= 0) return { ok: false, error: 'The ' + what + ' has to be more than zero.' };
   if (n > MAX_MONEY) return { ok: false, error: 'That ' + what + ' looks too large — check it.' };
@@ -64,7 +67,8 @@ export function parseQty(raw: string): Parsed {
  */
 export function parsePaid(raw: string, total: number): Parsed {
   if (raw.trim() === '') return { ok: true, value: round2(total) };
-  const n = parseDecimal(raw);
+  // Cash is counted out in notes, so it is natural to type it as one: 100+50+20.
+  const n = parseDecimal(raw) ?? evaluateAmount(raw);
   if (n == null) {
     return { ok: false, error: 'Enter the amount paid in digits, or leave it blank for paid in full.' };
   }

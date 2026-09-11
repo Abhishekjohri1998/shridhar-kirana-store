@@ -58,6 +58,15 @@ const NOT_NUMBERS = [
   '½', '٥', 'null', 'undefined', '+-5', '5-', '- 5',
 ];
 
+/*
+ * The same list, less the one entry that now means something.
+ *
+ * A price box takes a sum since the shop asked for two kilos at 44 to be enterable as 44*2, so
+ * `1/2` is no longer a typo there -- it is half a rupee. parseDecimal still refuses it, and so do
+ * the fields that take a plain number and nothing else: a quantity, a count of days.
+ */
+const NOT_AMOUNTS = NOT_NUMBERS.filter((x) => x !== '1/2');
+
 console.log('\nparseDecimal: only plain decimals');
 for (const bad of NOT_NUMBERS) {
   check('rejects ' + JSON.stringify(bad), F.parseDecimal(bad) === null, 'got ' + F.parseDecimal(bad));
@@ -70,7 +79,8 @@ check('accepts a signed number', F.parseDecimal('-3') === -3);
 check('trims surrounding spaces', F.parseDecimal('  7  ') === 7);
 
 console.log('\nPrice field (bill line)');
-for (const bad of NOT_NUMBERS) rejects(F.parsePrice, 'price', bad);
+for (const bad of NOT_AMOUNTS) rejects(F.parsePrice, 'price', bad);
+check('half a rupee is a sum now, not a typo', F.parsePrice('1/2').value === 0.5);
 rejects(F.parsePrice, 'price', '0');
 rejects(F.parsePrice, 'price', '0.00');
 rejects(F.parsePrice, 'price', '-5');
@@ -120,7 +130,7 @@ accepts((v) => F.parsePaid(v, 222), 'paid', '222', 222);
 // Overpaying is allowed: it leaves the customer in credit.
 accepts((v) => F.parsePaid(v, 222), 'paid', '500', 500);
 accepts((v) => F.parsePaid(v, 222), 'paid', '99.995', 100);
-for (const bad of NOT_NUMBERS.filter((b) => b.trim() !== '')) rejects((v) => F.parsePaid(v, 222), 'paid', bad);
+for (const bad of NOT_AMOUNTS.filter((b) => b.trim() !== '')) rejects((v) => F.parsePaid(v, 222), 'paid', bad);
 rejects((v) => F.parsePaid(v, 222), 'paid', '-1');
 rejects((v) => F.parsePaid(v, 222), 'paid', '10000001');
 check('a blank paid field rounds the total it stands in for',
@@ -481,6 +491,61 @@ const moved = SH.rescaleStrokes([[{ x: 10, y: 20 }], [{ x: 100, y: 40 }]], { w: 
 eqs('strokes double with the pad', JSON.stringify(moved), JSON.stringify([[{ x: 20, y: 40 }], [{ x: 200, y: 80 }]]));
 check('the same size is left alone, object and all', SH.rescaleStrokes(moved, { w: 5, h: 5 }, { w: 5, h: 5 }) === moved);
 check('a zero-width origin does not divide by zero', SH.rescaleStrokes([[{ x: 1, y: 1 }]], { w: 0, h: 0 }, { w: 9, h: 9 })[0][0].x === 1);
+
+/* ------------------------------------------------------------------ *
+ * Doing the sum in the price box                                      *
+ *                                                                     *
+ * Two kilos at 44 used to be worked out in the shopkeeper's head       *
+ * while a queue waited. Android's number pad has no x or / key, so     *
+ * the app supplies them and this is what it does with them.            *
+ * ------------------------------------------------------------------ */
+console.log('');
+console.log('Sums in a money box');
+
+const calc = (x) => SH.evaluateAmount(x);
+
+eqs('two kilos at 44', calc('44*2'), 88);
+eqs('the times sign the strip types', calc('44\u00d72'), 88);
+eqs('and the x people write by hand', calc('44 x 2'), 88);
+eqs('half of 88', calc('88/2'), 44);
+eqs('the divide sign too', calc('88\u00f72'), 44);
+eqs('a note and a coin', calc('100+50'), 150);
+eqs('and change taken back off', calc('100-15'), 85);
+
+// Taught precedence, not left to right: 44*2+10 is 98, and 108 would be a wrong bill.
+eqs('times before plus', calc('44*2+10'), 98);
+eqs('and whichever way round it is written', calc('10+44*2'), 98);
+eqs('divide before minus', calc('100-10/2'), 95);
+
+eqs('a third of ten, to the paisa', calc('10/3'), 3.33);
+eqs('a plain number is still a plain number', calc('44'), 44);
+eqs('so is one with paise', calc('12.50'), 12.5);
+eqs('and one starting with a dot', calc('.5'), 0.5);
+
+// Half-typed is the state the box is in on nearly every keystroke. It has to mean "not yet" --
+// never an error, and never zero, or the line price would flicker between taps.
+eqs('halfway through typing is not an error', calc('44*'), null);
+eqs('nor is nothing at all', calc(''), null);
+eqs('nor is a box of spaces', calc('   '), null);
+eqs('an operator cannot start it', calc('*2'), null);
+eqs('two operators in a row are a slip', calc('44**2'), null);
+eqs('dividing by nothing has no answer', calc('44/0'), null);
+eqs('two dots are a typo', calc('44..2'), null);
+eqs('a comma is not a decimal point here', calc('44,2'), null);
+eqs('exponents are not money', calc('1e3'), null);
+eqs('nor is hex', calc('0x1f'), null);
+eqs('and letters are letters', calc('abc'), null);
+check('a negative total is not produced', calc('10-25') === -15);
+
+// Through the real field rules, which is where the sum actually lands.
+eqs('a sum reaches the price box', F.parsePrice('44*2').ok && F.parsePrice('44*2').value, 88);
+check('a sum that comes to zero is refused like any zero', !F.parsePrice('10-10').ok);
+check('and so is one that goes negative', !F.parsePrice('10-25').ok);
+check('a sum over the maximum is refused', !F.parsePrice('999999*99').ok);
+eqs('the paid box adds up the notes', F.parsePaid('100+50+20', 0).value, 170);
+eqs('and a blank one still means the whole total', F.parsePaid('', 170).value, 170);
+check('a half-typed sum in the paid box is refused, not read as zero',
+  !F.parsePaid('100+', 0).ok);
 
 /* ------------------------------------------------------------------ *
  * Turning the page on the slip                                        *
