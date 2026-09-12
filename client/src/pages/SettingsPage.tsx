@@ -146,6 +146,13 @@ export function SettingsPage() {
    */
   const [busy, setBusy] = useState<'backup' | 'erase' | null>(null);
   const [backedUp, setBackedUp] = useState(false);
+  /*
+   * This section's own failures, shown inside it.
+   *
+   * The page-wide error sits at the very top of a long page. A refusal from a button at the
+   * bottom appeared up there, out of sight, and read as nothing happening at all.
+   */
+  const [dangerError, setDangerError] = useState<string | null>(null);
   /* Its own message rather than the shared "… saved." one, which would read "the book starts
      again at bill 1. saved." */
   const [erased, setErased] = useState(false);
@@ -153,7 +160,7 @@ export function SettingsPage() {
   const [resetWord, setResetWord] = useState('');
 
   const takeBackup = async () => {
-    setError(null);
+    setDangerError(null);
     setBusy('backup');
     try {
       const data = await api.backup();
@@ -167,14 +174,14 @@ export function SettingsPage() {
       URL.revokeObjectURL(url);
       setBackedUp(true);
     } catch (e) {
-      setError(t('set.backupFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+      setDangerError(t('set.backupFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
     }
   };
 
   const eraseEverything = async () => {
-    setError(null);
+    setDangerError(null);
     setBusy('erase');
     try {
       await api.eraseAll(resetPw, resetWord);
@@ -188,7 +195,7 @@ export function SettingsPage() {
       // A 404 from the reset endpoint is not "missing": it is the server saying no reset password
       // has been set on it, which deserves that explanation rather than a bare "not found".
       const off = e instanceof ApiError && e.status === 404;
-      setError(off
+      setDangerError(off
         ? t('set.eraseOff')
         : t('set.eraseFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -296,6 +303,20 @@ export function SettingsPage() {
           />
           <p className="muted small">{checkGstin(gstin).warning ?? t('set.gstinHint')}</p>
         </div>
+        {/* Directly under the number it governs. A shop may hold a GST number and not want it
+            on every slip. */}
+        <label className="row" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={shop.settings.showGstin !== false}
+            onChange={(e) => void save({ showGstin: e.target.checked }, 'set.savedGstinShown')}
+            style={{ width: 20, height: 20 }}
+          />
+          <span className="grow">
+            <span style={{ display: 'block' }}>{t('set.showGstin')}</span>
+            <span className="muted small">{t('set.showGstinHint')}</span>
+          </span>
+        </label>
         <label className="row" style={{ cursor: 'pointer' }}>
           <input
             type="checkbox"
@@ -533,6 +554,8 @@ export function SettingsPage() {
           {busy === 'erase' ? t('set.erasing') : t('set.eraseAll')}
         </button>
         {!backedUp ? <p className="muted small" style={{ margin: 0 }}>{t('set.eraseNeedsBackup')}</p> : null}
+        {/* Under the button that caused it, which is where the eye already is. */}
+        {dangerError ? <p className="error" role="alert">{dangerError}</p> : null}
       </section>
     </div>
   );

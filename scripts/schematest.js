@@ -184,6 +184,18 @@ function billDoc(lines) {
       showRate: false, inactiveAfterDays: 30, gstin: '29ABCDE1234F1Z5',
     });
     check('settings with one are valid too', !withGst.validateSync());
+
+    // Optional with a plain default, never `required: true` beside one -- the pairing that made
+    // every print return 500 and the reason this file exists. Absent has to read as `true`, or a
+    // shop that was printing its number would silently stop on the next deploy.
+    check('the print-it switch is not required', !bare.validateSync());
+    check('and reads as on when the record predates it', bare.showGstin === true,
+      JSON.stringify(bare.showGstin));
+    const hiddenGst = new SettingsModel({
+      key: 'shop', shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
+      showRate: false, inactiveAfterDays: 30, gstin: '29ABCDE1234F1Z5', showGstin: false,
+    });
+    check('and can be turned off', !hiddenGst.validateSync() && hiddenGst.showGstin === false);
   }
 
   // The Kannada twins: optional, defaulting to '', so a record written before they existed reads

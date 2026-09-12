@@ -130,6 +130,8 @@ export type Settings = {
   language: Lang;
   /** The shop's GST number. Prints under the shop name when it is filled in. */
   gstin: string;
+  /** Whether that number goes on the slip. A shop may hold one and not print it. */
+  showGstin: boolean;
   /** The shop name and the footer line in Kannada, shown and printed when the shop is Kannada. */
   shopNameKn: string;
   footerKn: string;
@@ -145,6 +147,7 @@ export const DEFAULT_SETTINGS: Settings = {
   paper: '58mm',
   language: 'en',
   gstin: '',
+  showGstin: true,
   shopNameKn: '',
   footerKn: '',
   showRate: false,

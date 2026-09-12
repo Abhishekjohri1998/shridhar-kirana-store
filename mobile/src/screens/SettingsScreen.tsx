@@ -193,13 +193,20 @@ export function SettingsScreen() {
    * backup has to be taken in the same sitting as the erase rather than once, months ago.
    */
   const [busy, setBusy] = useState<'backup' | 'erase' | null>(null);
+  /*
+   * This section's own failures, shown inside it.
+   *
+   * The page-wide error sits at the very top of a long screen. A refusal from a button at the
+   * bottom appeared up there, out of sight, and read on the tablet as nothing happening at all.
+   */
+  const [dangerError, setDangerError] = useState<string | null>(null);
   const [backedUp, setBackedUp] = useState(false);
   const [erased, setErased] = useState(false);
   const [resetPw, setResetPw] = useState('');
   const [resetWord, setResetWord] = useState('');
 
   const takeBackup = async () => {
-    setError(null);
+    setDangerError(null);
     setBusy('backup');
     try {
       const data = await api.backup();
@@ -213,14 +220,14 @@ export function SettingsScreen() {
       }
       setBackedUp(true);
     } catch (e) {
-      setError(t('set.backupFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+      setDangerError(t('set.backupFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
     }
   };
 
   const eraseEverything = async () => {
-    setError(null);
+    setDangerError(null);
     setBusy('erase');
     try {
       await api.eraseAll(resetPw, resetWord);
@@ -234,7 +241,7 @@ export function SettingsScreen() {
       // A 404 from the reset endpoint is not "missing": it is the server saying no reset password
       // has been set on it, which deserves that explanation rather than a bare "not found".
       const off = e instanceof ApiError && e.status === 404;
-      setError(off
+      setDangerError(off
         ? t('set.eraseOff')
         : t('set.eraseFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -323,6 +330,20 @@ export function SettingsScreen() {
             }
           }}
         />
+
+        {/* Directly under the number it governs. A shop may hold a GST number and not want it
+            on every slip. */}
+        <View style={styles.switchRow}>
+          <Switch
+            value={shop.settings.showGstin !== false}
+            onValueChange={(v) => void save({ showGstin: v }, 'set.savedGstinShown')}
+            trackColor={{ true: C.accent, false: C.line }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.switchLabel}>{t('set.showGstin')}</Text>
+            <Text style={styles.hint}>{t('set.showGstinHint')}</Text>
+          </View>
+        </View>
 
         <View style={styles.switchRow}>
           <Switch
@@ -489,6 +510,8 @@ export function SettingsScreen() {
           onPress={() => void eraseEverything()}
         />
         {!backedUp ? <Text style={styles.hint}>{t('set.eraseNeedsBackup')}</Text> : null}
+        {/* Under the button that caused it, which is where the eye already is. */}
+        {dangerError ? <ErrorText>{dangerError}</ErrorText> : null}
       </Card>
 
       <Dialog

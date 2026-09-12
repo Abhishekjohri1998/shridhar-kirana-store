@@ -113,6 +113,7 @@ const settingsSchema = new Schema<SettingsDoc>(
     shopNameKn: { type: String, required: false, default: '' },
     footerKn: { type: String, required: false, default: '' },
     showRate: { type: Boolean, required: true },
+    showGstin: { type: Boolean, required: false, default: true },
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
   },
   { versionKey: false },

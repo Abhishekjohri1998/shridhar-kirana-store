@@ -316,6 +316,20 @@ async function main() {
       .some((r) => r.t === 'center' && String(r.text).includes('GSTIN')));
   check('an older settings record without the field still prints',
     shared.buildReceipt(BILL, SETTINGS).rows.length > 0);
+
+  // The switch the shop asked for: a number held in the settings, but not on every slip.
+  const hasGstRow = (settings) => shared.buildReceipt(BILL, { ...SETTINGS, ...settings }).rows
+    .some((r) => r.t === 'center' && String(r.text).includes('GSTIN'));
+  check('the switch off keeps the number off the slip',
+    !hasGstRow({ gstin: '29ABCDE1234F1Z5', showGstin: false }));
+  check('and the switch on puts it back',
+    hasGstRow({ gstin: '29ABCDE1234F1Z5', showGstin: true }));
+  // Absent means yes: a shop that had entered its number was already printing it, and an update
+  // must not quietly stop.
+  check('settings saved before the switch existed still print it',
+    hasGstRow({ gstin: '29ABCDE1234F1Z5' }));
+  check('the switch on with nothing to print prints nothing',
+    !hasGstRow({ gstin: '', showGstin: true }));
   const knGst = shared.buildReceipt(
     BILL, { ...SETTINGS, language: 'kn', gstin: '29ABCDE1234F1Z5' }, shared.receiptLabelsFor('kn'),
   );
@@ -855,6 +869,12 @@ async function main() {
     eq('a GST number is saved, upper-cased and stripped of spacing', (await call('/api/settings', {
       method: 'PUT', headers: auth, body: JSON.stringify({ gstin: '29 abcde 1234 f1z5' }),
     })).body.gstin, '29ABCDE1234F1Z5');
+    eq('the GST switch can be turned off', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ showGstin: false }),
+    })).body.showGstin, false);
+    eq('and back on', (await call('/api/settings', {
+      method: 'PUT', headers: auth, body: JSON.stringify({ showGstin: true }),
+    })).body.showGstin, true);
     eq('a wrong-looking one is still saved -- warned about, never refused', (await call('/api/settings', {
       method: 'PUT', headers: auth, body: JSON.stringify({ gstin: 'NOTAGST' }),
     })).body.gstin, 'NOTAGST');

@@ -45,6 +45,7 @@ const settingsBody = z.object({
   shopNameKn: z.string().trim().max(80).optional(),
   footerKn: z.string().trim().max(120).optional(),
   showRate: z.boolean().optional(),
+  showGstin: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
 });
 

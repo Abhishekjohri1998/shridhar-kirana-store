@@ -463,11 +463,12 @@ export function BillScreen() {
                   value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
                   onChangeText={(text) => onPrice(index, line.itemId, text)}
                   onFocus={() => setCalcOn(line.itemId)}
-                  returnKeyType="next"
-                  // Without this the keyboard closes on the way past, and the next field has to
-                  // raise it again -- a flicker on every single line.
-                  blurOnSubmit={false}
-                  onSubmitEditing={() => goToNextPrice(index)}
+                  // The app draws the keypad for prices, so the system one stays shut. The field
+                  // keeps its focus and its caret; only the keyboard is refused. Android's pad
+                  // has no multiply or divide, which is the whole reason for our own.
+                  showSoftInputOnFocus={false}
+                  // returnKeyType and onSubmitEditing had nobody to talk to once the system
+                  // keyboard stopped opening. The keypad's tick does that job now.
                   // The line is done; bring the fresh blank one into view.
                   onBlur={() => { if (index >= shop.cart.length - 2) goToNewestLine(); }}
                 />
@@ -545,6 +546,7 @@ export function BillScreen() {
                   placeholderTextColor={C.faint}
                   onChangeText={shop.setPaidInput}
                   onFocus={() => setCalcOn('paid')}
+                  showSoftInputOnFocus={false}
                 />
                 {/* Cash is counted out in notes, so it is natural to type it as one: 100+50+20. */}
                 {calcOn === 'paid' && looksLikeSum(paid) && evaluateAmount(paid) != null ? (

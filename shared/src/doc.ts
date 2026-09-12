@@ -104,7 +104,10 @@ export function buildReceipt(
 
   // Under the shop name, where a customer and an inspector both look for it. Only when the shop
   // has entered one -- a slip for a shop with no GST number should not carry an empty label.
-  if (settings.gstin && settings.gstin.trim()) {
+  // Both: a number to print, and the shopkeeper wanting it printed. `showGstin` is absent on
+  // settings saved before the switch existed, and undefined there means yes -- a shop that had
+  // entered its number was already printing it.
+  if (settings.gstin && settings.gstin.trim() && settings.showGstin !== false) {
     rows.push({ t: 'center', text: labels.gstin + ' ' + settings.gstin.trim(), size: 20 });
   }
 
