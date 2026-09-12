@@ -3,10 +3,13 @@ import {
   Dimensions, Pressable, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions,
 } from 'react-native';
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  LANGS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile, parseQuietDays,
+  ERASE_WORD, LANGS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile,
+  parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
 } from '@shridhar/shared';
 import { Dialog } from '../components/Dialog';
@@ -14,6 +17,7 @@ import { ScriptField } from '../components/ScriptField';
 import { Button, Card, ErrorText, Field, Notice, SectionTitle } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useHeldInsets } from '../lib/screenEdges';
+import { ApiError, api } from '../lib/api';
 import { useShop } from '../lib/useShop';
 import type { PairedPrinter } from '../print/bluetooth';
 import { C } from '../theme';
@@ -179,6 +183,62 @@ export function SettingsScreen() {
     const value = next.trim();
     if (value !== (shop.settings.footerKn ?? '')) {
       void save({ footerKn: value }, 'set.savedFooter');
+    }
+  };
+
+  /*
+   * Erasing the book.
+   *
+   * `backedUp` is deliberately not remembered anywhere: it resets when the screen does, so the
+   * backup has to be taken in the same sitting as the erase rather than once, months ago.
+   */
+  const [busy, setBusy] = useState<'backup' | 'erase' | null>(null);
+  const [backedUp, setBackedUp] = useState(false);
+  const [erased, setErased] = useState(false);
+  const [resetPw, setResetPw] = useState('');
+  const [resetWord, setResetWord] = useState('');
+
+  const takeBackup = async () => {
+    setError(null);
+    setBusy('backup');
+    try {
+      const data = await api.backup();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const path = FileSystem.cacheDirectory + 'shridhar-backup-' + stamp + '.json';
+      await FileSystem.writeAsStringAsync(path, JSON.stringify(data, null, 2));
+      // Handed to the share sheet rather than left in the app's own cache, which Android clears
+      // whenever it likes -- the point is a copy somewhere the shop still has it afterwards.
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(path, { mimeType: 'application/json', dialogTitle: t('set.backup') });
+      }
+      setBackedUp(true);
+    } catch (e) {
+      setError(t('set.backupFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const eraseEverything = async () => {
+    setError(null);
+    setBusy('erase');
+    try {
+      await api.eraseAll(resetPw, resetWord);
+      setResetPw('');
+      setResetWord('');
+      setBackedUp(false);
+      await shop.reload();
+      setErased(true);
+      setTimeout(() => setErased(false), 8000);
+    } catch (e) {
+      // A 404 from the reset endpoint is not "missing": it is the server saying no reset password
+      // has been set on it, which deserves that explanation rather than a bare "not found".
+      const off = e instanceof ApiError && e.status === 404;
+      setError(off
+        ? t('set.eraseOff')
+        : t('set.eraseFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -389,6 +449,48 @@ export function SettingsScreen() {
         <Text style={styles.hint}>{t('set.changeServerHint')}</Text>
       </Card>
 
+      {/* Last on the screen, and the only part of it that destroys anything. */}
+      <Card style={styles.dangerCard}>
+        <SectionTitle>{t('set.dangerSection')}</SectionTitle>
+        <Text style={styles.hint}>{t('set.dangerNote')}</Text>
+        <View style={{ height: 10 }} />
+
+        <Button
+          label={busy === 'backup' ? t('set.backingUp') : t('set.backup')}
+          tone="plain"
+          disabled={busy !== null}
+          onPress={() => void takeBackup()}
+        />
+        {backedUp ? <Notice>{t('set.backupSaved')}</Notice> : null}
+        {erased ? <Notice>{t('set.erased')}</Notice> : null}
+
+        <View style={{ height: 10 }} />
+        <Field
+          label={t('set.erasePassword')}
+          value={resetPw}
+          secureTextEntry
+          autoCapitalize="none"
+          onChangeText={setResetPw}
+        />
+        <Field
+          label={t('set.eraseConfirmLabel')}
+          value={resetWord}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          onChangeText={setResetWord}
+        />
+
+        {/* Three things have to be true: the backup taken in this sitting, the password given,
+            and the word typed exactly. */}
+        <Button
+          label={busy === 'erase' ? t('set.erasing') : t('set.eraseAll')}
+          tone="danger"
+          disabled={busy !== null || !backedUp || !resetPw || resetWord !== ERASE_WORD}
+          onPress={() => void eraseEverything()}
+        />
+        {!backedUp ? <Text style={styles.hint}>{t('set.eraseNeedsBackup')}</Text> : null}
+      </Card>
+
       <Dialog
         visible={confirmServer}
         title={t('set.changeServer')}
@@ -438,6 +540,9 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
   content: { padding: 12, paddingBottom: 32, width: '100%', maxWidth: 820, alignSelf: 'center' },
   card: { marginBottom: 12 },
+  /* Marked, not hidden: someone looking for it should find it, and someone scrolling past
+     should know to stop. */
+  dangerCard: { marginBottom: 12, borderWidth: 1, borderColor: C.dangerEdge },
   label: { fontSize: 12, color: C.soft, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6 },
   hint: { fontSize: 12, color: C.soft, lineHeight: 18, marginTop: 4 },
   probe: { fontSize: 11, color: C.faint, lineHeight: 16, fontVariant: ['tabular-nums'] },

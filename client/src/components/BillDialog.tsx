@@ -17,18 +17,21 @@ import { useShop } from '../lib/useShop';
  * cannot.
  */
 export function BillDialog({
-  bill, onClose, onCancelled,
+  bill, onClose, onCancelled, onDeleted,
 }: {
   bill: Bill;
   onClose: () => void;
   /** Called with the cancelled bill so the list behind can be brought up to date. */
   onCancelled?: (bill: Bill) => void;
+  /** Called with the bill that has been removed, so the list behind can drop it. */
+  onDeleted?: (bill: Bill) => void;
 }) {
   const shop = useShop();
   const printer = usePrint();
   const t = shop.t;
   const [error, setError] = useState<string | null>(null);
-  const [asking, setAsking] = useState(false);
+  /** Which question the footer is asking, if any: cancelling it, or removing it for good. */
+  const [asking, setAsking] = useState<'cancel' | 'delete' | null>(null);
   const [busy, setBusy] = useState(false);
 
   const share = async () => {
@@ -61,7 +64,30 @@ export function BillDialog({
       onClose();
     } catch (e) {
       setError(t('hist.couldNotCancel') + ': ' + (e instanceof Error ? e.message : String(e)));
-      setAsking(false);
+      setAsking(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Gone for good, which the server allows only for a bill that is already cancelled.
+   *
+   * Cancelling is what takes a bill's money back out of the customer's figures, so this moves no
+   * money at all -- it clears a mistake out of the history list and nothing more.
+   */
+  const remove = async () => {
+    if (!bill) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await api.deleteBill(bill.no);
+      await shop.reload();
+      onDeleted?.(bill);
+      close();
+    } catch (e) {
+      setError(t('hist.couldNotDelete') + ': ' + (e instanceof Error ? e.message : String(e)));
+      setAsking(null);
     } finally {
       setBusy(false);
     }
@@ -69,18 +95,30 @@ export function BillDialog({
 
   const footer = asking ? (
     <>
-      <button className="btn plain" disabled={busy} onClick={() => setAsking(false)}>
+      <button className="btn plain" disabled={busy} onClick={() => setAsking(null)}>
         {t('hist.keepBill')}
       </button>
-      <button className="btn danger" disabled={busy} onClick={() => void cancel()}>
-        {busy ? t('hist.cancelling') : t('hist.cancelYes')}
+      <button
+        className="btn danger"
+        disabled={busy}
+        onClick={() => void (asking === 'delete' ? remove() : cancel())}
+      >
+        {asking === 'delete'
+          ? (busy ? t('hist.deleting') : t('hist.deleteYes'))
+          : (busy ? t('hist.cancelling') : t('hist.cancelYes'))}
       </button>
     </>
   ) : (
     /* Cancelling sits apart from the buttons pressed a hundred times a day. */
     <>
-      {bill.cancelled ? null : (
-        <button className="btn plain grow" onClick={() => setAsking(true)}>{t('hist.cancelBill')}</button>
+      {/* Cancel while it is live; remove it once it is not. Never both: a bill has to be
+          cancelled before it can go, which is what keeps the customer's balance right. */}
+      {bill.cancelled ? (
+        <button className="btn danger grow" onClick={() => setAsking('delete')}>
+          {t('hist.deleteBill')}
+        </button>
+      ) : (
+        <button className="btn plain grow" onClick={() => setAsking('cancel')}>{t('hist.cancelBill')}</button>
       )}
       <button className="btn plain" onClick={onClose}>{t('common.close')}</button>
       {/* A picture of the slip, for a customer who wants a copy on their phone. Offered for a
@@ -100,7 +138,8 @@ export function BillDialog({
 
       {/* Said before the receipt, not after it: this is the thing that changes what follows. */}
       {bill.cancelled ? <p className="notice">{t('hist.cancelled')}</p> : null}
-      {asking ? <p className="notice">{t('hist.cancelNote')}</p> : null}
+      {asking === 'cancel' ? <p className="notice">{t('hist.cancelNote')}</p> : null}
+      {asking === 'delete' ? <p className="notice">{t('hist.deleteAsk', { no: bill.no })}</p> : null}
 
       <ReceiptView doc={buildReceipt(bill, shop.settings, shop.receiptLabels)} inkAlt={t('ink.alt')} />
     </Dialog>

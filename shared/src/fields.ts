@@ -28,6 +28,15 @@ export function parseDecimal(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * The word that has to be typed out to erase the shop's books.
+ *
+ * Not a translated string: the server compares it exactly, so a Kannada rendering would be a
+ * word that does not work. It is deliberately the same in both languages for that reason, and
+ * lives here so the two halves cannot drift apart.
+ */
+export const ERASE_WORD = 'ERASE';
+
 const MAX_MONEY = 1_000_000;
 const MAX_QTY = 100_000;
 const MAX_PAID = 10_000_000;

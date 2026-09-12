@@ -18,18 +18,21 @@ import { useShop } from '../lib/useShop';
  * footer becomes the question. Nothing in this app nests a Modal inside a Modal.
  */
 export function BillDialog({
-  bill, onClose, onCancelled,
+  bill, onClose, onCancelled, onDeleted,
 }: {
   bill: Bill | null;
   onClose: () => void;
   /** Called with the cancelled bill so the list behind can be brought up to date. */
   onCancelled?: (bill: Bill) => void;
+  /** Called with the bill that has been removed, so the list behind can drop it. */
+  onDeleted?: (bill: Bill) => void;
 }) {
   const shop = useShop();
   const printer = usePrint();
   const t = shop.t;
   const [error, setError] = useState<string | null>(null);
-  const [asking, setAsking] = useState(false);
+  /** Which question the footer is asking, if any: cancelling it, or removing it for good. */
+  const [asking, setAsking] = useState<'cancel' | 'delete' | null>(null);
   const [busy, setBusy] = useState(false);
 
   const doc = useMemo(
@@ -38,7 +41,7 @@ export function BillDialog({
   );
 
   const close = () => {
-    setAsking(false);
+    setAsking(null);
     setError(null);
     onClose();
   };
@@ -76,7 +79,30 @@ export function BillDialog({
       close();
     } catch (e) {
       setError(t('hist.couldNotCancel') + ': ' + (e instanceof Error ? e.message : String(e)));
-      setAsking(false);
+      setAsking(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Gone for good, which the server allows only for a bill that is already cancelled.
+   *
+   * Cancelling is what takes a bill's money back out of the customer's figures, so this moves no
+   * money at all -- it clears a mistake out of the history list and nothing more.
+   */
+  const remove = async () => {
+    if (!bill) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await api.deleteBill(bill.no);
+      await shop.reload();
+      onDeleted?.(bill);
+      close();
+    } catch (e) {
+      setError(t('hist.couldNotDelete') + ': ' + (e instanceof Error ? e.message : String(e)));
+      setAsking(null);
     } finally {
       setBusy(false);
     }
@@ -88,14 +114,18 @@ export function BillDialog({
         label={t('hist.keepBill')}
         tone="plain"
         disabled={busy}
-        onPress={() => setAsking(false)}
+        onPress={() => setAsking(null)}
         style={{ flex: 1 }}
       />
       <Button
-        label={busy ? t('hist.cancelling') : t('hist.cancelYes')}
+        label={
+          asking === 'delete'
+            ? (busy ? t('hist.deleting') : t('hist.deleteYes'))
+            : (busy ? t('hist.cancelling') : t('hist.cancelYes'))
+        }
         tone="danger"
         disabled={busy}
-        onPress={() => void cancel()}
+        onPress={() => void (asking === 'delete' ? remove() : cancel())}
         style={{ flex: 1 }}
       />
     </>
@@ -108,8 +138,12 @@ export function BillDialog({
      * pressed a hundred times a day.
      */
     <View style={{ flex: 1, gap: 8 }}>
-      {bill?.cancelled ? null : (
-        <Button label={t('hist.cancelBill')} tone="plain" onPress={() => setAsking(true)} />
+      {/* Cancel while it is live; remove it once it is not. Never both: a bill has to be
+          cancelled before it can go, which is what keeps the customer's balance right. */}
+      {bill?.cancelled ? (
+        <Button label={t('hist.deleteBill')} tone="danger" onPress={() => setAsking('delete')} />
+      ) : (
+        <Button label={t('hist.cancelBill')} tone="plain" onPress={() => setAsking('cancel')} />
       )}
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Button label={t('common.close')} tone="plain" onPress={close} style={{ flex: 1 }} />
@@ -143,7 +177,8 @@ export function BillDialog({
 
       {/* Said before the receipt, not after it: this is the thing that changes what follows. */}
       {bill?.cancelled ? <Notice>{t('hist.cancelled')}</Notice> : null}
-      {asking ? <Notice>{t('hist.cancelNote')}</Notice> : null}
+      {asking === 'cancel' ? <Notice>{t('hist.cancelNote')}</Notice> : null}
+      {asking === 'delete' && bill ? <Notice>{t('hist.deleteAsk', { no: bill.no })}</Notice> : null}
 
       {doc ? <ReceiptView doc={doc} /> : null}
     </Dialog>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   checkFooter,
   checkGstin,
+  ERASE_WORD,
   checkShopName,
   LANGS,
   PAPER_KEYS,
@@ -13,6 +14,7 @@ import {
   type PaperKey,
 } from '@shridhar/shared';
 import { ScriptField } from '../components/ScriptField';
+import { ApiError, api } from '../lib/api';
 import { SERIAL_BAUD_RATES } from '../print';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
@@ -133,6 +135,64 @@ export function SettingsPage() {
     const value = next.trim();
     if (value !== (shop.settings.footerKn ?? '')) {
       void save({ footerKn: value }, 'set.savedFooter');
+    }
+  };
+
+  /*
+   * Erasing the book.
+   *
+   * `backedUp` is deliberately not remembered anywhere: it resets when the page does, so the
+   * backup has to be taken in the same sitting as the erase rather than once, months ago.
+   */
+  const [busy, setBusy] = useState<'backup' | 'erase' | null>(null);
+  const [backedUp, setBackedUp] = useState(false);
+  /* Its own message rather than the shared "… saved." one, which would read "the book starts
+     again at bill 1. saved." */
+  const [erased, setErased] = useState(false);
+  const [resetPw, setResetPw] = useState('');
+  const [resetWord, setResetWord] = useState('');
+
+  const takeBackup = async () => {
+    setError(null);
+    setBusy('backup');
+    try {
+      const data = await api.backup();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'shridhar-backup-' + stamp + '.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      setBackedUp(true);
+    } catch (e) {
+      setError(t('set.backupFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const eraseEverything = async () => {
+    setError(null);
+    setBusy('erase');
+    try {
+      await api.eraseAll(resetPw, resetWord);
+      setResetPw('');
+      setResetWord('');
+      setBackedUp(false);
+      await shop.reload();
+      setErased(true);
+      window.setTimeout(() => setErased(false), 8000);
+    } catch (e) {
+      // A 404 from the reset endpoint is not "missing": it is the server saying no reset password
+      // has been set on it, which deserves that explanation rather than a bare "not found".
+      const off = e instanceof ApiError && e.status === 404;
+      setError(off
+        ? t('set.eraseOff')
+        : t('set.eraseFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -425,6 +485,54 @@ export function SettingsPage() {
       <section className="card stack">
         <h2 className="section-title">{t('set.deviceSection')}</h2>
         <button className="btn plain" onClick={shop.signOut}>{t('set.signOut')}</button>
+      </section>
+
+      {/* Last on the page, and the only section that destroys anything. */}
+      <section className="card stack danger-zone">
+        <h2 className="section-title">{t('set.dangerSection')}</h2>
+        <p className="muted small" style={{ margin: 0 }}>{t('set.dangerNote')}</p>
+
+        <button className="btn plain" disabled={busy !== null} onClick={() => void takeBackup()}>
+          {busy === 'backup' ? t('set.backingUp') : t('set.backup')}
+        </button>
+        {backedUp ? <p className="notice" role="status">{t('set.backupSaved')}</p> : null}
+        {erased ? <p className="notice" role="status">{t('set.erased')}</p> : null}
+
+        <div className="field">
+          <label htmlFor="s-reset-pw">{t('set.erasePassword')}</label>
+          <input
+            id="s-reset-pw"
+            className="input"
+            type="password"
+            autoComplete="off"
+            value={resetPw}
+            onChange={(e) => setResetPw(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="s-reset-word">{t('set.eraseConfirmLabel')}</label>
+          <input
+            id="s-reset-word"
+            className="input"
+            autoComplete="off"
+            value={resetWord}
+            onChange={(e) => setResetWord(e.target.value)}
+          />
+        </div>
+
+        {/*
+         * Three things have to be true, and the button says which one is missing rather than
+         * sitting there greyed out with no explanation: the backup taken, the password given,
+         * and the word typed exactly.
+         */}
+        <button
+          className="btn danger"
+          disabled={busy !== null || !backedUp || !resetPw || resetWord !== ERASE_WORD}
+          onClick={() => void eraseEverything()}
+        >
+          {busy === 'erase' ? t('set.erasing') : t('set.eraseAll')}
+        </button>
+        {!backedUp ? <p className="muted small" style={{ margin: 0 }}>{t('set.eraseNeedsBackup')}</p> : null}
       </section>
     </div>
   );

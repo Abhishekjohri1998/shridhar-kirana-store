@@ -336,6 +336,26 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return bill;
     },
 
+    async deleteBill(no) {
+      /*
+       * Conditional on the bill already being cancelled, in the delete itself rather than in a
+       * read beforehand: two tills could otherwise both see a cancelled bill and only one of
+       * them be right about it by the time the delete lands.
+       */
+      const gone = await Bills.findOneAndDelete({ no, cancelled: true }).lean();
+      if (gone) return 'deleted';
+      // Nothing deleted: either it is live, or it was never there.
+      const existing = await Bills.findOne({ no }).lean();
+      return existing ? 'live' : 'missing';
+    },
+
+    async eraseAll() {
+      await Bills.deleteMany({});
+      await Customers.deleteMany({});
+      // Back to the start of the book. Settings are deliberately untouched.
+      await Counters.updateOne({ key: 'billNo' }, { $set: { value: 0 } }, { upsert: true });
+    },
+
     async todaySummary(): Promise<TodaySummary> {
       const { start, end } = dayBounds();
       // A cancelled bill is not a sale. `at` is still its own date, so it would otherwise keep

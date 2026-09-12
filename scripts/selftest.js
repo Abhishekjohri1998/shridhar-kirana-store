@@ -874,6 +874,56 @@ async function main() {
     eq('a forged token is refused',
       (await call('/api/bills', { headers: { authorization: 'Bearer not.a.token' } })).status, 401);
 
+    /*
+     * Deleting a cancelled bill for good.
+     *
+     * The rail that matters is the refusal: a live bill's money is still in the customer's
+     * totals, and cancelling is the only thing that takes it back out. Deleting one straight
+     * would leave them owing for a bill nobody can produce.
+     */
+    const toDelete = await post('/api/bills', {
+      lines: [{ itemId: 'd1', qty: 1, rate: 60 }], customerId: created.body.id,
+    });
+    eq('a bill to be deleted is created', toDelete.status, 201);
+    const beforeDelete = (await call('/api/customers/' + created.body.id, { headers: auth })).body.customer;
+
+    const liveDelete = await call('/api/bills/' + toDelete.body.no, { method: 'DELETE', headers: auth });
+    eq('a live bill cannot be deleted', liveDelete.status, 409);
+    check('and the reason says to cancel it first', /cancel/i.test(liveDelete.body.error), liveDelete.body.error);
+    eq('so it is still there', (await call('/api/bills/' + toDelete.body.no, { headers: auth })).status, 200);
+
+    await post('/api/bills/' + toDelete.body.no + '/cancel', {});
+    const afterCancel = (await call('/api/customers/' + created.body.id, { headers: auth })).body.customer;
+    const deleted = await call('/api/bills/' + toDelete.body.no, { method: 'DELETE', headers: auth });
+    eq('a cancelled one can be deleted', deleted.status, 204);
+    eq('and is gone', (await call('/api/bills/' + toDelete.body.no, { headers: auth })).status, 404);
+
+    // The cancel did the arithmetic; the delete must not do it again.
+    const afterDelete = (await call('/api/customers/' + created.body.id, { headers: auth })).body.customer;
+    eq('the delete moves no money', afterDelete.balance, afterCancel.balance);
+    eq('nor the total billed', afterDelete.totalBilled, afterCancel.totalBilled);
+    check('and the cancel had already taken it out', beforeDelete.totalBilled !== afterCancel.totalBilled);
+
+    eq('deleting a bill that never existed is a 404',
+      (await call('/api/bills/99999', { method: 'DELETE', headers: auth })).status, 404);
+
+    // A numbered book with a gap is honest; a second bill 14 is not.
+    const afterGap = await post('/api/bills', { lines: [{ itemId: 'g1', qty: 1, rate: 10 }] });
+    check('the freed number is not handed out again', afterGap.body.no > toDelete.body.no,
+      'got ' + afterGap.body.no + ' after deleting ' + toDelete.body.no);
+
+    // Switched off unless a password is configured, which this server has not got.
+    const resetOff = await post('/api/reset', { password: 'anything', confirm: 'ERASE' });
+    eq('erasing is off when no password is set', resetOff.status, 404);
+    check('and nothing was erased', (await call('/api/bills', { headers: auth })).body.length > 0);
+
+    const backup = await call('/api/backup', { headers: auth });
+    eq('a backup can be taken', backup.status, 200);
+    check('and holds the bills', Array.isArray(backup.body.bills) && backup.body.bills.length > 0);
+    check('and the customers', Array.isArray(backup.body.customers));
+    check('and the shop settings', typeof backup.body.settings.shopName === 'string');
+    check('and says when it was taken', typeof backup.body.at === 'string');
+
     const customerRemoved = await call('/api/customers/' + created.body.id, { method: 'DELETE', headers: auth });
     eq('a customer can be removed', customerRemoved.status, 204);
     eq('their past bills survive it', (await call('/api/bills/' + partly.body.no, { headers: auth })).body.customer.name, 'Ramesh Kumar');
@@ -881,6 +931,94 @@ async function main() {
     server.kill();
     fs.rmSync(DATA, { recursive: true, force: true });
     fs.rmSync(BUILD, { recursive: true, force: true });
+  }
+
+  /*
+   * Erasing the book, on a server of its own.
+   *
+   * A second server because the password is read from the environment at startup, and the two
+   * halves worth testing are exactly the two configurations: without one the endpoint is off,
+   * with one it empties the book. Its own data directory too, since the point of the test is
+   * that everything in it goes.
+   */
+  console.log('');
+  console.log('Erasing everything');
+
+  const RESET_PORT = PORT + 1;
+  const RESET_DATA = DATA + '-reset';
+  const RESET_PW = 'erase-me-9137';
+  fs.mkdirSync(RESET_DATA, { recursive: true });
+
+  const wiper = spawn(
+    process.execPath,
+    [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'server', 'src', 'index.ts')],
+    {
+      cwd: path.join(ROOT, 'server'),
+      env: {
+        ...process.env,
+        PORT: String(RESET_PORT), DATA_DIR: RESET_DATA, AUTH_PIN: PIN,
+        RESET_PASSWORD: RESET_PW,
+        MONGO_URI: '', JWT_SECRET: 'selftest-secret', NODE_ENV: 'test',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+
+  try {
+    const wbase = 'http://127.0.0.1:' + RESET_PORT;
+    const wcall = async (p, init) => {
+      const res = await fetch(wbase + p, init);
+      const text = await res.text();
+      let body = null;
+      try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+      return { status: res.status, body };
+    };
+
+    let wup = false;
+    for (let i = 0; i < 180 && !wup; i++) {
+      await sleep(500);
+      try {
+        const res = await fetch(wbase + '/api/health');
+        wup = res.status === 200 || res.status === 401;
+      } catch { /* not listening yet */ }
+    }
+    check('the second server started', wup);
+    if (wup) {
+      const tok = (await wcall('/api/auth/login', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: PIN }),
+      })).body.token;
+      const wauth = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+      const wpost = (p, body) => wcall(p, { method: 'POST', headers: wauth, body: JSON.stringify(body) });
+
+      await wcall('/api/settings', {
+        method: 'PUT', headers: wauth, body: JSON.stringify({ shopName: 'Shop That Survives' }),
+      });
+      const cust = await wpost('/api/customers', { name: 'To Be Erased', phone: '9000000321' });
+      await wpost('/api/bills', { lines: [{ itemId: 'e1', qty: 1, rate: 30 }], customerId: cust.body.id });
+      await wpost('/api/bills', { lines: [{ itemId: 'e2', qty: 1, rate: 40 }] });
+      check('there is something to erase', (await wcall('/api/bills', { headers: wauth })).body.length === 2);
+
+      eq('a wrong password is refused',
+        (await wpost('/api/reset', { password: 'not-it', confirm: 'ERASE' })).status, 401);
+      eq('the right password without the word is refused',
+        (await wpost('/api/reset', { password: RESET_PW, confirm: '' })).status, 400);
+      eq('and the word has to be exact',
+        (await wpost('/api/reset', { password: RESET_PW, confirm: 'erase' })).status, 400);
+      check('none of which erased anything',
+        (await wcall('/api/bills', { headers: wauth })).body.length === 2);
+
+      eq('both proofs together erase', (await wpost('/api/reset', { password: RESET_PW, confirm: 'ERASE' })).status, 204);
+      eq('the bills are gone', (await wcall('/api/bills', { headers: wauth })).body.length, 0);
+      eq('the customers with them', (await wcall('/api/customers', { headers: wauth })).body.length, 0);
+      eq('the shop keeps its name',
+        (await wcall('/api/settings', { headers: wauth })).body.shopName, 'Shop That Survives');
+      // The whole point of a reset: the book starts again at one.
+      eq('and the next bill is number 1',
+        (await wpost('/api/bills', { lines: [{ itemId: 'f1', qty: 1, rate: 5 }] })).body.no, 1);
+    }
+  } finally {
+    wiper.kill();
+    fs.rmSync(RESET_DATA, { recursive: true, force: true });
   }
 
   console.log('');

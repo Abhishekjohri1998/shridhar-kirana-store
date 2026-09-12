@@ -1726,3 +1726,12 @@ select.input {
   color: var(--accent-deep, #0a5238);
   white-space: nowrap;
 }
+
+/* The one section on the page that destroys something. Marked, not hidden: a shopkeeper looking
+   for it should find it, and one scrolling past should know to stop. */
+.danger-zone {
+  border-color: var(--danger-600);
+}
+.danger-zone .section-title {
+  color: var(--danger-600);
+}

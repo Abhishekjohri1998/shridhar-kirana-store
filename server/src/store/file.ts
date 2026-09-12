@@ -168,6 +168,29 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       });
     },
 
+    deleteBill(no) {
+      return serial(async () => {
+        const bill = db.bills.find((b) => b.no === no);
+        if (!bill) return 'missing' as const;
+        // A live bill's money is still in the customer's totals; cancelling is what takes it out.
+        if (!bill.cancelled) return 'live' as const;
+        db.bills = db.bills.filter((b) => b.no !== no);
+        // db.billNo is left where it is: the number is spent, not returned to the pile.
+        await flush();
+        return 'deleted' as const;
+      });
+    },
+
+    eraseAll() {
+      return serial(async () => {
+        db.bills = [];
+        db.customers = [];
+        db.billNo = 0;
+        // db.settings survives: a shop that clears its test bills should not be asked its name.
+        await flush();
+      });
+    },
+
     async todaySummary(): Promise<TodaySummary> {
       const { start, end } = dayBounds();
       // A cancelled bill is not a sale, though it keeps its own date.

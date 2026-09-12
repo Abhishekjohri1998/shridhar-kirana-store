@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { INK_LIMITS, checkGstin, inkPointCount } from '@shridhar/shared';
-import { issueToken, pinMatches, requireAuth } from './auth';
+import { ERASE_WORD, INK_LIMITS, checkGstin, inkPointCount } from '@shridhar/shared';
+import { issueToken, pinMatches, requireAuth, secretMatches } from './auth';
+import { env } from './env';
 import { HttpError, handler } from './http';
 import { getRepo } from './store';
 
@@ -190,6 +191,62 @@ api.post('/bills/:no/cancel', handler(async (req, res) => {
   const bill = await getRepo().cancelBill(no);
   if (!bill) throw new HttpError(404, 'No such bill');
   res.json(bill);
+}));
+
+/* The removal the cancel above is not. Only ever of an already-cancelled bill: see
+   Repo.deleteBill for why a live one may not go this way. */
+api.delete('/bills/:no', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const outcome = await getRepo().deleteBill(no);
+  if (outcome === 'missing') throw new HttpError(404, 'No such bill');
+  if (outcome === 'live') {
+    throw new HttpError(409, 'Cancel the bill before deleting it, so the customer’s balance stays right');
+  }
+  res.status(204).end();
+}));
+
+/* ------------------------------------------------------------------ erasing everything */
+
+/**
+ * Everything in the book, as one file, for keeping before a reset.
+ *
+ * The free Atlas tier takes no backups of its own, so this is the only copy that will exist.
+ */
+api.get('/backup', handler(async (_req, res) => {
+  const repo = getRepo();
+  const [settings, customers, bills] = await Promise.all([
+    repo.getSettings(),
+    repo.listCustomers(),
+    repo.listBills(5000),
+  ]);
+  res.json({ at: new Date().toISOString(), settings, customers, bills });
+}));
+
+/**
+ * Erases every bill and customer. Settings survive.
+ *
+ * Two different proofs, because they answer two different questions: the password says you are
+ * allowed to, and the word says you meant to. Switched off entirely when no password is
+ * configured, so a server nobody has set one on cannot be wiped at all.
+ */
+api.post('/reset', handler(async (req, res) => {
+  if (!env.resetPassword) {
+    throw new HttpError(404, 'Erasing is switched off on this server');
+  }
+  const body = z.object({
+    password: z.string().max(200).default(''),
+    confirm: z.string().max(20).default(''),
+  }).parse(req.body);
+
+  if (!secretMatches(body.password, env.resetPassword)) {
+    throw new HttpError(401, 'That password is not right');
+  }
+  if (body.confirm !== ERASE_WORD) {
+    throw new HttpError(400, 'Type ' + ERASE_WORD + ' to confirm');
+  }
+
+  await getRepo().eraseAll();
+  res.status(204).end();
 }));
 
 api.post('/bills', handler(async (req, res) => {

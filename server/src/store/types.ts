@@ -49,6 +49,24 @@ export type Repo = {
    * cancelling twice must not subtract twice. Returns null when there is no such bill.
    */
   cancelBill(no: number): Promise<Bill | null>;
+  /**
+   * Removes a cancelled bill for good.
+   *
+   * Only a cancelled one: `cancelBill` is what takes a bill's money back out of the customer's
+   * running figures, so deleting a live bill would leave them owing for something that no longer
+   * exists. Three answers rather than a boolean because "no such bill" and "that one is still
+   * live" are different things to tell the shopkeeper.
+   *
+   * The number is not freed. A numbered book with a gap at 14 is honest; a second bill 14 is not.
+   */
+  deleteBill(no: number): Promise<'deleted' | 'live' | 'missing'>;
+  /**
+   * Empties the book: every bill, every customer, and the numbering back to the start.
+   *
+   * Settings are deliberately left alone, so a shop that erases its test bills is ready to
+   * trade again rather than being asked for its own name.
+   */
+  eraseAll(): Promise<void>;
   todaySummary(): Promise<TodaySummary>;
 
   listCustomers(): Promise<Customer[]>;
