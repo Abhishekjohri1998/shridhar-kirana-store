@@ -240,6 +240,8 @@ api.post('/reset', handler(async (req, res) => {
   const body = z.object({
     password: z.string().max(200).default(''),
     confirm: z.string().max(20).default(''),
+    // Sparing the names makes it no less of an erase, so both proofs are still required.
+    keepCustomers: z.boolean().default(false),
   }).parse(req.body);
 
   if (!secretMatches(body.password, env.resetPassword)) {
@@ -249,7 +251,7 @@ api.post('/reset', handler(async (req, res) => {
     throw new HttpError(400, 'Type ' + ERASE_WORD + ' to confirm');
   }
 
-  await getRepo().eraseAll();
+  await getRepo().eraseAll(body.keepCustomers);
   res.status(204).end();
 }));
 

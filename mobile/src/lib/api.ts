@@ -150,8 +150,12 @@ export const api = {
     request<void>('/bills/' + no + (force ? '?force=1' : ''), { method: 'DELETE' }),
   /** Everything in the book, for keeping before a reset. */
   backup: () => request<{ at: string; settings: unknown; customers: unknown[]; bills: unknown[] }>('/backup'),
-  eraseAll: (password: string, confirm: string) =>
-    request<void>('/reset', { method: 'POST', body: JSON.stringify({ password, confirm }) }),
+  /** `keepCustomers` spares the names and phone numbers and zeroes what they are owed. */
+  eraseAll: (password: string, confirm: string, keepCustomers = false) =>
+    request<void>('/reset', {
+      method: 'POST',
+      body: JSON.stringify({ password, confirm, keepCustomers }),
+    }),
   today: () => request<TodaySummary>('/summary/today'),
 
   listCustomers: () => request<Customer[]>('/customers'),

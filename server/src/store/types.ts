@@ -62,12 +62,17 @@ export type Repo = {
    */
   deleteBill(no: number, force?: boolean): Promise<'deleted' | 'live' | 'missing'>;
   /**
-   * Empties the book: every bill, every customer, and the numbering back to the start.
+   * Empties the book: every bill, the numbering back to the start, and the customers too unless
+   * they are spared.
    *
-   * Settings are deliberately left alone, so a shop that erases its test bills is ready to
-   * trade again rather than being asked for its own name.
+   * `keepCustomers` keeps each customer's name, Kannada name and phone and zeroes what they are
+   * owed -- a balance is worked out from bills, so with the bills gone there is nothing behind
+   * it and leaving a figure there would be a debt nobody could account for.
+   *
+   * Settings are left alone either way, so a shop that erases its test bills is ready to trade
+   * again rather than being asked for its own name.
    */
-  eraseAll(): Promise<void>;
+  eraseAll(keepCustomers?: boolean): Promise<void>;
   todaySummary(): Promise<TodaySummary>;
 
   listCustomers(): Promise<Customer[]>;

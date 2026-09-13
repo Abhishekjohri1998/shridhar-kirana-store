@@ -1064,6 +1064,29 @@ async function main() {
       check('none of which erased anything',
         (await wcall('/api/bills', { headers: wauth })).body.length === 2);
 
+      /*
+       * The other kind of erase: the bills go, the customers stay.
+       *
+       * Their figures have to go with the bills. A balance is worked out from bills, so leaving
+       * one behind would be a debt with nothing to account for it.
+       */
+      eq('bills can be erased while the customers stay',
+        (await wpost('/api/reset', { password: RESET_PW, confirm: 'ERASE', keepCustomers: true })).status, 204);
+      eq('the bills are gone', (await wcall('/api/bills', { headers: wauth })).body.length, 0);
+      const kept = (await wcall('/api/customers', { headers: wauth })).body;
+      eq('the customer is still there', kept.length, 1);
+      eq('with their name', kept[0].name, 'To Be Erased');
+      eq('and their phone number', kept[0].phone, '9000000321');
+      eq('but nothing owed', kept[0].balance, 0);
+      eq('nor any billing behind it', kept[0].totalBilled, 0);
+      eq('nor anything paid', kept[0].totalPaid, 0);
+      eq('nor a count of bills', kept[0].billCount, 0);
+      eq('and the numbering restarted',
+        (await wpost('/api/bills', { lines: [{ itemId: 'k1', qty: 1, rate: 15 }] })).body.no, 1);
+
+      // Put something back for the full erase below to take away.
+      await wpost('/api/bills', { lines: [{ itemId: 'k2', qty: 1, rate: 25 }], customerId: kept[0].id });
+
       eq('both proofs together erase', (await wpost('/api/reset', { password: RESET_PW, confirm: 'ERASE' })).status, 204);
       eq('the bills are gone', (await wcall('/api/bills', { headers: wauth })).body.length, 0);
       eq('the customers with them', (await wcall('/api/customers', { headers: wauth })).body.length, 0);

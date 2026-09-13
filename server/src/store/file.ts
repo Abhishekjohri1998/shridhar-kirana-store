@@ -197,10 +197,18 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       });
     },
 
-    eraseAll() {
+    eraseAll(keepCustomers) {
       return serial(async () => {
         db.bills = [];
-        db.customers = [];
+        if (keepCustomers) {
+          // The four fields createBill adds to and cancelBill takes from. Zeroing them is what
+          // "no bills" means for a customer; the name and the phone number are left alone.
+          db.customers = db.customers.map((c) => ({
+            ...c, totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+          }));
+        } else {
+          db.customers = [];
+        }
         db.billNo = 0;
         // db.settings survives: a shop that clears its test bills should not be asked its name.
         await flush();

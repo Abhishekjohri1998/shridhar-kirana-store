@@ -362,9 +362,17 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return forced ? 'deleted' : 'missing';
     },
 
-    async eraseAll() {
+    async eraseAll(keepCustomers) {
       await Bills.deleteMany({});
-      await Customers.deleteMany({});
+      if (keepCustomers) {
+        // The four fields createBill adds to and cancelBill takes from. Zeroing them is what
+        // "no bills" means for a customer; the name and the phone number are left alone.
+        await Customers.updateMany({}, {
+          $set: { totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null },
+        });
+      } else {
+        await Customers.deleteMany({});
+      }
       // Back to the start of the book. Settings are deliberately untouched.
       await Counters.updateOne({ key: 'billNo' }, { $set: { value: 0 } }, { upsert: true });
     },

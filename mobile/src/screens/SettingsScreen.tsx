@@ -201,7 +201,7 @@ export function SettingsScreen() {
    */
   const [dangerError, setDangerError] = useState<string | null>(null);
   const [backedUp, setBackedUp] = useState(false);
-  const [erased, setErased] = useState(false);
+  const [erased, setErased] = useState<'all' | 'bills' | null>(null);
   const [resetPw, setResetPw] = useState('');
   const [resetWord, setResetWord] = useState('');
 
@@ -226,19 +226,20 @@ export function SettingsScreen() {
     }
   };
 
-  const eraseEverything = async () => {
+  /** `keepCustomers` spares their names and numbers; the same password and word cover both. */
+  const eraseEverything = async (keepCustomers = false) => {
     setDangerError(null);
     setBusy('erase');
     try {
-      await api.eraseAll(resetPw, resetWord);
+      await api.eraseAll(resetPw, resetWord, keepCustomers);
       setResetPw('');
       setResetWord('');
       setBackedUp(false);
       // Not reload: the books are gone, so the device has to let go of them rather than fetch
       // them again. Parked bills hold customers of their own, and one of those got written back.
       await shop.forgetEverything();
-      setErased(true);
-      setTimeout(() => setErased(false), 8000);
+      setErased(keepCustomers ? 'bills' : 'all');
+      setTimeout(() => setErased(null), 8000);
     } catch (e) {
       // A 404 from the reset endpoint is not "missing": it is the server saying no reset password
       // has been set on it, which deserves that explanation rather than a bare "not found".
@@ -485,7 +486,7 @@ export function SettingsScreen() {
           onPress={() => void takeBackup()}
         />
         {backedUp ? <Notice>{t('set.backupSaved')}</Notice> : null}
-        {erased ? <Notice>{t('set.erased')}</Notice> : null}
+        {erased ? <Notice>{erased === 'bills' ? t('set.erasedBills') : t('set.erased')}</Notice> : null}
 
         <View style={{ height: 10 }} />
         <Field
@@ -509,8 +510,18 @@ export function SettingsScreen() {
           label={busy === 'erase' ? t('set.erasing') : t('set.eraseAll')}
           tone="danger"
           disabled={busy !== null || !backedUp || !resetPw || resetWord !== ERASE_WORD}
-          onPress={() => void eraseEverything()}
+          onPress={() => void eraseEverything(false)}
         />
+
+        {/* The same backup, password and word cover both; only what is spared differs. */}
+        <View style={{ height: 8 }} />
+        <Button
+          label={busy === 'erase' ? t('set.erasing') : t('set.eraseBills')}
+          tone="danger"
+          disabled={busy !== null || !backedUp || !resetPw || resetWord !== ERASE_WORD}
+          onPress={() => void eraseEverything(true)}
+        />
+        <Text style={styles.hint}>{t('set.eraseBillsHint')}</Text>
         {!backedUp ? <Text style={styles.hint}>{t('set.eraseNeedsBackup')}</Text> : null}
         {/* Under the button that caused it, which is where the eye already is. */}
         {dangerError ? <ErrorText>{dangerError}</ErrorText> : null}

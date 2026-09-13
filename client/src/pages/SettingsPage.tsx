@@ -155,7 +155,7 @@ export function SettingsPage() {
   const [dangerError, setDangerError] = useState<string | null>(null);
   /* Its own message rather than the shared "… saved." one, which would read "the book starts
      again at bill 1. saved." */
-  const [erased, setErased] = useState(false);
+  const [erased, setErased] = useState<'all' | 'bills' | null>(null);
   const [resetPw, setResetPw] = useState('');
   const [resetWord, setResetWord] = useState('');
 
@@ -180,19 +180,20 @@ export function SettingsPage() {
     }
   };
 
-  const eraseEverything = async () => {
+  /** `keepCustomers` spares their names and numbers; the same password and word cover both. */
+  const eraseEverything = async (keepCustomers = false) => {
     setDangerError(null);
     setBusy('erase');
     try {
-      await api.eraseAll(resetPw, resetWord);
+      await api.eraseAll(resetPw, resetWord, keepCustomers);
       setResetPw('');
       setResetWord('');
       setBackedUp(false);
       // Not reload: the books are gone, so the app has to let go of them rather than fetch them
       // again. Parked bills hold customers of their own, and one of those got written back.
       await shop.forgetEverything();
-      setErased(true);
-      window.setTimeout(() => setErased(false), 8000);
+      setErased(keepCustomers ? 'bills' : 'all');
+      window.setTimeout(() => setErased(null), 8000);
     } catch (e) {
       // A 404 from the reset endpoint is not "missing": it is the server saying no reset password
       // has been set on it, which deserves that explanation rather than a bare "not found".
@@ -519,7 +520,11 @@ export function SettingsPage() {
           {busy === 'backup' ? t('set.backingUp') : t('set.backup')}
         </button>
         {backedUp ? <p className="notice" role="status">{t('set.backupSaved')}</p> : null}
-        {erased ? <p className="notice" role="status">{t('set.erased')}</p> : null}
+        {erased ? (
+          <p className="notice" role="status">
+            {erased === 'bills' ? t('set.erasedBills') : t('set.erased')}
+          </p>
+        ) : null}
 
         <div className="field">
           <label htmlFor="s-reset-pw">{t('set.erasePassword')}</label>
@@ -551,10 +556,20 @@ export function SettingsPage() {
         <button
           className="btn danger"
           disabled={busy !== null || !backedUp || !resetPw || resetWord !== ERASE_WORD}
-          onClick={() => void eraseEverything()}
+          onClick={() => void eraseEverything(false)}
         >
           {busy === 'erase' ? t('set.erasing') : t('set.eraseAll')}
         </button>
+
+        {/* The same backup, password and word cover both; only what is spared differs. */}
+        <button
+          className="btn danger"
+          disabled={busy !== null || !backedUp || !resetPw || resetWord !== ERASE_WORD}
+          onClick={() => void eraseEverything(true)}
+        >
+          {busy === 'erase' ? t('set.erasing') : t('set.eraseBills')}
+        </button>
+        <p className="muted small" style={{ margin: 0 }}>{t('set.eraseBillsHint')}</p>
         {!backedUp ? <p className="muted small" style={{ margin: 0 }}>{t('set.eraseNeedsBackup')}</p> : null}
         {/* Under the button that caused it, which is where the eye already is. */}
         {dangerError ? <p className="error" role="alert">{dangerError}</p> : null}
