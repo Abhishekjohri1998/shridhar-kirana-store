@@ -81,7 +81,9 @@ export function BillDialog({
     setError(null);
     setBusy(true);
     try {
-      await api.deleteBill(bill.no);
+      // A live bill goes in one step: the server cancels it -- moving the money back out
+      // of the customer's totals -- and then deletes it.
+      await api.deleteBill(bill.no, !bill.cancelled);
       await shop.reload();
       onDeleted?.(bill);
       close();
@@ -118,7 +120,12 @@ export function BillDialog({
           {t('hist.deleteBill')}
         </button>
       ) : (
-        <button className="btn plain grow" onClick={() => setAsking('cancel')}>{t('hist.cancelBill')}</button>
+        /* Both, for a bill that is still live: cancelling keeps it in the book as a cancelled
+           bill, deleting takes it out altogether. */
+        <>
+          <button className="btn plain grow" onClick={() => setAsking('cancel')}>{t('hist.cancelBill')}</button>
+          <button className="btn danger" onClick={() => setAsking('delete')}>{t('hist.deleteBill')}</button>
+        </>
       )}
       <button className="btn plain" onClick={onClose}>{t('common.close')}</button>
       {/* A picture of the slip, for a customer who wants a copy on their phone. Offered for a
@@ -139,7 +146,13 @@ export function BillDialog({
       {/* Said before the receipt, not after it: this is the thing that changes what follows. */}
       {bill.cancelled ? <p className="notice">{t('hist.cancelled')}</p> : null}
       {asking === 'cancel' ? <p className="notice">{t('hist.cancelNote')}</p> : null}
-      {asking === 'delete' ? <p className="notice">{t('hist.deleteAsk', { no: bill.no })}</p> : null}
+      {asking === 'delete' ? (
+        <p className="notice">
+          {bill.cancelled
+            ? t('hist.deleteAsk', { no: bill.no })
+            : t('hist.deleteLiveAsk', { no: bill.no })}
+        </p>
+      ) : null}
 
       <ReceiptView doc={buildReceipt(bill, shop.settings, shop.receiptLabels)} inkAlt={t('ink.alt')} />
     </Dialog>

@@ -52,14 +52,15 @@ export type Repo = {
   /**
    * Removes a cancelled bill for good.
    *
-   * Only a cancelled one: `cancelBill` is what takes a bill's money back out of the customer's
-   * running figures, so deleting a live bill would leave them owing for something that no longer
-   * exists. Three answers rather than a boolean because "no such bill" and "that one is still
+   * Only a cancelled one, unless `force` is given -- then it cancels first and deletes second,
+   * which is the same two steps in one ask. Either way the money goes back out through
+   * `cancelBill`: that is the only code that knows how, and a second copy of the arithmetic is a
+   * second copy to get wrong. Three answers rather than a boolean because "no such bill" and "that one is still
    * live" are different things to tell the shopkeeper.
    *
    * The number is not freed. A numbered book with a gap at 14 is honest; a second bill 14 is not.
    */
-  deleteBill(no: number): Promise<'deleted' | 'live' | 'missing'>;
+  deleteBill(no: number, force?: boolean): Promise<'deleted' | 'live' | 'missing'>;
   /**
    * Empties the book: every bill, every customer, and the numbering back to the start.
    *

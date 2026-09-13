@@ -3,17 +3,22 @@ import { useShop } from '../lib/useShop';
 import { C, R } from '../theme';
 
 /**
- * The keypad a price is typed on.
+ * The keypad a price is typed on, laid out the way the shop drew it.
  *
- * Android's own number pad has no multiply or divide, so the first version of this put a row of
- * operator keys under it -- which meant two keyboards stacked up the screen, one of them the
- * shop's and one of them Android's. This is the whole thing instead: digits and operators in one
- * block, and the system keyboard never opens for a price at all (the fields ask for that with
- * `showSoftInputOnFocus={false}`).
+ *     ⌫  ÷  ×  −
+ *     7  8  9  +
+ *     4  5  6
+ *     1  2  3  ↵
+ *     0     .
  *
- * It sits inline under the field rather than floating where the keyboard used to be. Guessing a
- * keyboard's height is what left the tab bar stranded mid-screen for three attempts, and there
- * is no longer a keyboard whose height there would be to guess.
+ * Digits in a calculator's order rather than a phone's, `+` and `↵` two rows tall, `0` two
+ * columns wide. Android's own number pad has no multiply or divide, so this replaces it outright
+ * -- the fields ask for that with `showSoftInputOnFocus={false}` -- rather than sitting under it
+ * as a second keyboard, which is what the first attempt did and what the shop objected to.
+ *
+ * It sits inline under the field. Guessing a keyboard's height is what left the tab bar stranded
+ * mid-screen for three attempts, and there is no longer a keyboard whose height there would be
+ * to guess.
  *
  * Nothing here takes focus: on Android a Pressable does not pull focus off a TextInput, so the
  * caret stays where it was between taps.
@@ -42,65 +47,76 @@ export function CalcKeys({
     onChange(/[+\-×÷]$/.test(text) ? text.slice(0, -1) + op : text + op);
   };
 
-  /** Four across, because that is what fits a price box's width without shrinking the digits. */
-  const rows: { label: string; hint?: string; press: () => void }[][] = [
-    [
-      { label: '7', press: () => digit('7') },
-      { label: '8', press: () => digit('8') },
-      { label: '9', press: () => digit('9') },
-      { label: '×', hint: t('bill.times'), press: () => operator('×') },
-    ],
-    [
-      { label: '4', press: () => digit('4') },
-      { label: '5', press: () => digit('5') },
-      { label: '6', press: () => digit('6') },
-      { label: '÷', hint: t('bill.divide'), press: () => operator('÷') },
-    ],
-    [
-      { label: '1', press: () => digit('1') },
-      { label: '2', press: () => digit('2') },
-      { label: '3', press: () => digit('3') },
-      { label: '−', hint: t('bill.minus'), press: () => operator('−') },
-    ],
-    [
-      { label: '.', press: () => digit('.') },
-      { label: '0', press: () => digit('0') },
-      { label: '⌫', hint: t('bill.erase'), press: () => onChange(value.slice(0, -1)) },
-      { label: '+', hint: t('bill.plus'), press: () => operator('+') },
-    ],
-  ];
+  const back = () => onChange(value.slice(0, -1));
+
+  const key = (label: string, press: () => void, hint?: string, kind?: 'op' | 'go') => (
+    <Pressable
+      key={label}
+      style={[styles.key, kind === 'op' && styles.opKey, kind === 'go' && styles.goKey]}
+      accessibilityLabel={hint ?? label}
+      onPress={press}
+    >
+      <Text style={[styles.keyText, kind === 'op' && styles.opText, kind === 'go' && styles.goText]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
 
   return (
     <View style={styles.pad}>
-      {rows.map((row, i) => (
-        <View key={i} style={styles.row}>
-          {row.map((k) => {
-            const isOperator = k.hint != null && k.label !== '⌫';
-            return (
-              <Pressable
-                key={k.label}
-                style={[styles.key, isOperator && styles.operator]}
-                accessibilityLabel={k.hint ?? k.label}
-                onPress={k.press}
-              >
-                <Text style={[styles.keyText, isOperator && styles.operatorText]}>{k.label}</Text>
-              </Pressable>
-            );
-          })}
+      {/* Digits on the left, operators down the right. The two columns are laid out separately
+          so the tall keys can span rows without a grid library: five rows of one unit on the
+          left, and 1 + 2 + 2 on the right, which comes to the same height at any width. */}
+      <View style={styles.digits}>
+        <View style={styles.row}>
+          {key('⌫', back, t('bill.erase'))}
+          {key('÷', () => operator('÷'), t('bill.divide'), 'op')}
+          {key('×', () => operator('×'), t('bill.times'), 'op')}
         </View>
-      ))}
+        <View style={styles.row}>
+          {key('7', () => digit('7'))}
+          {key('8', () => digit('8'))}
+          {key('9', () => digit('9'))}
+        </View>
+        <View style={styles.row}>
+          {key('4', () => digit('4'))}
+          {key('5', () => digit('5'))}
+          {key('6', () => digit('6'))}
+        </View>
+        <View style={styles.row}>
+          {key('1', () => digit('1'))}
+          {key('2', () => digit('2'))}
+          {key('3', () => digit('3'))}
+        </View>
+        <View style={styles.row}>
+          {/* Two columns wide, the way it is on every calculator. */}
+          <Pressable style={[styles.key, styles.wide]} accessibilityLabel="0" onPress={() => digit('0')}>
+            <Text style={styles.keyText}>0</Text>
+          </Pressable>
+          {key('.', () => digit('.'))}
+        </View>
+      </View>
 
-      {/* Across the whole width: it is the key pressed on every single line. */}
-      <Pressable style={styles.done} accessibilityLabel={t('bill.equals')} onPress={onDone}>
-        <Text style={styles.doneText}>✓</Text>
-      </Pressable>
+      <View style={styles.side}>
+        <View style={styles.oneRow}>{key('−', () => operator('−'), t('bill.minus'), 'op')}</View>
+        <View style={styles.twoRows}>{key('+', () => operator('+'), t('bill.plus'), 'op')}</View>
+        <View style={styles.twoRows}>{key('↵', onDone, t('bill.equals'), 'go')}</View>
+      </View>
     </View>
   );
 }
 
+const GAP = 6;
+
 const styles = StyleSheet.create({
-  pad: { gap: 6, marginTop: 8 },
-  row: { flexDirection: 'row', gap: 6 },
+  pad: { flexDirection: 'row', gap: GAP, marginTop: 8 },
+  digits: { flex: 3, gap: GAP },
+  side: { flex: 1, gap: GAP },
+  row: { flexDirection: 'row', gap: GAP, flex: 1 },
+  /* One row and two rows tall. The gap between the rows it spans belongs to it as well, which is
+     what keeps the two columns level rather than a gap out by a few pixels down the page. */
+  oneRow: { flex: 1 },
+  twoRows: { flex: 2 },
   key: {
     flex: 1,
     /* A thumb at a counter, not a mouse. */
@@ -112,16 +128,11 @@ const styles = StyleSheet.create({
     borderRadius: R.sm,
     backgroundColor: C.card,
   },
+  wide: { flex: 2 },
   keyText: { fontSize: 22, color: C.ink },
-  /* The operators are the reason this keypad exists, so they are the column that reads first. */
-  operator: { borderColor: C.accentEdge, backgroundColor: C.accentWash },
-  operatorText: { color: C.accentDeep, fontWeight: '700' },
-  done: {
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: R.sm,
-    backgroundColor: C.accent,
-  },
-  doneText: { fontSize: 22, color: C.accentInk, fontWeight: '700' },
+  /* The operators are the reason this keypad exists, so they are the part that reads first. */
+  opKey: { borderColor: C.accentEdge, backgroundColor: C.accentWash },
+  opText: { color: C.accentDeep, fontWeight: '700' },
+  goKey: { borderColor: C.accent, backgroundColor: C.accent },
+  goText: { color: C.accentInk, fontWeight: '700' },
 });

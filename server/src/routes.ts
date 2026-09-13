@@ -198,7 +198,10 @@ api.post('/bills/:no/cancel', handler(async (req, res) => {
    Repo.deleteBill for why a live one may not go this way. */
 api.delete('/bills/:no', handler(async (req, res) => {
   const no = z.coerce.number().int().positive().parse(req.params.no);
-  const outcome = await getRepo().deleteBill(no);
+  // Without it, a live bill is refused and has to be cancelled first -- which keeps that path
+  // honest for anything talking to the API directly. With it, the two steps are one ask.
+  const force = req.query.force === '1' || req.query.force === 'true';
+  const outcome = await getRepo().deleteBill(no, force);
   if (outcome === 'missing') throw new HttpError(404, 'No such bill');
   if (outcome === 'live') {
     throw new HttpError(409, 'Cancel the bill before deleting it, so the customer’s balance stays right');

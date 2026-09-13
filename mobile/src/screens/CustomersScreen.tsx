@@ -45,9 +45,11 @@ export function CustomersScreen() {
 
   useEffect(() => {
     void load();
-    // Loaded once on mount; the actions on this screen refresh it themselves.
+    // On mount, and again whenever the books are emptied. Every tab stays mounted, so without
+    // that second trigger this screen kept showing the list it fetched when the app started --
+    // which is exactly what an erase looked like from the counter: nothing happening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shop.dataVersion]);
 
   const results = useMemo(() => {
     if (!query.trim()) return customers;
@@ -90,9 +92,13 @@ export function CustomersScreen() {
     }
   };
 
+  /** Set while the "are you sure" is showing, so the footer can become the question. */
+  const [removing, setRemoving] = useState(false);
+
   const removeCustomer = async (id: string) => {
     try {
       await api.deleteCustomer(id);
+      setRemoving(false);
       setDraft(null);
       setOpen(null);
       await load();
@@ -191,10 +197,28 @@ export function CustomersScreen() {
       <Dialog
         visible={open != null}
         title={open ? open.customer.name || open.customer.phone || t('cs.customers') : ''}
-        onClose={() => setOpen(null)}
-        footer={
+        onClose={() => { setRemoving(false); setOpen(null); }}
+        footer={removing ? (
+          /* The footer becomes the question rather than a second dialog on top: this app never
+             nests a Modal inside a Modal. */
+          <>
+            <Button label={t('common.cancel')} tone="plain" onPress={() => setRemoving(false)} style={{ flex: 1 }} />
+            <Button
+              label={t('cs.removeCustomer')}
+              tone="danger"
+              onPress={() => open && void removeCustomer(open.customer.id)}
+              style={{ flex: 1 }}
+            />
+          </>
+        ) : (
           <>
             <Button label={t('common.close')} tone="plain" onPress={() => setOpen(null)} style={{ flex: 1 }} />
+            <Button
+              label={t('cs.removeCustomer')}
+              tone="danger"
+              onPress={() => setRemoving(true)}
+              style={{ flex: 1 }}
+            />
             <Button
               label={t('common.edit')}
               onPress={() =>
@@ -209,8 +233,9 @@ export function CustomersScreen() {
               style={{ flex: 1 }}
             />
           </>
-        }
+        )}
       >
+        {removing ? <Notice>{t('cs.removeNote')}</Notice> : null}
         {open ? (
           <View>
             <View style={styles.stats}>

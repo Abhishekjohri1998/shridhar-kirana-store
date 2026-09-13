@@ -168,12 +168,28 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       });
     },
 
-    deleteBill(no) {
+    deleteBill(no, force) {
       return serial(async () => {
         const bill = db.bills.find((b) => b.no === no);
         if (!bill) return 'missing' as const;
-        // A live bill's money is still in the customer's totals; cancelling is what takes it out.
-        if (!bill.cancelled) return 'live' as const;
+
+        // A live bill's money is still in the customer's totals. Cancelling is what takes it
+        // out, so a forced delete does that first -- the same arithmetic cancelBill runs, not a
+        // second copy of it sitting here waiting to disagree.
+        if (!bill.cancelled) {
+          if (!force) return 'live' as const;
+          bill.cancelled = true;
+          bill.cancelledAt = new Date().toISOString();
+          if (bill.customer) {
+            const row = db.customers.find((c) => c.id === bill.customer?.id);
+            if (row) {
+              row.totalBilled = round2(row.totalBilled - bill.total);
+              row.totalPaid = round2(row.totalPaid - bill.paid);
+              row.billCount = Math.max(0, row.billCount - 1);
+            }
+          }
+        }
+
         db.bills = db.bills.filter((b) => b.no !== no);
         // db.billNo is left where it is: the number is spent, not returned to the pile.
         await flush();

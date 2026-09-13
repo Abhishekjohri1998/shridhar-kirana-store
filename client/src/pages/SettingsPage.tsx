@@ -188,7 +188,9 @@ export function SettingsPage() {
       setResetPw('');
       setResetWord('');
       setBackedUp(false);
-      await shop.reload();
+      // Not reload: the books are gone, so the app has to let go of them rather than fetch them
+      // again. Parked bills hold customers of their own, and one of those got written back.
+      await shop.forgetEverything();
       setErased(true);
       window.setTimeout(() => setErased(false), 8000);
     } catch (e) {

@@ -924,6 +924,43 @@ async function main() {
     eq('nor the total billed', afterDelete.totalBilled, afterCancel.totalBilled);
     check('and the cancel had already taken it out', beforeDelete.totalBilled !== afterCancel.totalBilled);
 
+    /*
+     * The same delete asked for in one step.
+     *
+     * A live bill's money is still in the customer's totals, so the forced path has to cancel
+     * before it deletes. These checks are about the money, not the HTTP: the figures after a
+     * forced delete must match what a cancel would have left.
+     */
+    const oneStep = await post('/api/bills', {
+      lines: [{ itemId: 'f1', qty: 1, rate: 250 }], customerId: created.body.id, paid: 100,
+    });
+    const beforeForce = (await call('/api/customers/' + created.body.id, { headers: auth })).body.customer;
+    const forced = await call('/api/bills/' + oneStep.body.no + '?force=1', { method: 'DELETE', headers: auth });
+    eq('a live bill can be deleted in one step', forced.status, 204);
+    eq('and is gone', (await call('/api/bills/' + oneStep.body.no, { headers: auth })).status, 404);
+
+    const afterForce = (await call('/api/customers/' + created.body.id, { headers: auth })).body.customer;
+    eq('its charge comes off the customer', afterForce.totalBilled, shared.round2(beforeForce.totalBilled - 250));
+    eq('and what they paid on it too', afterForce.totalPaid, shared.round2(beforeForce.totalPaid - 100));
+    eq('leaving the balance where it was before the bill', afterForce.balance, shared.round2(beforeForce.balance - 150));
+    eq('and one fewer bill against their name', afterForce.billCount, beforeForce.billCount - 1);
+
+    // The unforced path is unchanged, which is what keeps the two-step route honest.
+    const stillLive = await post('/api/bills', {
+      lines: [{ itemId: 'f2', qty: 1, rate: 30 }], customerId: created.body.id,
+    });
+    eq('without force a live bill is still refused',
+      (await call('/api/bills/' + stillLive.body.no, { method: 'DELETE', headers: auth })).status, 409);
+    eq('and is still there', (await call('/api/bills/' + stillLive.body.no, { headers: auth })).status, 200);
+
+    // Forcing one that is already cancelled must not subtract a second time.
+    await post('/api/bills/' + stillLive.body.no + '/cancel', {});
+    const afterCancelTwice = (await call('/api/customers/' + created.body.id, { headers: auth })).body.customer;
+    eq('forcing an already-cancelled bill still deletes it',
+      (await call('/api/bills/' + stillLive.body.no + '?force=1', { method: 'DELETE', headers: auth })).status, 204);
+    const afterForceTwice = (await call('/api/customers/' + created.body.id, { headers: auth })).body.customer;
+    eq('and takes nothing out twice', afterForceTwice.balance, afterCancelTwice.balance);
+
     eq('deleting a bill that never existed is a 404',
       (await call('/api/bills/99999', { method: 'DELETE', headers: auth })).status, 404);
 

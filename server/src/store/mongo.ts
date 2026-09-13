@@ -159,7 +159,9 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
     return { ...c, balance: customerBalance(c) };
   };
 
-  return {
+  // Named rather than returned inline, so deleteBill can reach cancelBill: the money has to go
+  // back out through the one piece of code that knows how to move it.
+  const repo: Repo = {
     kind: 'mongo',
 
     async getSettings() {
@@ -337,7 +339,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return bill;
     },
 
-    async deleteBill(no) {
+    async deleteBill(no, force) {
       /*
        * Conditional on the bill already being cancelled, in the delete itself rather than in a
        * read beforehand: two tills could otherwise both see a cancelled bill and only one of
@@ -345,9 +347,19 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
        */
       const gone = await Bills.findOneAndDelete({ no, cancelled: true }).lean();
       if (gone) return 'deleted';
+
       // Nothing deleted: either it is live, or it was never there.
       const existing = await Bills.findOne({ no }).lean();
-      return existing ? 'live' : 'missing';
+      if (!existing) return 'missing';
+      if (!force) return 'live';
+
+      // Asked for in one step. The cancel is what moves the money, and it is the only thing that
+      // knows how -- so it runs first and the delete follows, rather than a second copy of the
+      // arithmetic living here. If the delete then loses a race the bill is merely cancelled,
+      // which is the safe end of a half-done job.
+      await repo.cancelBill(no);
+      const forced = await Bills.findOneAndDelete({ no, cancelled: true }).lean();
+      return forced ? 'deleted' : 'missing';
     },
 
     async eraseAll() {
@@ -454,4 +466,6 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return docs.map((d) => toCustomer(d as unknown as CustomerDoc));
     },
   };
+
+  return repo;
 }

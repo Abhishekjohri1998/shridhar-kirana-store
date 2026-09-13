@@ -49,9 +49,11 @@ export function CustomersPage() {
 
   useEffect(() => {
     void load();
-    // Loading once on mount is deliberate: the list is refreshed by the actions on this page.
+    // On mount, and again whenever the books are emptied -- otherwise this page keeps showing
+    // the list it fetched when it opened, which is what made an erase look like nothing
+    // happening at all.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shop.dataVersion]);
 
   const results = useMemo(() => {
     if (!query.trim()) return customers;
@@ -94,9 +96,13 @@ export function CustomersPage() {
     }
   };
 
+  /** Set while the "are you sure" is showing, so the footer can become the question. */
+  const [removing, setRemoving] = useState(false);
+
   const remove = async (customer: Customer) => {
     try {
       await api.deleteCustomer(customer.id);
+      setRemoving(false);
       setOpen(null);
       setDraft(null);
       await load();
@@ -228,10 +234,21 @@ export function CustomersPage() {
       {open ? (
         <Dialog
           title={customerName(open.customer, shop.lang) || open.customer.phone || t('cs.customers')}
-          onClose={() => setOpen(null)}
-          footer={
+          onClose={() => { setRemoving(false); setOpen(null); }}
+          footer={removing ? (
+            /* The footer becomes the question rather than a second dialog on top. */
+            <>
+              <button className="btn plain" onClick={() => setRemoving(false)}>{t('common.cancel')}</button>
+              <button className="btn danger" onClick={() => void remove(open.customer)}>
+                {t('cs.removeCustomer')}
+              </button>
+            </>
+          ) : (
             <>
               <button className="btn plain" onClick={() => setOpen(null)}>{t('common.close')}</button>
+              <button className="btn danger" onClick={() => setRemoving(true)}>
+                {t('cs.removeCustomer')}
+              </button>
               <button
                 className="btn"
                 onClick={() =>
@@ -246,8 +263,9 @@ export function CustomersPage() {
                 {t('common.edit')}
               </button>
             </>
-          }
+          )}
         >
+          {removing ? <p className="notice">{t('cs.removeNote')}</p> : null}
           <div className="stat-row" style={{ marginBottom: 12 }}>
             <div className="stat">
               <span className="muted small">{t('cs.totalTransaction')}</span>

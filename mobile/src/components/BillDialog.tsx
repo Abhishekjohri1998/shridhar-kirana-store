@@ -96,7 +96,9 @@ export function BillDialog({
     setError(null);
     setBusy(true);
     try {
-      await api.deleteBill(bill.no);
+      // A live bill goes in one step: the server cancels it -- moving the money back out
+      // of the customer's totals -- and then deletes it.
+      await api.deleteBill(bill.no, !bill.cancelled);
       await shop.reload();
       onDeleted?.(bill);
       close();
@@ -143,7 +145,23 @@ export function BillDialog({
       {bill?.cancelled ? (
         <Button label={t('hist.deleteBill')} tone="danger" onPress={() => setAsking('delete')} />
       ) : (
-        <Button label={t('hist.cancelBill')} tone="plain" onPress={() => setAsking('cancel')} />
+        /* Both, for a bill that is still live: cancelling keeps it in the book as a cancelled
+           bill, deleting takes it out altogether. The second asks first and says that the
+           customer's balance moves with it. */
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Button
+            label={t('hist.cancelBill')}
+            tone="plain"
+            onPress={() => setAsking('cancel')}
+            style={{ flex: 1 }}
+          />
+          <Button
+            label={t('hist.deleteBill')}
+            tone="danger"
+            onPress={() => setAsking('delete')}
+            style={{ flex: 1 }}
+          />
+        </View>
       )}
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Button label={t('common.close')} tone="plain" onPress={close} style={{ flex: 1 }} />
@@ -178,7 +196,13 @@ export function BillDialog({
       {/* Said before the receipt, not after it: this is the thing that changes what follows. */}
       {bill?.cancelled ? <Notice>{t('hist.cancelled')}</Notice> : null}
       {asking === 'cancel' ? <Notice>{t('hist.cancelNote')}</Notice> : null}
-      {asking === 'delete' && bill ? <Notice>{t('hist.deleteAsk', { no: bill.no })}</Notice> : null}
+      {asking === 'delete' && bill ? (
+        <Notice>
+          {bill.cancelled
+            ? t('hist.deleteAsk', { no: bill.no })
+            : t('hist.deleteLiveAsk', { no: bill.no })}
+        </Notice>
+      ) : null}
 
       {doc ? <ReceiptView doc={doc} /> : null}
     </Dialog>

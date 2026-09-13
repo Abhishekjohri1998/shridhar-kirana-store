@@ -76,8 +76,12 @@ export const api = {
     request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }),
   /** Marks a bill cancelled and takes it out of the customer's totals. Not a delete. */
   cancelBill: (no: number) => request<Bill>('/bills/' + no + '/cancel', { method: 'POST' }),
-  /** Only ever of an already-cancelled bill; the server refuses a live one with 409. */
-  deleteBill: (no: number) => request<void>('/bills/' + no, { method: 'DELETE' }),
+  /**
+   * Removes a bill. Without `force` the server refuses a live one with 409; with it, the server
+   * cancels first -- taking the money back out of the customer's totals -- and then deletes.
+   */
+  deleteBill: (no: number, force = false) =>
+    request<void>('/bills/' + no + (force ? '?force=1' : ''), { method: 'DELETE' }),
   /** Everything in the book, for keeping before a reset. */
   backup: () => request<{ at: string; settings: unknown; customers: unknown[]; bills: unknown[] }>('/backup'),
   eraseAll: (password: string, confirm: string) =>

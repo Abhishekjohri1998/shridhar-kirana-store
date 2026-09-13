@@ -95,6 +95,17 @@ type Shop = {
   signOut: () => void;
   forgetServer: () => void;
   reload: () => Promise<void>;
+  /**
+   * Everything the server just erased, forgotten on this device too.
+   *
+   * `reload` refetches; this throws away. They are different jobs and the difference is what a
+   * shopkeeper saw as "the customers are not getting deleted": the list on screen was the one
+   * fetched at startup, and a parked bill still held a whole customer who no longer existed --
+   * which is how a deleted customer got written back the next time that bill was saved.
+   */
+  forgetEverything: () => Promise<void>;
+  /** Bumped when the books are emptied, so a screen holding its own list knows to fetch again. */
+  dataVersion: number;
   refreshInactive: () => Promise<void>;
 
   addItemToCart: (item: Item, qty?: number) => void;
@@ -340,6 +351,28 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     }
   }, [loadEverything]);
 
+  const [dataVersion, setDataVersion] = useState(0);
+
+  const forgetEverything = useCallback(async () => {
+    // One empty bill, holding nobody. Parked drafts keep a Customer object of their own, and
+    // after an erase that object refers to somebody the server has forgotten.
+    const fresh = emptyDraft(nextLineId('bill'));
+    setParked({ list: [fresh], activeId: fresh.id });
+    try {
+      const stale = await AsyncStorage.getAllKeys();
+      await AsyncStorage.multiRemove([
+        CACHE_KEY,
+        DRAFTS_KEY,
+        ...stale.filter((k) => k.startsWith(DRAFT_KEY)),
+      ]);
+    } catch {
+      /* the cache is an optimisation; losing the removal is not worth failing the erase over */
+    }
+    setDataVersion((n) => n + 1);
+    await reload();
+  }, [reload]);
+
+
   // One startup pass: the address and session live on the device, so both reads are async.
   useEffect(() => {
     let alive = true;
@@ -552,7 +585,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
-      saveSettings,
+      saveSettings, forgetEverything, dataVersion,
     }),
     [
       ready, serverUrl, signedIn, offline, settings, bills, today, cart,
@@ -561,6 +594,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, customerDraft, saveSettings,
+      forgetEverything, dataVersion,
     ],
   );
 
