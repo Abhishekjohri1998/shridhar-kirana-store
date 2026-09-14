@@ -51,6 +51,14 @@ export type BillLine = {
   nameEn: string;
   /** Handwritten description. When present it is what prints, in place of the names. */
   ink?: Ink;
+  /**
+   * Whether this item was actually handed over, as against merely listed.
+   *
+   * The shop packs a bag while the bill is being written, and wanted the difference on the paper
+   * so the customer can see what they went home with. Absent on every bill written before this
+   * existed, which reads as "not marked" rather than "not given".
+   */
+  given?: boolean;
   qty: number;
   rate: number;
 };
@@ -109,6 +117,10 @@ export type Customer = {
    * field existed keeps working untouched.
    */
   nameKn?: string;
+  /** Where to deliver. Kept in the app only: a 58mm slip has no room for it. */
+  address?: string;
+  /** Anything worth remembering about them that is nobody else's business. */
+  notes?: string;
   /** ISO timestamp of the first bill, or of when the record was created. */
   since: string;
   /** Everything ever billed to them -- the "customer total transaction" figure. */

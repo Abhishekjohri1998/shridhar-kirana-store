@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
-  INK_BLEED, INK_STROKE_DOTS, inkBounds, inkToSvgPath,
+  GIVEN_MARK, INK_BLEED, INK_STROKE_DOTS, inkBounds, inkToSvgPath,
   type Ink, type ReceiptDoc,
 } from '@shridhar/shared';
 
@@ -141,6 +141,9 @@ export function ReceiptView({
               <div key={i} className="r-item" style={textStyle(24)}>
                 <span>{row.no}</span>
                 <span className="r-name">
+                  {/* A typed row carries its tick inside the name; handwriting has none to put
+                      it in, so it is drawn beside the writing. */}
+                  {row.given ? GIVEN_MARK : null}
                   <InkMark ink={row.ink} scale={row.scale} originY={row.originY} alt={inkAlt} />
                   {row.note ? (
                     <span className="r-note" style={{ display: 'block', fontSize: dots(18) }}>

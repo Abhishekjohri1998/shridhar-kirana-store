@@ -114,6 +114,10 @@ type Shop = {
   setLineInk: (index: number, ink: Ink | null) => void;
   addBlankLine: () => void;
   setLineRate: (index: number, rate: number) => void;
+  setLineName: (index: number, name: string) => void;
+  setLineGiven: (index: number, given: boolean) => void;
+  /** Ticks or unticks every line at once. */
+  setAllGiven: (given: boolean) => void;
   removeLine: (index: number) => void;
   clearCart: () => void;
   commitBill: (options?: CommitOptions) => Promise<Bill>;
@@ -129,7 +133,9 @@ type Shop = {
   newBill: () => void;
   switchBill: (id: string) => void;
   closeBill: (id: string) => void;
-  saveCustomer: (input: { id?: string; name: string; nameKn?: string; phone: string }) => Promise<Customer>;
+  saveCustomer: (input: {
+    id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+  }) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
   customerDraft: { name: string; nameKn: string; phone: string };
@@ -507,6 +513,35 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /** The item's name, typed rather than written. Kannada goes in the same box as English. */
+  const setLineName = useCallback((index: number, name: string) => {
+    setCart((prev) => {
+      const next = [...prev];
+      const existing = next[index];
+      if (!existing || existing.nameKn === name) return prev;
+      next[index] = { ...existing, nameKn: name };
+      return next;
+    });
+  }, []);
+
+  /** Handed over, as against merely listed. */
+  const setLineGiven = useCallback((index: number, given: boolean) => {
+    setCart((prev) => {
+      const next = [...prev];
+      const existing = next[index];
+      if (!existing || (existing.given ?? false) === given) return prev;
+      next[index] = { ...existing, given };
+      return next;
+    });
+  }, []);
+
+  /** Every line at once, for the common case where the whole bag went over the counter. */
+  const setAllGiven = useCallback((given: boolean) => {
+    setCart((prev) => (prev.every((l) => (l.given ?? false) === given)
+      ? prev
+      : prev.map((l) => ({ ...l, given }))));
+  }, []);
+
   /** An empty line at the foot of the slip, so there is always somewhere to write next. */
   const addBlankLine = useCallback(() => {
     setCart((prev) => [
@@ -555,7 +590,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     [cart, customer, resetDraft, t],
   );
 
-  const saveCustomer = useCallback(async (input: { id?: string; name: string; nameKn?: string; phone: string }) => {
+  const saveCustomer = useCallback(async (input: {
+    id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+  }) => {
     const saved = await api.saveCustomer(input);
     // Through setCustomer, not setCustomerState: saving by phone can match somebody who already
     // owes money, and their balance needs dating like any other attachment. The web app has
@@ -583,6 +620,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      setLineName, setLineGiven, setAllGiven,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
       saveSettings, forgetEverything, dataVersion,
@@ -592,6 +630,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
       saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      setLineName, setLineGiven, setAllGiven,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, customerDraft, saveSettings,
       forgetEverything, dataVersion,

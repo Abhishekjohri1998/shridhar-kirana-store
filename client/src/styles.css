@@ -479,7 +479,8 @@ button, input, select, textarea {
 
 .slip-head {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 104px 36px 36px;
+  /* number, given tick, description, pen, price, undo, remove */
+  grid-template-columns: 34px 26px minmax(0, 1fr) 30px 104px 36px 36px;
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
@@ -495,8 +496,8 @@ button, input, select, textarea {
 .slip-head-no { grid-column: 1; text-align: center; }
 /* Only ever seen in the stacked layout, where the header cannot reach the price box. */
 .slip-price-tag { display: none; }
-.slip-head-desc { grid-column: 2; }
-.slip-head-price { grid-column: 3; text-align: right; }
+.slip-head-desc { grid-column: 3; }
+.slip-head-price { grid-column: 5; text-align: right; }
 
 .slip-lines {
   /* Positioned so it is the offset parent of its own rows: `pageFlip` needs each row's top
@@ -514,7 +515,8 @@ button, input, select, textarea {
 
 .slip-line {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 104px 36px 36px;
+  /* number, given tick, description, pen, price, undo, remove */
+  grid-template-columns: 34px 26px minmax(0, 1fr) 30px 104px 36px 36px;
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
@@ -530,14 +532,15 @@ button, input, select, textarea {
 @media (max-width: 600px) {
   .slip-line {
     /* Wide enough in the first column for the price heading that drops down into it. */
-    grid-template-columns: 44px minmax(0, 1fr) 36px 36px;
+    grid-template-columns: 44px 26px minmax(0, 1fr) 36px 36px;
     grid-template-areas:
-      'no    write write write'
-      'blank price undo  remove';
+      'no    given write write write'
+      'blank blank price undo  remove';
     row-gap: 4px;
   }
 
   .slip-no { grid-area: no; }
+  .slip-given { grid-area: given; }
   .slip-write { grid-area: write; }
   .slip-price { grid-area: price; }
   .slip-undo { grid-area: undo; }
@@ -1735,3 +1738,36 @@ select.input {
 .danger-zone .section-title {
   color: var(--danger-600);
 }
+
+/* The given tick, before the description where the shop's own drawing put it. */
+.slip-given {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* The typed description. The same row height as the writing strip it replaces, so a bill that
+   mixes the two does not read as two slips stacked together. */
+.slip-name {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+.slip-name:focus { outline: 2px solid var(--accent-edge); outline-offset: 2px; }
+
+.select-all {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  color: var(--soft);
+  cursor: pointer;
+}
+.select-all input { width: 22px; height: 22px; accent-color: var(--accent); }

@@ -164,7 +164,9 @@ export const api = {
     request<{ customer: Customer; bills: Bill[]; balanceAt: string | null }>(
       '/customers/' + encodeURIComponent(id),
     ),
-  saveCustomer: (input: { id?: string; name: string; nameKn?: string; phone: string }) =>
+  saveCustomer: (input: {
+    id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+  }) =>
     input.id
       ? request<Customer>('/customers/' + encodeURIComponent(input.id), {
           method: 'PUT',

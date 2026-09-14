@@ -168,6 +168,7 @@ function phoneRasterize(doc) {
       inkStrokeDots: shared.INK_STROKE_DOTS,
       inkGutter: shared.INK_GUTTER,
       inkBleed: shared.INK_BLEED,
+      givenMark: shared.GIVEN_MARK,
     }),
   );
   const result = messages[messages.length - 1];

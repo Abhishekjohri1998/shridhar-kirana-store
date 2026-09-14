@@ -32,6 +32,8 @@ const lineBody = z.object({
   ink: inkBody.optional(),
   qty: z.coerce.number().finite().positive().max(100_000),
   rate: z.coerce.number().finite().nonnegative().max(1_000_000),
+  /** Handed over, as against merely listed. Reaches the saved bill so a reprint shows it. */
+  given: z.boolean().default(false),
 });
 
 const settingsBody = z.object({
@@ -54,6 +56,8 @@ const customerBody = z.object({
   name: z.string().trim().max(80).default(''),
   nameKn: z.string().trim().max(80).default(''),
   phone: z.string().trim().max(24).default(''),
+  address: z.string().trim().max(400).default(''),
+  notes: z.string().trim().max(1000).default(''),
 });
 
 /**
@@ -69,6 +73,8 @@ const customerPatch = z.object({
   name: z.string().trim().max(80).optional(),
   nameKn: z.string().trim().max(80).optional(),
   phone: z.string().trim().max(24).optional(),
+  address: z.string().trim().max(400).optional(),
+  notes: z.string().trim().max(1000).optional(),
 });
 
 /** Readable ids, so the data stays legible if anyone ever looks at the collection directly. */
@@ -157,6 +163,8 @@ api.put('/customers/:id', handler(async (req, res) => {
     name: patch.name ?? existing.name,
     nameKn: patch.nameKn ?? existing.nameKn ?? '',
     phone: patch.phone ?? existing.phone,
+    address: patch.address ?? existing.address ?? '',
+    notes: patch.notes ?? existing.notes ?? '',
   };
   if (!body.name && !body.nameKn && !body.phone) {
     throw new HttpError(400, 'Give the customer a name or a phone number');
@@ -282,6 +290,7 @@ api.post('/bills', handler(async (req, res) => {
       ...(l.ink && l.ink.strokes.length > 0 ? { ink: l.ink } : {}),
       qty: l.qty,
       rate: l.rate,
+      given: l.given,
     })),
     ...(body.customerId ? { customerId: body.customerId } : {}),
     ...(body.paid == null ? {} : { paid: body.paid }),

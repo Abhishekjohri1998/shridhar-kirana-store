@@ -15,6 +15,10 @@ type CustomerRow = {
   /** Their name on a Kannada keypad. Absent on every row written before the field existed. */
   nameKn?: string;
   phone: string;
+  /** Where to deliver, and anything worth remembering. Absent on rows written before they
+   *  existed, which reads as empty. */
+  address?: string;
+  notes?: string;
   since: string;
   totalBilled: number;
   totalPaid: number;
@@ -244,7 +248,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return row ? toCustomer(row) : null;
     },
 
-    upsertCustomer({ id, name, nameKn, phone }) {
+    upsertCustomer({ id, name, nameKn, phone, address, notes }) {
       return serial(async () => {
         const digits = normalisePhone(phone);
         // Found by id, or by phone when one is given -- which is what stops the same person
@@ -259,6 +263,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           existing.name = name;
           existing.nameKn = nameKn ?? '';
           existing.phone = digits;
+          existing.address = address ?? '';
+          existing.notes = notes ?? '';
           await flush();
           return toCustomer(existing);
         }
@@ -268,6 +274,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           name,
           nameKn: nameKn ?? '',
           phone: digits,
+          address: address ?? '',
+          notes: notes ?? '',
           since: new Date().toISOString(),
           totalBilled: 0,
           totalPaid: 0,

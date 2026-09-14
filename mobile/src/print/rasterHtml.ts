@@ -152,6 +152,7 @@ export const RASTER_SCRIPT = `
       var INK_GUTTER = payload.inkGutter;
       var INK_BLEED = payload.inkBleed;
       var INK_S = payload.inkStrokeDots;
+      var GIVEN_MARK = payload.givenMark;
       var W = doc.width;
 
       var ops = [], y = 0, i, n;
@@ -192,10 +193,17 @@ export const RASTER_SCRIPT = `
         ops.push({ op: 'text', text: row.amount, x: W - PAD, y: y, size: ITEM, bold: false, align: 'right' });
 
         if (row.t === 'ink') {
+          // A typed row carries its tick inside the name; handwriting has no string to put it in,
+          // so it is drawn and the writing starts after it. Same thing in the same order as the
+          // counter PC's copy -- rastertest compares the two dot for dot.
+          var markW = row.given ? meas.measureText(GIVEN_MARK).width : 0;
+          if (row.given) {
+            ops.push({ op: 'text', text: GIVEN_MARK, x: nameX, y: y, size: ITEM, bold: false, align: 'left' });
+          }
           // Shifted by the pen's overhang so its painted edge lands on the column, not half
           // outside it. The width cap is already in row.scale, from planInk.
           ops.push({
-            op: 'ink', ink: row.ink, x: nameX + INK_BLEED, y: y + INK_BLEED,
+            op: 'ink', ink: row.ink, x: nameX + markW + INK_BLEED, y: y + INK_BLEED,
             scale: row.scale, originY: row.originY
           });
           // A shared scale means nothing overruns the row.

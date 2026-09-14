@@ -26,7 +26,9 @@ export function CustomersScreen() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<{ customer: Customer; bills: Bill[] } | null>(null);
   const [draft, setDraft] =
-    useState<{ id?: string; name: string; nameKn: string; phone: string } | null>(null);
+    useState<{
+      id?: string; name: string; nameKn: string; phone: string; address: string; notes: string;
+    } | null>(null);
   /** The one bill being looked at, from this customer's list. */
   const [bill, setBill] = useState<Bill | null>(null);
 
@@ -83,6 +85,8 @@ export function CustomersScreen() {
         name: fields.name,
         nameKn: fields.nameKn,
         phone: fields.phone,
+        address: draft.address.trim(),
+        notes: draft.notes.trim(),
       });
       setDraft(null);
       setError(null);
@@ -153,7 +157,7 @@ export function CustomersScreen() {
             placeholder={t('cs.searchPlaceholder')}
             placeholderTextColor={C.soft}
           />
-          <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '' })} style={styles.slim} />
+          <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '' })} style={styles.slim} />
         </View>
 
         {loading ? (
@@ -227,6 +231,8 @@ export function CustomersScreen() {
                     id: open.customer.id,
                     name: open.customer.name,
                     nameKn: open.customer.nameKn ?? '',
+                    address: open.customer.address ?? '',
+                    notes: open.customer.notes ?? '',
                     phone: open.customer.phone,
                   })
               }
@@ -257,6 +263,15 @@ export function CustomersScreen() {
                 t('cs.since', { date: stamp(open.customer.since) }) +
                 (open.customer.lastVisit ? t('cs.lastVisit', { date: stamp(open.customer.lastVisit) }) : '')}
             </Text>
+
+            {/* Kept in the app, never on the paper: a 58mm roll has no room for either. */}
+            {open.customer.address ? (
+              <Text style={styles.small}>{t('cs.address')}: {open.customer.address}</Text>
+            ) : null}
+            {open.customer.notes ? (
+              <Text style={styles.small}>{t('cs.notes')}: {open.customer.notes}</Text>
+            ) : null}
+
             {open.bills.length === 0 ? (
               <Text style={styles.empty}>{t('cs.noBills')}</Text>
             ) : (
@@ -333,6 +348,22 @@ export function CustomersScreen() {
               value={draft.phone}
               keyboardType="phone-pad"
               onChangeText={(phone) => setDraft((d) => (d ? { ...d, phone } : d))}
+            />
+            {/* Both kept in the app only: a 58mm roll has no room for an address. */}
+            <Field
+              label={t('cs.address')}
+              value={draft.address}
+              multiline
+              numberOfLines={3}
+              onChangeText={(address) => setDraft((d) => (d ? { ...d, address } : d))}
+            />
+            <Field
+              label={t('cs.notes')}
+              value={draft.notes}
+              multiline
+              numberOfLines={3}
+              hint={t('cs.notesHint')}
+              onChangeText={(notes) => setDraft((d) => (d ? { ...d, notes } : d))}
             />
             {draft.id ? (
               <Button

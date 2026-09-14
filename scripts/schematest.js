@@ -185,6 +185,28 @@ function billDoc(lines) {
     });
     check('settings with one are valid too', !withGst.validateSync());
 
+    // The three added since: a tick on a line, and an address and a note on a customer. Optional
+    // with plain defaults, so a record written before they existed reads as false and '' rather
+    // than undefined -- and never `required: true` beside a default, the pairing that made every
+    // print 500 and the reason this file exists.
+    const oldLine = new Bill({
+      no: 1, at: new Date().toISOString(),
+      lines: [{ itemId: 'x', nameKn: 'Rice', nameEn: '', qty: 1, rate: 10 }],
+      total: 10, paid: 10, balance: 0, showBalance: false,
+    });
+    check('a line with no tick is valid', !oldLine.validateSync());
+    check('and reads as not given', oldLine.lines[0].given === false,
+      JSON.stringify(oldLine.lines[0].given));
+
+    const oldCustomer = new Customer({
+      id: 'c1', name: 'Ramesh', phone: '9000000001', since: new Date().toISOString(),
+      totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+    });
+    check('a customer with no address is valid', !oldCustomer.validateSync());
+    check('and the address reads as empty', oldCustomer.address === '',
+      JSON.stringify(oldCustomer.address));
+    check('and the note too', oldCustomer.notes === '', JSON.stringify(oldCustomer.notes));
+
     // Optional with a plain default, never `required: true` beside one -- the pairing that made
     // every print return 500 and the reason this file exists. Absent has to read as `true`, or a
     // shop that was printing its number would silently stop on the next deploy.

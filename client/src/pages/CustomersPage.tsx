@@ -32,7 +32,9 @@ export function CustomersPage() {
   /** The one bill being looked at, from this customer's list. */
   const [bill, setBill] = useState<Bill | null>(null);
   const [draft, setDraft] =
-    useState<{ id?: string; name: string; nameKn: string; phone: string } | null>(null);
+    useState<{
+      id?: string; name: string; nameKn: string; phone: string; address: string; notes: string;
+    } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -87,6 +89,8 @@ export function CustomersPage() {
         name: fields.name,
         nameKn: fields.nameKn,
         phone: fields.phone,
+        address: draft.address.trim(),
+        notes: draft.notes.trim(),
       });
       setDraft(null);
       setError(null);
@@ -169,7 +173,7 @@ export function CustomersPage() {
         <button
           className="btn"
           style={{ flex: '0 0 auto', paddingInline: 16 }}
-          onClick={() => setDraft({ name: '', nameKn: '', phone: '' })}
+          onClick={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '' })}
         >
           {t('common.new')}
         </button>
@@ -256,6 +260,8 @@ export function CustomersPage() {
                     id: open.customer.id,
                     name: open.customer.name,
                     nameKn: open.customer.nameKn ?? '',
+                    address: open.customer.address ?? '',
+                    notes: open.customer.notes ?? '',
                     phone: open.customer.phone,
                   })
                 }
@@ -286,6 +292,18 @@ export function CustomersPage() {
             {t('cs.since', { date: stamp(open.customer.since) })}
             {open.customer.lastVisit ? t('cs.lastVisit', { date: stamp(open.customer.lastVisit) }) : ''}
           </p>
+
+          {/* Kept in the app, never on the paper: a 58mm roll has no room for either. */}
+          {open.customer.address ? (
+            <p className="muted small" style={{ whiteSpace: 'pre-wrap' }}>
+              <strong>{t('cs.address')}:</strong> {open.customer.address}
+            </p>
+          ) : null}
+          {open.customer.notes ? (
+            <p className="muted small" style={{ whiteSpace: 'pre-wrap' }}>
+              <strong>{t('cs.notes')}:</strong> {open.customer.notes}
+            </p>
+          ) : null}
 
           {open.bills.length === 0 ? (
             <p className="muted small">{t('cs.noBills')}</p>
@@ -359,6 +377,28 @@ export function CustomersPage() {
                 value={draft.phone}
                 onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
               />
+            </div>
+            {/* Both kept in the app only: a 58mm roll has no room for an address. */}
+            <div className="field">
+              <label htmlFor="c-address">{t('cs.address')}</label>
+              <textarea
+                id="c-address"
+                className="input"
+                rows={2}
+                value={draft.address}
+                onChange={(e) => setDraft({ ...draft, address: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="c-notes">{t('cs.notes')}</label>
+              <textarea
+                id="c-notes"
+                className="input"
+                rows={3}
+                value={draft.notes}
+                onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+              />
+              <p className="muted small">{t('cs.notesHint')}</p>
             </div>
             {draft.id ? (
               <button

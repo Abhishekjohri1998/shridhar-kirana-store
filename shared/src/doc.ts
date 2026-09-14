@@ -8,6 +8,16 @@ import { pickLang } from './i18n';
 /** Kept for the 58mm default; the live width now comes from the shop's paper setting. */
 export const PAPER_WIDTH = 384;
 
+/**
+ * What marks an item as handed over rather than merely listed.
+ *
+ * Composed into the item's name here rather than drawn by each renderer. A slip is drawn four
+ * ways -- the screen preview, the browser's print stylesheet, the counter PC's canvas and the
+ * phone's WebView -- and rastertest exists because the last two must agree dot for dot. One
+ * string handed to all four cannot disagree with itself; four separate drawing changes could.
+ */
+export const GIVEN_MARK = '✓ ';
+
 /** Dot height a handwritten description is scaled to. Tall enough for Kannada vowel signs to
  *  survive the print head, short enough that a long bill still fits on a sensible length of roll.
  *  Raised from 46 at the shop's asking: their own hand is the point of the slip, and it was
@@ -42,7 +52,11 @@ export type Row =
   | { t: 'kv'; left: string; right: string; size?: number; bold?: boolean }
   | { t: 'item'; no: string; name: string; amount: string; note?: string }
   /** A handwritten description in the item column, with the price beside it. */
-  | { t: 'ink'; no: string; ink: Ink; amount: string; note?: string; scale: number; originY: number }
+  | {
+      t: 'ink'; no: string; ink: Ink; amount: string; note?: string; scale: number; originY: number;
+      /** Marked as handed over. Drawn before the writing, where the typed rows carry it in text. */
+      given?: boolean;
+    }
   | { t: 'sep' }
   | { t: 'space'; h: number };
 
@@ -154,9 +168,15 @@ export function buildReceipt(
     };
     // Handwriting wins over the typed names: it is what the shopkeeper actually wrote.
     if (line.ink && line.ink.strokes.length > 0) {
-      rows.push({ t: 'ink', ink: line.ink, scale: plan.scale, originY: plan.originY, ...shared });
+      rows.push({
+        t: 'ink', ink: line.ink, scale: plan.scale, originY: plan.originY,
+        given: line.given === true, ...shared,
+      });
     }
-    else rows.push({ t: 'item', name: line.nameKn || line.nameEn, ...shared });
+    else {
+      const name = line.nameKn || line.nameEn;
+      rows.push({ t: 'item', name: line.given ? GIVEN_MARK + name : name, ...shared });
+    }
   });
 
   /*

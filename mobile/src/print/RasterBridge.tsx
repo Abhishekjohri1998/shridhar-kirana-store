@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import {
-  INK_BLEED, INK_GUTTER, INK_ROW_ADVANCE, INK_STROKE_DOTS, RASTER, type ReceiptDoc,
+  GIVEN_MARK, INK_BLEED, INK_GUTTER, INK_ROW_ADVANCE, INK_STROKE_DOTS, RASTER, type ReceiptDoc,
 } from '@shridhar/shared';
 import { RASTER_HTML } from './rasterHtml';
 
@@ -60,6 +60,7 @@ export const RasterBridge = forwardRef<RasterHandle, RasterBridgeProps>(function
           inkStrokeDots: INK_STROKE_DOTS,
           inkGutter: INK_GUTTER,
           inkBleed: INK_BLEED,
+          givenMark: GIVEN_MARK,
           ...(imageScale ? { imageScale } : {}),
         });
         web.current?.injectJavaScript('window.__render(' + JSON.stringify(payload) + ');true;');

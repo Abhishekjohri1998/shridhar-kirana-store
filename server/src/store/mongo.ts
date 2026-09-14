@@ -14,6 +14,10 @@ type CustomerDoc = {
   name: string;
   nameKn?: string;
   phone: string;
+  /** Where to deliver, and anything worth remembering. Absent on rows written before they
+   *  existed, which reads as empty. */
+  address?: string;
+  notes?: string;
   since: string;
   totalBilled: number;
   totalPaid: number;
@@ -44,6 +48,9 @@ const lineSchema = new Schema<BillLine>(
     ink: { type: inkSchema, required: false },
     qty: { type: Number, required: true },
     rate: { type: Number, required: true },
+    // Optional with a plain default, never `required: true` beside one -- that pairing on the
+    // names above is what made every print return 500 and the reason schematest exists.
+    given: { type: Boolean, required: false, default: false },
   },
   { _id: false, versionKey: false },
 );
@@ -90,6 +97,9 @@ const customerSchema = new Schema<CustomerDoc>(
     // Optional with a plain default -- see the note on the bill's copy above.
     nameKn: { type: String, required: false, default: '' },
     phone: { type: String, required: true, default: '' },
+    // Kept in the app only: a 58mm slip has no room for an address.
+    address: { type: String, required: false, default: '' },
+    notes: { type: String, required: false, default: '' },
     since: { type: String, required: true },
     totalBilled: { type: Number, required: true, default: 0 },
     totalPaid: { type: Number, required: true, default: 0 },
@@ -424,7 +434,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return doc ? toCustomer(doc as unknown as CustomerDoc) : null;
     },
 
-    async upsertCustomer({ id, name, nameKn, phone }) {
+    async upsertCustomer({ id, name, nameKn, phone, address, notes }) {
       const digits = normalisePhone(phone);
       // An existing record is found by id, or by phone when one is given -- which is what stops
       // the same person being saved twice as they get re-entered at the counter.
@@ -437,7 +447,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       if (existing) {
         const doc = await Customers.findOneAndUpdate(
           { id: (existing as unknown as CustomerDoc).id },
-          { $set: { name, nameKn: nameKn ?? '', phone: digits } },
+          { $set: { name, nameKn: nameKn ?? '', phone: digits, address: address ?? '', notes: notes ?? '' } },
           { new: true },
         ).lean();
         return toCustomer(doc as unknown as CustomerDoc);
@@ -448,6 +458,8 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         name,
         nameKn: nameKn ?? '',
         phone: digits,
+        address: address ?? '',
+        notes: notes ?? '',
         since: new Date().toISOString(),
         totalBilled: 0,
         totalPaid: 0,

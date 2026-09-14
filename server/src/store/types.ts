@@ -11,7 +11,9 @@ export type NewBill = {
   showBalance?: boolean;
 };
 
-export type CustomerInput = { id?: string; name: string; nameKn?: string; phone: string };
+export type CustomerInput = {
+  id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+};
 
 /**
  * Everything the API needs from storage. Two implementations exist -- MongoDB, and a JSON file

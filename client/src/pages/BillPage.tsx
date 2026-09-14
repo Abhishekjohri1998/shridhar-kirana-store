@@ -56,6 +56,8 @@ export function BillPage() {
   const sheet = useRef<HTMLOListElement>(null);
   const rows = useRef<Record<string, HTMLLIElement | null>>({});
   const [tail, setTail] = useState(0);
+  /** Which lines are being written rather than typed, by line id. See the mobile copy. */
+  const [writing, setWriting] = useState<Record<string, boolean>>({});
 
   /*
    * A page of blank slip under the last line, so the newest row can reach the top.
@@ -111,7 +113,9 @@ export function BillPage() {
    */
   useEffect(() => {
     const last = shop.cart[shop.cart.length - 1];
-    const lastIsBlank = last && !last.ink && last.rate === 0;
+    // A typed name makes the line non-blank too, so typing an item brings the next one up the
+    // same way a first pen stroke always has.
+    const lastIsBlank = last && !last.ink && last.rate === 0 && last.nameKn.trim() === '';
     if (!lastIsBlank) shop.addBlankLine();
   }, [shop]);
 
@@ -152,7 +156,11 @@ export function BillPage() {
   }, [shop, balanceAfter]);
 
   /** Lines that carry something. The trailing blank is scaffolding, not a purchase. */
-  const written = shop.cart.filter((l) => l.ink || l.rate > 0);
+  // A typed name counts as much as a written one now that most lines are typed: a line with a
+  // description and no price yet is still a line the shopkeeper has started.
+  const written = shop.cart.filter((l) => l.ink || l.rate > 0 || l.nameKn.trim() !== '');
+  /** Every started line is ticked, so the control offers to undo rather than redo. */
+  const allGiven = written.length > 0 && written.every((l) => l.given === true);
   const hasSomething = written.length > 0;
 
   const onPrice = (index: number, key: string, text: string) => {
@@ -359,25 +367,61 @@ export function BillPage() {
                 >
                   <span className="slip-no">{index + 1}</span>
 
+                  {/* Handed over, as against merely listed. Before the description, where the
+                      shop's own drawing put it. */}
+                  <input
+                    type="checkbox"
+                    className="slip-given"
+                    checked={line.given === true}
+                    aria-label={t('bill.givenLine', { n: index + 1 })}
+                    onChange={(e) => shop.setLineGiven(index, e.target.checked)}
+                  />
+
                   <div className="slip-write">
-                    <InkPad
-                      ref={(handle) => { pads.current[line.itemId] = handle; }}
-                      variant="line"
-                      height={96}
-                      value={line.ink ?? null}
-                      onChange={(ink) => shop.setLineInk(index, ink)}
-                      label={t('bill.writeLine', { n: index + 1 })}
-                      penNotice=""
-                      undoLabel=""
-                      clearLabel=""
-                      hint=""
-                      strokeCount={() => ''}
-                    />
-                    {!line.ink ? <span className="slip-ghost">{t('bill.writeHint')}</span> : null}
+                    {/* Typed by default, written when asked for: handwriting is one click away
+                        and a line that already holds strokes opens as writing. */}
+                    {writing[line.itemId] ?? (line.ink != null) ? (
+                      <>
+                        <InkPad
+                          ref={(handle) => { pads.current[line.itemId] = handle; }}
+                          variant="line"
+                          height={96}
+                          value={line.ink ?? null}
+                          onChange={(ink) => shop.setLineInk(index, ink)}
+                          label={t('bill.writeLine', { n: index + 1 })}
+                          penNotice=""
+                          undoLabel=""
+                          clearLabel=""
+                          hint=""
+                          strokeCount={() => ''}
+                        />
+                        {!line.ink ? <span className="slip-ghost">{t('bill.writeHint')}</span> : null}
+                      </>
+                    ) : (
+                      <input
+                        className="slip-name"
+                        value={line.nameKn}
+                        placeholder={t('bill.typeHint')}
+                        aria-label={t('bill.writeLine', { n: index + 1 })}
+                        onChange={(e) => shop.setLineName(index, e.target.value)}
+                      />
+                    )}
                   </div>
 
                   {/* Names the column in the stacked layout, where the price box has dropped
                       below the writing strip and the header above cannot point at it. */}
+                  {/* Swaps this one line between the two. */}
+                  <button
+                    className="slip-undo"
+                    aria-label={t('bill.handwriteLine', { n: index + 1 })}
+                    title={t('bill.handwriteLine', { n: index + 1 })}
+                    onClick={() => setWriting((w) => ({
+                      ...w, [line.itemId]: !(w[line.itemId] ?? (line.ink != null)),
+                    }))}
+                  >
+                    {writing[line.itemId] ?? (line.ink != null) ? '⌨' : '✎'}
+                  </button>
+
                   <span className="slip-price-tag" aria-hidden="true">{t('bill.price')}</span>
                   <input
                     className="slip-price"
@@ -421,6 +465,19 @@ export function BillPage() {
               );
             })}
           </ol>
+
+          {/* Under the last line, because it is about all of them. The same control undoes
+              itself and says which way it will go. */}
+          {written.length > 0 ? (
+            <label className="select-all">
+              <input
+                type="checkbox"
+                checked={allGiven}
+                onChange={() => shop.setAllGiven(!allGiven)}
+              />
+              <span>{allGiven ? t('bill.selectNone') : t('bill.selectAll')}</span>
+            </label>
+          ) : null}
         </div>
       </div>
 

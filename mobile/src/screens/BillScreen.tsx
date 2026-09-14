@@ -73,11 +73,21 @@ export function BillScreen() {
   const rowH = useRef(0);
   const offset = useRef(0);
   const [viewport, setViewport] = useState(0);
+  /**
+   * Which lines are being written rather than typed, by line id.
+   *
+   * Not on the line itself: it is how the shopkeeper is entering this one row right now, not
+   * anything the bill should carry to the printer or remember tomorrow. A line that already has
+   * strokes opens as writing without needing an entry here.
+   */
+  const [writing, setWriting] = useState<Record<string, boolean>>({});
 
   /** Keep one empty line at the foot, always: on paper the next line is simply there. */
   useEffect(() => {
     const last = shop.cart[shop.cart.length - 1];
-    const lastIsBlank = last && !last.ink && last.rate === 0;
+    // A typed name makes the line non-blank too, so typing an item brings the next one up the
+    // same way a first pen stroke always has.
+    const lastIsBlank = last && !last.ink && last.rate === 0 && last.nameKn.trim() === '';
     if (!lastIsBlank) shop.addBlankLine();
   }, [shop]);
 
@@ -174,8 +184,12 @@ export function BillScreen() {
   }, [shop, balanceAfter]);
 
   /** Lines that carry something. The trailing blank is scaffolding, not a purchase. */
-  const written = shop.cart.filter((l) => l.ink || l.rate > 0);
+  // A typed name counts as much as a written one now that most lines are typed: a line with a
+  // description and no price yet is still a line the shopkeeper has started.
+  const written = shop.cart.filter((l) => l.ink || l.rate > 0 || l.nameKn.trim() !== '');
   const hasSomething = written.length > 0;
+  /** Every line that has anything on it is ticked, so the button offers to undo rather than redo. */
+  const allGiven = written.length > 0 && written.every((l) => l.given === true);
 
   const onPrice = (index: number, key: string, text: string) => {
     setPriceText((prev) => ({ ...prev, [key]: text }));
@@ -414,28 +428,76 @@ export function BillScreen() {
                 <View style={compact ? styles.slipRowTop : styles.slipRowWideLeft}>
                 <Text style={[styles.slipNo, styles.colNo]}>{index + 1}</Text>
 
+                {/* Handed over, as against merely listed. Before the description, where the
+                    shop's own drawing put it. */}
+                <Pressable
+                  style={[styles.tick, line.given && styles.tickOn]}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: line.given === true }}
+                  accessibilityLabel={t('bill.givenLine', { n: index + 1 })}
+                  onPress={() => shop.setLineGiven(index, !line.given)}
+                >
+                  <Text style={[styles.tickText, line.given && styles.tickTextOn]}>
+                    {line.given ? '✓' : ''}
+                  </Text>
+                </Pressable>
+
                 <View style={styles.slipWrite}>
-                  <InkPad
-                    ref={(handle) => { pads.current[line.itemId] = handle; }}
-                    variant="line"
-                    height={roomy ? 116 : 96}
-                    value={line.ink ?? null}
-                    onChange={(ink) => shop.setLineInk(index, ink)}
-                    label={t('bill.writeLine', { n: index + 1 })}
-                    undoLabel=""
-                    clearLabel=""
-                    hint=""
-                    strokeCount={() => ''}
-                  />
-                  {/* pointerEvents none, or the hint sits on top of the writing strip and eats
-                      every stroke aimed at it -- which is exactly where someone starts writing.
-                      The web stylesheet has always said this; the phone did not. */}
-                  {!line.ink ? (
-                    <View style={styles.slipGhostWrap} pointerEvents="none">
-                      <Text style={styles.slipGhost}>{t('bill.writeHint')}</Text>
-                    </View>
-                  ) : null}
+                  {/*
+                    * Typed by default, written when asked for.
+                    *
+                    * Handwriting was the founding idea of this slip, and it stays one tap away --
+                    * but with a Kannada keypad on the tablet, typing is quicker for most lines,
+                    * and a line that already holds strokes opens as writing so a parked bill
+                    * comes back the way it was left.
+                    */}
+                  {writing[line.itemId] ?? (line.ink != null) ? (
+                    <>
+                      <InkPad
+                        ref={(handle) => { pads.current[line.itemId] = handle; }}
+                        variant="line"
+                        height={roomy ? 116 : 96}
+                        value={line.ink ?? null}
+                        onChange={(ink) => shop.setLineInk(index, ink)}
+                        label={t('bill.writeLine', { n: index + 1 })}
+                        undoLabel=""
+                        clearLabel=""
+                        hint=""
+                        strokeCount={() => ''}
+                      />
+                      {/* pointerEvents none, or the hint sits on top of the writing strip and
+                          eats every stroke aimed at it -- which is exactly where someone starts
+                          writing. The web stylesheet has always said this; the phone did not. */}
+                      {!line.ink ? (
+                        <View style={styles.slipGhostWrap} pointerEvents="none">
+                          <Text style={styles.slipGhost}>{t('bill.writeHint')}</Text>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <TextInput
+                      style={styles.slipName}
+                      value={line.nameKn}
+                      onChangeText={(text) => shop.setLineName(index, text)}
+                      placeholder={t('bill.typeHint')}
+                      placeholderTextColor={C.faint}
+                      accessibilityLabel={t('bill.writeLine', { n: index + 1 })}
+                    />
+                  )}
                 </View>
+
+                {/* Swaps this one line between the two, and says which way it will go. */}
+                <Pressable
+                  style={styles.colIcon}
+                  accessibilityLabel={t('bill.handwriteLine', { n: index + 1 })}
+                  onPress={() => setWriting((w) => ({
+                    ...w, [line.itemId]: !(w[line.itemId] ?? (line.ink != null)),
+                  }))}
+                >
+                  <Text style={styles.slipUndo}>
+                    {writing[line.itemId] ?? (line.ink != null) ? '⌨' : '✎'}
+                  </Text>
+                </Pressable>
                 </View>
 
                 <View style={compact ? styles.slipRowBottom : styles.slipRowWideRight}>
@@ -483,6 +545,26 @@ export function BillScreen() {
             );
           })}
           </ScrollView>
+
+          {/* Under the last line, because it is about all of them. The same button undoes
+              itself, and says which way it will go rather than leaving it to be guessed. */}
+          {written.length > 0 ? (
+            <Pressable
+              style={styles.selectAll}
+              onPress={() => shop.setAllGiven(!allGiven)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: allGiven }}
+            >
+              <View style={[styles.tick, allGiven && styles.tickOn]}>
+                <Text style={[styles.tickText, allGiven && styles.tickTextOn]}>
+                  {allGiven ? '✓' : ''}
+                </Text>
+              </View>
+              <Text style={styles.selectAllText}>
+                {allGiven ? t('bill.selectNone') : t('bill.selectAll')}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
       <View style={styles.foot}>
@@ -632,6 +714,22 @@ const styles = StyleSheet.create({
   savedButton: { minHeight: 38 },
   savedDismiss: { fontSize: 20, color: C.accentDeep, paddingHorizontal: 4 },
   /* Side by side once there is room: the slip on the left, the total parked on the right. */
+  selectAll: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 10 },
+  selectAllText: { fontSize: 15, color: C.soft },
+  /* The given tick, before the description where the shop's own drawing put it. */
+  tick: {
+    width: 30, height: 30, borderRadius: R.sm, borderWidth: 1, borderColor: C.lineStrong,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: C.card, marginRight: 6,
+  },
+  tickOn: { borderColor: C.accentEdge, backgroundColor: C.accentWash },
+  tickText: { fontSize: 17, color: C.faint },
+  tickTextOn: { color: C.accentDeep, fontWeight: '700' },
+  /* The typed description. Same height as the writing strip's baseline so a mixed bill does not
+     look like two different slips stacked together. */
+  slipName: {
+    flex: 1, minHeight: 44, fontSize: 17, color: C.ink, paddingHorizontal: 8,
+    borderBottomWidth: 1, borderColor: C.line,
+  },
   sheet: { flex: 1, minHeight: 0 },
   /* flexGrow so the sheet fills its half even when the slip is one line long -- without it the
      whole screen collapsed to the height of its contents and the footer rode up under the

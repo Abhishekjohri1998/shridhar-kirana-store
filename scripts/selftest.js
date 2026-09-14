@@ -674,6 +674,47 @@ async function main() {
      * `nameKn: default('')` turned that omission into an empty string -- so changing a phone
      * number wiped the Kannada name the shopkeeper had typed on the keypad. It reached the shop.
      */
+    /*
+     * The tick that says an item was handed over, and the two new things about a customer.
+     *
+     * The tick has to reach the saved bill: a reprint months later should show what the customer
+     * actually went home with, not just what was listed.
+     */
+    const ticked = await post('/api/bills', {
+      lines: [
+        { itemId: 't1', nameKn: 'Sugar 2kg', qty: 1, rate: 90, given: true },
+        { itemId: 't2', nameKn: 'Rice 5kg', qty: 1, rate: 100 },
+      ],
+    });
+    eq('a ticked line is saved as ticked', ticked.body.lines[0].given, true);
+    eq('and an unticked one as not', ticked.body.lines[1].given, false);
+    const reread = await call('/api/bills/' + ticked.body.no, { headers: auth });
+    eq('which survives a reread', reread.body.lines[0].given, true);
+
+    // The mark is composed into the name in buildReceipt, so all four renderers get it from one
+    // string and cannot disagree about it.
+    const tickedDoc = shared.buildReceipt(reread.body, { ...SETTINGS });
+    const tickedRow = tickedDoc.rows.find((r) => r.t === 'item' && String(r.name).includes('Sugar'));
+    const plainRow = tickedDoc.rows.find((r) => r.t === 'item' && String(r.name).includes('Rice'));
+    check('the slip marks the item that was given',
+      tickedRow && tickedRow.name.startsWith(shared.GIVEN_MARK), JSON.stringify(tickedRow));
+    check('and leaves the one that was only listed alone',
+      plainRow && !plainRow.name.startsWith(shared.GIVEN_MARK), JSON.stringify(plainRow));
+
+    const withDetails = await post('/api/customers', {
+      name: 'Delivery Person', phone: '9000000456',
+      address: '2nd Cross, Gandhi Bazaar, Bengaluru 560004',
+      notes: 'Rings the bell twice. Prefers evening delivery.',
+    });
+    eq('an address is kept', withDetails.body.address, '2nd Cross, Gandhi Bazaar, Bengaluru 560004');
+    eq('and a note with it', withDetails.body.notes, 'Rings the bell twice. Prefers evening delivery.');
+    // The bug that cost the shop its Kannada names: an edit must not clear what it never mentioned.
+    const phoneOnly = await call('/api/customers/' + withDetails.body.id, {
+      method: 'PUT', headers: auth, body: JSON.stringify({ phone: '9000000457' }),
+    });
+    eq('an edit elsewhere leaves the address alone', phoneOnly.body.address, '2nd Cross, Gandhi Bazaar, Bengaluru 560004');
+    eq('and the note too', phoneOnly.body.notes, 'Rings the bell twice. Prefers evening delivery.');
+
     const editPhone = await call('/api/customers/' + twoNames.body.id, {
       method: 'PUT', headers: auth,
       body: JSON.stringify({ name: 'Suresh Kumar', phone: '9000000126' }),
