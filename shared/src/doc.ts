@@ -218,6 +218,22 @@ export function buildReceipt(
     );
   }
 
+  /**
+   * The bill's own note, under the totals and above the shop's footer line.
+   *
+   * A plain `center` row rather than a row kind of its own, on purpose: four renderers draw a
+   * slip and none of them handles an unknown kind, so a fifth kind is a fifth chance for one of
+   * them to draw nothing. `center` is also the only row the rasterisers already word-wrap by
+   * measurement, which is what a free-text note on a 58mm roll needs.
+   */
+  const note = (bill.note ?? '').trim();
+  if (note !== '') {
+    rows.push(
+      { t: 'space', h: 6 },
+      { t: 'center', text: labels.note + ': ' + note, size: 22 },
+    );
+  }
+
   rows.push(
     { t: 'sep' },
     { t: 'space', h: 8 },

@@ -24,6 +24,8 @@ export type ReceiptLabels = {
   total: string;
   paid: string;
   balance: string;
+  /** Prefixes the bill's own note, under the totals. */
+  note: string;
 };
 
 export const EN_RECEIPT_LABELS: ReceiptLabels = {
@@ -38,4 +40,5 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   total: 'TOTAL',
   paid: 'Paid',
   balance: 'Balance',
+  note: 'Note',
 };

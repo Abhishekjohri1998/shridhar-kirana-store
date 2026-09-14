@@ -197,6 +197,8 @@ function billDoc(lines) {
     check('a line with no tick is valid', !oldLine.validateSync());
     check('and reads as not given', oldLine.lines[0].given === false,
       JSON.stringify(oldLine.lines[0].given));
+    check('a bill with no note is valid', !oldLine.validateSync());
+    check('and the note reads as empty', oldLine.note === '', JSON.stringify(oldLine.note));
 
     const oldCustomer = new Customer({
       id: 'c1', name: 'Ramesh', phone: '9000000001', since: new Date().toISOString(),

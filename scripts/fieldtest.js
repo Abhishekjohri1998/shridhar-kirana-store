@@ -452,6 +452,14 @@ check('a fresh draft is empty', D.isDraftEmpty(blank));
 check('and comes to nothing', D.draftTotal(blank) === 0);
 check('a typed name alone makes it worth keeping', !D.isDraftEmpty({ ...blank, typed: { name: 'Ramesh', nameKn: '', phone: '' } }));
 check('so does a Kannada name alone', !D.isDraftEmpty({ ...blank, typed: { name: '', nameKn: RAMESH_KN, phone: '' } }));
+check('a note alone makes it worth keeping', !D.isDraftEmpty({ ...blank, note: 'Delivery Tuesday' }));
+// A bill parked by an older app has no note at all. Read straight back, `isDraftEmpty` would
+// call .trim() on undefined and take the bill screen down on launch with the bill inside it.
+const older = { ...blank };
+delete older.note;
+check('a draft parked before notes existed survives being read back',
+  D.isDraftEmpty(D.reviveDraft(older)));
+eqs('and comes back with an empty note', D.reviveDraft(older).note, '');
 check('so does an attached customer', !D.isDraftEmpty({ ...blank, customer: { id: 'c1', name: 'Ramesh', phone: '9000000007', balance: 0 } }));
 
 const written = {

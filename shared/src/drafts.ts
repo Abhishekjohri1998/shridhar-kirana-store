@@ -24,6 +24,8 @@ export type Draft = {
   printBalance: boolean;
   /** Whether the shopkeeper has set the print-balance switch themselves, so it stops suggesting. */
   printBalanceTouched: boolean;
+  /** The bill's own note, which prints under the totals. Travels with the bill like the payment. */
+  note: string;
 };
 
 /**
@@ -46,7 +48,21 @@ export function emptyDraft(id: string): Draft {
     paidInput: '',
     printBalance: false,
     printBalanceTouched: false,
+    note: '',
   };
+}
+
+/**
+ * A draft read back from storage, with anything it predates filled in.
+ *
+ * A parked bill is written to the device as JSON and read back on the next start, which means a
+ * bill parked by yesterday's app is read by today's. Casting it and trusting the shape is how a
+ * field added here becomes `undefined` on somebody's tablet -- and `isDraftEmpty` would then call
+ * `.trim()` on it and take the bill screen down on launch, with the shopkeeper's half-written
+ * bill inside. Everything added after the first release belongs in here.
+ */
+export function reviveDraft(raw: Draft): Draft {
+  return { ...raw, note: typeof raw.note === 'string' ? raw.note : '' };
 }
 
 /**
@@ -60,6 +76,8 @@ export function emptyDraft(id: string): Draft {
 export function isDraftEmpty(d: Draft): boolean {
   if (d.customer) return false;
   if (d.typed.name.trim() || d.typed.nameKn.trim() || d.typed.phone.trim()) return false;
+  // A bill carrying nothing but a note is still something the shopkeeper wrote down on purpose.
+  if (d.note.trim()) return false;
   return !d.lines.some(
     (l) => (l.ink && l.ink.strokes.length > 0) || l.rate > 0 || l.nameKn.trim().length > 0,
   );

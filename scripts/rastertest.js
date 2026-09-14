@@ -269,6 +269,13 @@ const CASES = [
   ['with a long Kannada word that has to break', bill({
     lines: [{ itemId: 'long', nameKn: 'ಇಪ್ಪತ್ತೈದುಕಿಲೋಅಕ್ಕಿಚೀಲ', nameEn: '', qty: 1, rate: 1450 }],
   }), { paper: '58mm' }],
+  // A free-text note is the one row on the slip whose length nobody controls, so the wrap the
+  // two rasterisers each work out for themselves has to come to the same dots.
+  ['with a short note', bill({ note: 'Delivery Tuesday' }), { paper: '58mm' }],
+  ['with a note long enough to wrap', bill({
+    note: 'Delivery Tuesday morning, two empty bags to be returned with the driver',
+  }), { paper: '58mm' }],
+  ['with a Kannada note', bill({ note: 'ಮಂಗಳವಾರ ಡೆಲಿವರಿ' }), { paper: '58mm', language: 'kn' }],
   ['in Kannada, with Kannada slip labels', bill({
     customer: { id: 'p1', name: 'ರಮೇಶ್', phone: '9886012345' },
     paid: 1000, balance: 370, showBalance: true,

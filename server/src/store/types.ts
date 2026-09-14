@@ -9,6 +9,8 @@ export type NewBill = {
   /** Cash taken. Defaults to the whole total, i.e. a fully paid bill. */
   paid?: number;
   showBalance?: boolean;
+  /** Extra information about this sale, printed under the totals. */
+  note?: string;
 };
 
 export type CustomerInput = {

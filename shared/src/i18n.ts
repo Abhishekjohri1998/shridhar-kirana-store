@@ -64,6 +64,8 @@ const EN = {
   'bill.paidNow': 'Paid now',
   'bill.paidPlaceholder': '{amount} (in full)',
   'bill.balanceAfter': 'Balance after',
+  'bill.note': 'Note (optional)',
+  'bill.notePlaceholder': 'Anything extra, printed on the bill',
   'bill.printBalance': 'Print the paid and balance lines on this receipt',
   'bill.price': 'Price',
   'bill.receiptPreview': 'Receipt preview',
@@ -295,6 +297,8 @@ const KN: Record<MsgKey, string> = {
   'bill.paidNow': 'ಈಗ ಕೊಟ್ಟದ್ದು',
   'bill.paidPlaceholder': '{amount} (ಪೂರ್ತಿ)',
   'bill.balanceAfter': 'ಉಳಿದ ಬಾಕಿ',
+  'bill.note': 'ಟಿಪ್ಪಣಿ (ಐಚ್ಛಿಕ)',
+  'bill.notePlaceholder': 'ಹೆಚ್ಚುವರಿ ಮಾಹಿತಿ -- ಇದು ಬಿಲ್ಲಲ್ಲಿ ಪ್ರಿಂಟ್ ಆಗುತ್ತದೆ',
   'bill.printBalance': 'ಈ ರಸೀದಿಯಲ್ಲಿ ಪಾವತಿ ಮತ್ತು ಬಾಕಿ ಸಾಲುಗಳನ್ನು ಪ್ರಿಂಟ್ ಮಾಡಿ',
   'bill.price': 'ಬೆಲೆ',
   'bill.receiptPreview': 'ರಸೀದಿ ಮುನ್ನೋಟ',
@@ -515,5 +519,6 @@ export function receiptLabelsFor(lang: Lang): ReceiptLabels {
     total: 'ಒಟ್ಟು',
     paid: 'ಪಾವತಿ',
     balance: 'ಬಾಕಿ',
+    note: 'ಟಿಪ್ಪಣಿ',
   };
 }

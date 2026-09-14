@@ -95,6 +95,15 @@ export type Bill = {
   /** Whether the paid and balance lines print. The shop wants this optional per bill. */
   showBalance: boolean;
   /**
+   * A line of extra information about this sale, printed under the totals.
+   *
+   * "Delivery Tuesday", "2 bags returned" -- what was being written on the slip with a pen once
+   * it came off the printer. It belongs to the sale rather than to the customer, which is why it
+   * lives here and not beside the customer's own notes, and why it prints when their address
+   * does not. Absent on every bill written before this existed.
+   */
+  note?: string;
+  /**
    * Set when the bill has been cancelled.
    *
    * Cancelled rather than deleted, and the record stays whole: the customer may be holding the

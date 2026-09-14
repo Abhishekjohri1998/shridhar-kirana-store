@@ -208,6 +208,7 @@ export function BillPage() {
     previousBalance: shop.customer ? shop.customer.balance : 0,
     previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
+    note: shop.note,
   });
 
   /**
@@ -555,6 +556,19 @@ export function BillPage() {
             </label>
           </div>
         ) : null}
+
+        {/* The bill's own note. Not inside the pay box: a walk-in cash sale is exactly the one
+            that needs "to be collected Friday" written on it. */}
+        <label className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+          <span className="pay-label">{t('bill.note')}</span>
+          <input
+            className="input"
+            value={shop.note}
+            maxLength={200}
+            onChange={(e) => shop.setNote(e.target.value)}
+            placeholder={t('bill.notePlaceholder')}
+          />
+        </label>
 
         <div className="cart-actions">
           <button className="btn plain" disabled={!hasSomething} onClick={() => setPreview(draft())}>

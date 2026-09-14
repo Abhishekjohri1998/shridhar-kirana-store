@@ -270,6 +270,9 @@ api.post('/bills', handler(async (req, res) => {
       customerId: z.string().trim().min(1).max(80).optional(),
       paid: z.coerce.number().finite().nonnegative().max(10_000_000).optional(),
       showBalance: z.boolean().optional(),
+      // Capped because a note is a line or two. Unbounded, it is a way to fill the database and
+      // a way to print a hundred lines of paper by one leaning tablet.
+      note: z.string().trim().max(200).optional(),
     })
     .parse(req.body);
 
@@ -295,6 +298,7 @@ api.post('/bills', handler(async (req, res) => {
     ...(body.customerId ? { customerId: body.customerId } : {}),
     ...(body.paid == null ? {} : { paid: body.paid }),
     showBalance: body.showBalance ?? false,
+    ...(body.note ? { note: body.note } : {}),
   });
 
   res.status(201).json(bill);

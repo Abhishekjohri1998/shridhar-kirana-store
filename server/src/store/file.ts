@@ -95,7 +95,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return db.bills.find((b) => b.no === no) ?? null;
     },
 
-    createBill({ lines, customerId, paid, showBalance }: NewBill) {
+    createBill({ lines, customerId, paid, showBalance, note }: NewBill) {
       return serial(async () => {
         const total = billTotal(lines);
         const takings = round2(paid ?? total);
@@ -142,6 +142,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           previousBalance,
           previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
           showBalance: showBalance ?? false,
+          note: note ?? '',
         };
         db.bills.push(bill);
         await flush();

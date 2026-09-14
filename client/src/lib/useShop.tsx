@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
-  nextLineId, receiptLabelsFor, round2,
+  nextLineId, receiptLabelsFor, reviveDraft, round2,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -26,7 +26,7 @@ function readParked(): Parked | null {
     const list: Draft[] = [];
     for (const id of index.ids) {
       const one = localStorage.getItem(DRAFT_KEY + id);
-      if (one) list.push(JSON.parse(one) as Draft);
+      if (one) list.push(reviveDraft(JSON.parse(one) as Draft));
     }
     if (list.length === 0) return null;
     return { list, activeId: list.some((d) => d.id === index.activeId) ? index.activeId : list[0]!.id };
@@ -101,6 +101,8 @@ type Shop = {
   printBalance: boolean;
   /** False until the shopkeeper touches the checkbox, after which it stops being suggested. */
   printBalanceTouched: boolean;
+  /** Extra information about this sale, which prints under the totals. */
+  note: string;
   /** Customers who have not been in for `settings.inactiveAfterDays`. */
   inactive: Customer[];
   /** Interface language, and the translator for it. */
@@ -156,6 +158,7 @@ type Shop = {
   }) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
+  setNote: (value: string) => void;
   customerDraft: { name: string; nameKn: string; phone: string };
   setCustomerDraft: (draft: { name: string; nameKn: string; phone: string }) => void;
 
@@ -225,6 +228,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const paidInput = active.paidInput;
   const printBalance = active.printBalance;
   const printBalanceTouched = active.printBalanceTouched;
+  const note = active.note;
 
   const setCart = useCallback(
     (next: BillLine[] | ((prev: BillLine[]) => BillLine[])) => {
@@ -258,6 +262,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   );
   const setPaidInput = useCallback(
     (value: string) => patchActive((d) => (d.paidInput === value ? d : { ...d, paidInput: value })),
+    [patchActive],
+  );
+  const setNote = useCallback(
+    (value: string) => patchActive((d) => (d.note === value ? d : { ...d, note: value })),
     [patchActive],
   );
   const setPrintBalanceState = useCallback(
@@ -522,6 +530,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...(billTo ? { customerId: billTo.id } : {}),
         ...(options.paid == null ? {} : { paid: options.paid }),
         showBalance: Boolean(options.showBalance && billTo),
+        ...(note.trim() ? { note: note.trim() } : {}),
       });
       /*
        * A printed bill leaves the stack. When it was the only one, the slip is simply cleared --
@@ -542,7 +551,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       if (bill.customer) setInactive((prev) => prev.filter((c) => c.id !== bill.customer?.id));
       return bill;
     },
-    [cart, customer, resetDraft, t],
+    [cart, customer, note, resetDraft, t],
   );
 
   const saveCustomer = useCallback(async (input: {
@@ -566,23 +575,24 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     () => ({
       ready, signedIn, offline, settings, bills, today, cart,
       cartTotal: billTotal(cart),
-      customer, inactive, paidInput, printBalance, printBalanceTouched,
+      customer, inactive, paidInput, printBalance, printBalanceTouched, note,
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setAllGiven,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
-      customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, customerDraft, setCustomerDraft,
+      customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
+      customerDraft, setCustomerDraft,
       saveSettings, forgetEverything, dataVersion,
     }),
     [
       ready, signedIn, offline, settings, bills, today, cart, customer, inactive,
-      paidInput, printBalance, printBalanceTouched, lang, t, receiptLabels,
+      paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setAllGiven,
       parked, newBill, switchBill, closeBill,
-      customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, customerDraft,
+      customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,
       saveSettings, forgetEverything, dataVersion,
     ],
   );

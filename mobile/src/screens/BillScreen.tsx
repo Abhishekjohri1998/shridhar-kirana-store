@@ -236,6 +236,7 @@ export function BillScreen() {
     previousBalance: shop.customer ? shop.customer.balance : 0,
     previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
+    note: shop.note,
   });
 
   /**
@@ -614,6 +615,20 @@ export function BillScreen() {
           </View>
         ) : null}
 
+        {/* The bill's own note. Outside the pay box on purpose: a walk-in cash sale is exactly
+            the one that needs "to be collected Friday" written on it. */}
+        <View style={styles.noteBox}>
+          <Text style={styles.payLabel}>{t('bill.note')}</Text>
+          <TextInput
+            style={styles.payInput}
+            value={shop.note}
+            maxLength={200}
+            placeholder={t('bill.notePlaceholder')}
+            placeholderTextColor={C.faint}
+            onChangeText={shop.setNote}
+          />
+        </View>
+
         {/* Without this line a TOTAL larger than the lines above has nothing explaining it. */}
         {carried > 0 ? (
           <View style={styles.carriedRow}>
@@ -833,6 +848,7 @@ const styles = StyleSheet.create({
   },
   balanceBox: { minWidth: 92, alignItems: 'flex-end' },
   balanceValue: { fontSize: 18, fontWeight: '700', color: C.ink },
+  noteBox: { marginBottom: 8 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
   switchLabel: { flex: 1, fontSize: 13, color: C.ink, lineHeight: 18 },
 

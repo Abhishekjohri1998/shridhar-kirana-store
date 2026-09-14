@@ -83,6 +83,7 @@ const billSchema = new Schema<Bill>(
     cancelled: { type: Boolean, required: false, default: false },
     cancelledAt: { type: String, required: false, default: null },
     showBalance: { type: Boolean, required: true, default: false },
+    note: { type: String, required: false, default: '' },
   },
   { versionKey: false },
 );
@@ -205,7 +206,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return doc ? strip(doc as unknown as Bill) : null;
     },
 
-    async createBill({ lines, customerId, paid, showBalance }) {
+    async createBill({ lines, customerId, paid, showBalance, note }) {
       const total = billTotal(lines);
       const takings = round2(paid ?? total);
 
@@ -286,6 +287,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         previousBalance,
         previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
         showBalance: showBalance ?? false,
+        note: note ?? '',
       };
 
       try {

@@ -365,6 +365,27 @@ async function main() {
     cTotal.right + ' - ' + cPaid.right + ' != ' + cBal.right);
   eq("the shop's own figure for the bill is untouched", carriedBill.total, 1370);
 
+  // The bill's own note, under the totals and above the shop's footer line.
+  const noted = shared.buildReceipt({ ...carriedBill, note: 'Delivery Tuesday' }, SETTINGS);
+  const noteRow = noted.rows.find((r) => r.t === 'center' && String(r.text).startsWith('Note:'));
+  check('the note prints', noteRow && noteRow.text === 'Note: Delivery Tuesday',
+    noteRow && noteRow.text);
+  const noteAt = noted.rows.indexOf(noteRow);
+  const balanceAt = noted.rows.findIndex((r) => r.t === 'kv' && r.left === 'Balance');
+  const footerAt = noted.rows.findIndex(
+    (r) => r.t === 'center' && r.text === SETTINGS.footer,
+  );
+  check('after the totals and before the shop footer',
+    balanceAt < noteAt && noteAt < footerAt, balanceAt + ' ' + noteAt + ' ' + footerAt);
+  const unnoted = shared.buildReceipt({ ...carriedBill, note: '' }, SETTINGS);
+  check('an empty note prints nothing',
+    !unnoted.rows.some((r) => r.t === 'center' && String(r.text).startsWith('Note:')));
+  const spaces = shared.buildReceipt({ ...carriedBill, note: '   ' }, SETTINGS);
+  check('and neither does one of spaces',
+    !spaces.rows.some((r) => r.t === 'center' && String(r.text).startsWith('Note:')));
+  check('a bill written before notes existed is unchanged',
+    shared.buildReceipt(carriedBill, SETTINGS).rows.length === unnoted.rows.length);
+
   const undated = shared.buildReceipt({ ...carriedBill, previousBalanceAt: null }, SETTINGS);
   eq('with no date it prints the label alone',
     undated.rows.filter((r) => r.t === 'item').slice(-1)[0].name, 'Old bal.');
@@ -589,6 +610,16 @@ async function main() {
     eq('and does not print balance lines', made.body.showBalance, false);
 
     eq('bill numbers increment', (await post('/api/bills', { lines: LINES })).body.no, 2);
+
+    eq('a bill with no note comes back with none', made.body.note, '');
+    const withNote = await post('/api/bills', { lines: LINES, note: '  Delivery Tuesday  ' });
+    eq('a note is saved, trimmed', withNote.body.note, 'Delivery Tuesday');
+    eq('and reads back on the saved bill',
+      (await call('/api/bills/' + withNote.body.no, { headers: auth })).body.note, 'Delivery Tuesday');
+    // A note is a line or two. Unbounded, it is a way to print a hundred lines of paper.
+    eq('an over-long note is rejected',
+      (await post('/api/bills', { lines: LINES, note: 'x'.repeat(201) })).status, 400);
+
     eq('an empty bill is rejected', (await post('/api/bills', { lines: [] })).status, 400);
     eq('a negative quantity is rejected', (await post('/api/bills', { lines: [{ ...LINES[0], qty: -5 }] })).status, 400);
     eq('a non-numeric rate is rejected', (await post('/api/bills', { lines: [{ ...LINES[0], rate: 'free' }] })).status, 400);
