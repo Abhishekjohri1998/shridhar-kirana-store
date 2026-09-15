@@ -62,6 +62,8 @@ export function BillScreen() {
   const pads = useRef<Record<string, InkPadHandle | null>>({});
   /** The same, for the price boxes, so one line's price can hand on to the next one's. */
   const prices = useRef<Record<string, TextInput | null>>({});
+  /** And for the item boxes, so a list can be typed straight down without touching the glass. */
+  const names = useRef<Record<string, TextInput | null>>({});
   const sheet = useRef<ScrollView>(null);
   /*
    * What the slip actually measures, so the page can be turned rather than guessed at.
@@ -148,6 +150,41 @@ export function BillScreen() {
     if (field) field.focus();
     else goToNewestLine();
   }, [shop.cart, goToNewestLine]);
+
+  /**
+   * Item entered, on to the next item -- never to the price beside it.
+   *
+   * The shop writes the whole list first and prices it afterwards, so the action key on a
+   * description goes down the column, the way the price key already goes down its own. On the
+   * last line there is no next row yet: typing a name is what makes the blank one appear, and
+   * that lands after this. So the wanted row is remembered by id and focused once it exists --
+   * the same shape as wantFlip above, for the same reason.
+   */
+  const wantName = useRef<string | null>(null);
+
+  const goToNextName = useCallback((index: number) => {
+    const next = shop.cart[index + 1];
+    if (next) {
+      const field = names.current[next.itemId];
+      if (field) field.focus();
+      else wantName.current = next.itemId;
+      return;
+    }
+    // The blank line this typing has just earned does not exist yet, and neither does its id.
+    wantName.current = '';
+    goToNewestLine();
+  }, [shop.cart, goToNewestLine]);
+
+  useEffect(() => {
+    const wanted = wantName.current;
+    if (wanted == null) return;
+    // '' means "whichever line is newest", which is the one the typing brought into being.
+    const target = wanted === '' ? shop.cart[shop.cart.length - 1]?.itemId : wanted;
+    const field = target ? names.current[target] : null;
+    if (!field) return;
+    wantName.current = null;
+    field.focus();
+  });
 
   const paid = shop.paidInput;
   const showBalance = shop.printBalance;
@@ -387,9 +424,16 @@ export function BillScreen() {
       <View style={styles.slip}>
           <View style={styles.slipHead}>
             <Text style={[styles.slipHeadText, styles.colNo, styles.slipHeadNo]}>{t('bill.no')}</Text>
-            <Text style={[styles.slipHeadText, { flex: 1 }]}>{t('bill.item')}</Text>
+            {/* The row spends this much on the given tick before the description starts. Without
+                it here every heading after NO. sat 36px left of its own column, putting ITEM on
+                top of the checkbox. */}
+            <View style={styles.colTick} />
+            <Text style={[styles.slipHeadText, { flex: 1, textAlign: 'center' }]}>{t('bill.item')}</Text>
             {compact ? null : (
               <>
+                {/* Pen, price, undo, remove -- the same four the row lays out, so PRICE sits
+                    over the figures rather than 42px to their left. */}
+                <View style={styles.colIcon} />
                 <Text style={[styles.slipHeadText, styles.colPrice, { textAlign: 'right' }]}>
                   {t('bill.price')}
                 </Text>
@@ -477,12 +521,19 @@ export function BillScreen() {
                     </>
                   ) : (
                     <TextInput
+                      ref={(el) => { names.current[line.itemId] = el; }}
                       style={styles.slipName}
                       value={line.nameKn}
                       onChangeText={(text) => shop.setLineName(index, text)}
                       placeholder={t('bill.typeHint')}
                       placeholderTextColor={C.faint}
                       accessibilityLabel={t('bill.writeLine', { n: index + 1 })}
+                      // Down the item column, not across to the price: the shop writes the whole
+                      // list first. blurOnSubmit false or the keyboard shuts before the next box
+                      // can take it, and it comes back up with a flicker.
+                      returnKeyType="next"
+                      blurOnSubmit={false}
+                      onSubmitEditing={() => goToNextName(index)}
                     />
                   )}
                 </View>
@@ -782,6 +833,8 @@ const styles = StyleSheet.create({
   /* Sits to the left of the price box on the stacked layout, where the header cannot reach. */
   slipPriceTag: { ...TYPE.label, fontSize: 10, alignSelf: 'center' },
   colNo: { width: 22 },
+  /** Matches styles.tick, width and margin both, so the header tracks the row. */
+  colTick: { width: 30, marginRight: 6 },
   colPrice: { width: 92 },
   colIcon: { width: 34, alignItems: 'center', justifyContent: 'center' },
 

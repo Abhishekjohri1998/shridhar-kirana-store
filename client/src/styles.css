@@ -496,7 +496,8 @@ button, input, select, textarea {
 .slip-head-no { grid-column: 1; text-align: center; }
 /* Only ever seen in the stacked layout, where the header cannot reach the price box. */
 .slip-price-tag { display: none; }
-.slip-head-desc { grid-column: 3; }
+/* Centred over the column it names, at the shop's asking. */
+.slip-head-desc { grid-column: 3; text-align: center; }
 .slip-head-price { grid-column: 5; text-align: right; }
 
 .slip-lines {
@@ -549,7 +550,9 @@ button, input, select, textarea {
   /* The price box has moved to a row of its own, so a heading up in the header would point at
      the writing strip instead. Its name goes with it, into the cell left empty beside it. */
   .slip-head-price { display: none; }
-  .slip-head { grid-template-columns: 44px minmax(0, 1fr); }
+  /* The first three of the row's own columns, so ITEM keeps sitting over the writing strip
+     rather than in an implicit column of its own past the end of the header. */
+  .slip-head { grid-template-columns: 44px 26px minmax(0, 1fr); }
   .slip-price-tag {
     display: block;
     grid-area: blank;
@@ -1178,6 +1181,10 @@ select.input {
 }
 
 .receipt .r-item .r-name { overflow-wrap: break-word; }
+/* The writing fills the row; the tick, the number and the price sit level with its middle, the
+   way INK_TEXT_DY places them on the paper. */
+.receipt .r-item-ink { align-items: center; }
+.receipt .r-ink-line { display: flex; align-items: center; }
 .receipt .r-item .r-amount { text-align: right; white-space: nowrap; }
 .receipt .r-note { color: #555; }
 
@@ -1703,8 +1710,10 @@ select.input {
   .cart { padding-bottom: 18px; }
   .cart > * { max-width: 1200px; margin-left: auto; margin-right: auto; }
 
-  .slip-line,
-  .slip-head { grid-template-columns: 40px minmax(0, 1fr) 130px 40px 40px; }
+  /* No template override here. There was one -- five columns, written before the given tick and
+     the pen button existed -- and with seven children in a row the last two wrapped onto a line
+     of their own while the headings, which name their columns explicitly, ended up over the
+     wrong ones: ITEM sat on the checkbox. The seven-column base rule is correct at every width. */
 
   .page { max-width: 940px; }
 }

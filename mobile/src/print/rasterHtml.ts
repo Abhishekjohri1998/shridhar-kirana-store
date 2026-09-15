@@ -153,6 +153,7 @@ export const RASTER_SCRIPT = `
       var INK_BLEED = payload.inkBleed;
       var INK_S = payload.inkStrokeDots;
       var GIVEN_MARK = payload.givenMark;
+      var INK_TEXT_DY = payload.inkTextDy;
       var W = doc.width;
 
       var ops = [], y = 0, i, n;
@@ -189,8 +190,11 @@ export const RASTER_SCRIPT = `
         // indent only the ink and a typed line like "Old bal." would sit a millimetre left of it.
         var nameX = PAD + QTY_COL + INK_GUTTER;
         var nameMax = Math.max(40, (W - PAD - amtW - 12) - nameX);
-        ops.push({ op: 'text', text: row.no, x: PAD, y: y, size: ITEM, bold: false, align: 'left' });
-        ops.push({ op: 'text', text: row.amount, x: W - PAD, y: y, size: ITEM, bold: false, align: 'right' });
+        // A hand-written row is three times the height of a line of text, so its number and
+        // price drop to the middle to sit level with the writing rather than above it.
+        var textY = row.t === 'ink' ? y + INK_TEXT_DY : y;
+        ops.push({ op: 'text', text: row.no, x: PAD, y: textY, size: ITEM, bold: false, align: 'left' });
+        ops.push({ op: 'text', text: row.amount, x: W - PAD, y: textY, size: ITEM, bold: false, align: 'right' });
 
         if (row.t === 'ink') {
           // A typed row carries its tick inside the name; handwriting has no string to put it in,
@@ -198,7 +202,7 @@ export const RASTER_SCRIPT = `
           // counter PC's copy -- rastertest compares the two dot for dot.
           var markW = row.given ? meas.measureText(GIVEN_MARK).width : 0;
           if (row.given) {
-            ops.push({ op: 'text', text: GIVEN_MARK, x: nameX, y: y, size: ITEM, bold: false, align: 'left' });
+            ops.push({ op: 'text', text: GIVEN_MARK, x: nameX, y: textY, size: ITEM, bold: false, align: 'left' });
           }
           // Shifted by the pen's overhang so its painted edge lands on the column, not half
           // outside it. The width cap is already in row.scale, from planInk.

@@ -55,6 +55,8 @@ export function BillPage() {
   /** The scrolling slip and its rows, for turning the page -- see `pageFlip`. */
   const sheet = useRef<HTMLOListElement>(null);
   const rows = useRef<Record<string, HTMLLIElement | null>>({});
+  /** The item boxes, so a list can be typed straight down without reaching for the mouse. */
+  const names = useRef<Record<string, HTMLInputElement | null>>({});
   const [tail, setTail] = useState(0);
   /** Which lines are being written rather than typed, by line id. See the mobile copy. */
   const [writing, setWriting] = useState<Record<string, boolean>>({});
@@ -106,6 +108,37 @@ export function BillPage() {
     wantFlip.current = false;
     goToNewestLine();
   });
+
+  /**
+   * Enter in an item box goes to the next item box -- never across to the price beside it.
+   *
+   * The shop writes the whole list first and prices it afterwards. On the last line there is no
+   * next row yet: typing a name is what makes the blank one appear, and that lands after this,
+   * so the wanted row is remembered and focused once it exists -- the same shape as wantFlip.
+   */
+  const wantName = useRef<string | null>(null);
+  useEffect(() => {
+    const wanted = wantName.current;
+    if (wanted == null) return;
+    // '' means "whichever line is newest", which is the one this typing brought into being.
+    const target = wanted === '' ? shop.cart[shop.cart.length - 1]?.itemId : wanted;
+    const field = target ? names.current[target] : null;
+    if (!field) return;
+    wantName.current = null;
+    field.focus();
+  });
+
+  const goToNextName = (index: number) => {
+    const next = shop.cart[index + 1];
+    if (next) {
+      const field = names.current[next.itemId];
+      if (field) field.focus();
+      else wantName.current = next.itemId;
+      return;
+    }
+    wantName.current = '';
+    wantFlip.current = true;
+  };
 
   /**
    * Keep one empty line at the foot, always. The shopkeeper should never have to ask for
@@ -400,11 +433,18 @@ export function BillPage() {
                       </>
                     ) : (
                       <input
+                        ref={(el) => { names.current[line.itemId] = el; }}
                         className="slip-name"
                         value={line.nameKn}
                         placeholder={t('bill.typeHint')}
                         aria-label={t('bill.writeLine', { n: index + 1 })}
                         onChange={(e) => shop.setLineName(index, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter') return;
+                          // Or the form around the slip takes it as "print this bill".
+                          e.preventDefault();
+                          goToNextName(index);
+                        }}
                       />
                     )}
                   </div>

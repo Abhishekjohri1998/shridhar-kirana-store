@@ -138,13 +138,17 @@ export function ReceiptView({
 
           if (row.t === 'ink') {
             return (
-              <div key={i} className="r-item" style={textStyle(24)}>
+              <div key={i} className="r-item r-item-ink" style={textStyle(24)}>
                 <span>{row.no}</span>
                 <span className="r-name">
                   {/* A typed row carries its tick inside the name; handwriting has none to put
-                      it in, so it is drawn beside the writing. */}
-                  {row.given ? GIVEN_MARK : null}
-                  <InkMark ink={row.ink} scale={row.scale} originY={row.originY} alt={inkAlt} />
+                      it in, so it is drawn beside the writing. The row rather than the bare text
+                      node: InkMark is a block, and a block after inline text breaks the line, so
+                      the tick used to render above the writing instead of next to it. */}
+                  <span className="r-ink-line">
+                    {row.given ? <span>{GIVEN_MARK}</span> : null}
+                    <InkMark ink={row.ink} scale={row.scale} originY={row.originY} alt={inkAlt} />
+                  </span>
                   {row.note ? (
                     <span className="r-note" style={{ display: 'block', fontSize: dots(18) }}>
                       {row.note}

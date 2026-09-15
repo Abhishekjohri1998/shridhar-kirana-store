@@ -160,15 +160,7 @@ function phoneRasterize(doc) {
   sandbox.window.__render(
     JSON.stringify({
       doc,
-      pad: shared.RASTER.pad,
-      itemSize: shared.RASTER.itemSize,
-      qtyCol: shared.RASTER.qtyCol,
-      threshold: shared.RASTER.threshold,
-      inkRowAdvance: shared.INK_ROW_ADVANCE,
-      inkStrokeDots: shared.INK_STROKE_DOTS,
-      inkGutter: shared.INK_GUTTER,
-      inkBleed: shared.INK_BLEED,
-      givenMark: shared.GIVEN_MARK,
+      ...shared.rasterNumbers(),
     }),
   );
   const result = messages[messages.length - 1];
@@ -232,6 +224,21 @@ const CASES = [
   }), { paper: '58mm' }],
   ['with handwriting on 80mm', bill({
     lines: [...LINES, { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40 }],
+  }), { paper: '80mm' }],
+  // A ticked hand-written line: the tick, the number and the price all drop to the middle of the
+  // row to sit level with the writing, and the two rasterisers work that out separately.
+  ['with handwriting marked as given', bill({
+    lines: [
+      { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40, given: true },
+      { itemId: 'typed', nameKn: 'Sugar 2kg', nameEn: '', qty: 1, rate: 90, given: true },
+    ],
+    total: 130, paid: 130,
+  }), { paper: '58mm' }],
+  ['the same on 80mm', bill({
+    lines: [
+      { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40, given: true },
+    ],
+    total: 40, paid: 40,
   }), { paper: '80mm' }],
   ['with big and small handwriting on one slip', bill({
     lines: [

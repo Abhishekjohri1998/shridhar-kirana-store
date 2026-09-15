@@ -1,6 +1,6 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
 import { lineAmount, money, round2 } from './money';
-import { INK_BLEED, planInk } from './ink';
+import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, planInk } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 import { pickLang } from './i18n';
@@ -27,6 +27,7 @@ export const INK_ROW_HEIGHT = 64;
 /** What a hand-written row advances by: the writing, plus room for the pen above and below it. */
 export const INK_ROW_ADVANCE = INK_ROW_HEIGHT + 2 * INK_BLEED;
 
+
 // The pen's thickness, its overhang and the gutter before it all live with the rest of the
 // handwriting geometry; re-exported here because every renderer already imports them from doc.
 export { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS } from './ink';
@@ -46,6 +47,43 @@ export const RASTER = {
   /** Below this luminance a canvas pixel becomes a black dot. */
   threshold: 170,
 };
+
+/**
+ * How far down a hand-written row a line of text starts.
+ *
+ * The writing fills all 68 dots of the row; a 24-dot glyph drawn at the top of it -- the line
+ * number, the price, the given tick -- sat in a band of its own with the handwriting underneath,
+ * so one row read as two. This drops them to the middle, level with the writing.
+ *
+ * It lives here, and not in each renderer, for the reason `GIVEN_MARK` does: four renderers draw
+ * this row and rastertest holds two of them to the same dots. One number they all read cannot
+ * disagree with itself.
+ */
+export const INK_TEXT_DY = Math.round((INK_ROW_ADVANCE - RASTER.itemSize) / 2);
+
+/**
+ * Every number and glyph the phone's rasteriser needs, in one object.
+ *
+ * That page holds the algorithm and none of the measurements -- they are handed to it. Three
+ * callers were each assembling this list by hand (the app, and two test harnesses), so a constant
+ * added here reached the app but not the tests: the parity test went green while the two
+ * rasterisers disagreed, and one harness had been missing the tick glyph entirely without anyone
+ * noticing. One list, built once, cannot drift from itself.
+ */
+export function rasterNumbers() {
+  return {
+    pad: RASTER.pad,
+    itemSize: RASTER.itemSize,
+    qtyCol: RASTER.qtyCol,
+    threshold: RASTER.threshold,
+    inkRowAdvance: INK_ROW_ADVANCE,
+    inkStrokeDots: INK_STROKE_DOTS,
+    inkGutter: INK_GUTTER,
+    inkBleed: INK_BLEED,
+    givenMark: GIVEN_MARK,
+    inkTextDy: INK_TEXT_DY,
+  };
+}
 
 export type Row =
   | { t: 'center'; text: string; size?: number; bold?: boolean }

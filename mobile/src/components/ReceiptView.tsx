@@ -45,21 +45,26 @@ export function ReceiptView({ doc, width = 300 }: { doc: ReceiptDoc; width?: num
         const size = px(RASTER.itemSize);
         const st = { fontSize: size, lineHeight: size * 1.5 };
         return (
-          <View key={i} style={styles.item}>
+          // The number and the price sit level with the middle of a hand-written row, the way
+          // INK_TEXT_DY puts them on the paper.
+          <View key={i} style={[styles.item, row.t === 'ink' ? styles.itemInk : null]}>
             <Text style={[styles.text, st, { width: px(RASTER.qtyCol) }]}>{row.no}</Text>
             <View style={[styles.middle, { paddingLeft: px(INK_GUTTER) }]}>
               {row.t === 'ink' ? (
                 <>
                 {/* A typed row carries its tick inside the name; handwriting has none to put it
-                    in, so it is drawn beside the writing. */}
-                {row.given ? <Text style={[styles.text, st]}>{GIVEN_MARK}</Text> : null}
-                <InkView
-                  ink={row.ink}
-                  scale={row.scale}
-                  originY={row.originY}
-                  dot={dot}
-                  strokeDots={INK_STROKE_DOTS}
-                />
+                    in, so it is drawn beside the writing. In a row of its own: the cell is a
+                    column, so as plain siblings the tick stacked above the writing. */}
+                <View style={styles.inkLine}>
+                  {row.given ? <Text style={[styles.text, st]}>{GIVEN_MARK}</Text> : null}
+                  <InkView
+                    ink={row.ink}
+                    scale={row.scale}
+                    originY={row.originY}
+                    dot={dot}
+                    strokeDots={INK_STROKE_DOTS}
+                  />
+                </View>
                 </>
               ) : (
                 <Text style={[styles.text, st]}>{row.name}</Text>
@@ -91,5 +96,9 @@ const styles = StyleSheet.create({
   kv: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   item: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 3 },
   middle: { flex: 1, paddingRight: 8 },
+  /* The writing fills the row; the tick sits level with its middle, as INK_TEXT_DY places it on
+     the paper. */
+  inkLine: { flexDirection: 'row', alignItems: 'center' },
+  itemInk: { alignItems: 'center' },
   sep: { borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#8a8a8a', marginVertical: 5 },
 });

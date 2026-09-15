@@ -293,14 +293,7 @@ function phoneRasterize(doc) {
   sandbox.window.__render(
     JSON.stringify({
       doc,
-      pad: shared.RASTER.pad,
-      itemSize: shared.RASTER.itemSize,
-      qtyCol: shared.RASTER.qtyCol,
-      threshold: shared.RASTER.threshold,
-      inkRowAdvance: shared.INK_ROW_ADVANCE,
-      inkStrokeDots: shared.INK_STROKE_DOTS,
-      inkGutter: shared.INK_GUTTER,
-      inkBleed: shared.INK_BLEED,
+      ...shared.rasterNumbers(),
     }),
   );
   const result = messages[messages.length - 1];

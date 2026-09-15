@@ -337,6 +337,15 @@ async function main() {
     knGst.rows.some((r) => r.t === 'center' && String(r.text).includes('29ABCDE1234F1Z5')
       && /[ಀ-೿]/.test(String(r.text))));
 
+  // The writing fills the row; a line of text drawn at the top of it sat in a band of its own
+  // with the handwriting underneath, so one row read as two.
+  check('text on a hand-written row sits in the middle of it',
+    shared.INK_TEXT_DY === Math.round((shared.INK_ROW_ADVANCE - shared.RASTER.itemSize) / 2),
+    String(shared.INK_TEXT_DY));
+  check('below the top of the row and above its foot',
+    shared.INK_TEXT_DY > 0 && shared.INK_TEXT_DY + shared.RASTER.itemSize < shared.INK_ROW_ADVANCE,
+    String(shared.INK_TEXT_DY));
+
   console.log('\nReceipt document: what they already owed');
   const carriedBill = {
     ...BILL,

@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import {
-  GIVEN_MARK, INK_BLEED, INK_GUTTER, INK_ROW_ADVANCE, INK_STROKE_DOTS, RASTER, type ReceiptDoc,
+  rasterNumbers, type ReceiptDoc,
 } from '@shridhar/shared';
 import { RASTER_HTML } from './rasterHtml';
 
@@ -52,15 +52,7 @@ export const RasterBridge = forwardRef<RasterHandle, RasterBridgeProps>(function
         // the numbers.
         const payload = JSON.stringify({
           doc,
-          pad: RASTER.pad,
-          itemSize: RASTER.itemSize,
-          qtyCol: RASTER.qtyCol,
-          threshold: RASTER.threshold,
-          inkRowAdvance: INK_ROW_ADVANCE,
-          inkStrokeDots: INK_STROKE_DOTS,
-          inkGutter: INK_GUTTER,
-          inkBleed: INK_BLEED,
-          givenMark: GIVEN_MARK,
+          ...rasterNumbers(),
           ...(imageScale ? { imageScale } : {}),
         });
         web.current?.injectJavaScript('window.__render(' + JSON.stringify(payload) + ');true;');
