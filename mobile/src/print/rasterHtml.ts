@@ -220,9 +220,12 @@ export const RASTER_SCRIPT = `
           continue;
         }
 
-        var nl = wrap(row.name, ITEM, false, nameMax);
+        // Only the column heading carries one, so the word sits over the item names rather
+        // than over the tick in front of them.
+        var indent = row.indent || 0;
+        var nl = wrap(row.name, ITEM, false, nameMax - indent);
         for (n = 0; n < nl.length; n++) {
-          ops.push({ op: 'text', text: nl[n], x: nameX, y: y, size: ITEM, bold: false, align: 'left' });
+          ops.push({ op: 'text', text: nl[n], x: nameX + indent, y: y, size: ITEM, bold: false, align: 'left' });
           y += lh(ITEM);
         }
         if (row.note) {

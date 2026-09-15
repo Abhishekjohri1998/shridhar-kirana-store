@@ -163,7 +163,9 @@ export function ReceiptView({
           return (
             <div key={i} className="r-item" style={textStyle(24)}>
               <span>{row.no}</span>
-              <span className="r-name">
+              {/* Only the column heading carries an indent, so the word sits over the item
+                  names rather than over the tick in front of them. */}
+              <span className="r-name" style={row.indent ? { paddingLeft: dots(row.indent) } : undefined}>
                 {row.name}
                 {row.note ? (
                   <span className="r-note" style={{ display: 'block', fontSize: dots(18) }}>

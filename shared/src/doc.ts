@@ -85,10 +85,19 @@ export function rasterNumbers() {
   };
 }
 
+/**
+ * How far right of the item column the word naming it prints.
+ *
+ * Flush with the names it sat over the given tick rather than over the words, because a ticked
+ * line begins with one. A little to the right at the shop's asking, and only the heading moves:
+ * indenting the column itself would cost writing room on a 58mm roll.
+ */
+export const ITEM_HEAD_INDENT = 24;
+
 export type Row =
   | { t: 'center'; text: string; size?: number; bold?: boolean }
   | { t: 'kv'; left: string; right: string; size?: number; bold?: boolean }
-  | { t: 'item'; no: string; name: string; amount: string; note?: string }
+  | { t: 'item'; no: string; name: string; amount: string; note?: string; indent?: number }
   /** A handwritten description in the item column, with the price beside it. */
   | {
       t: 'ink'; no: string; ink: Ink; amount: string; note?: string; scale: number; originY: number;
@@ -183,7 +192,7 @@ export function buildReceipt(
     // The columns, named. An `item` row rather than a type of its own: all four renderers
     // already draw one, so the headings cost nothing and cannot fall out of step between the
     // counter PC and the phone.
-    { t: 'item', no: labels.no, name: labels.item, amount: labels.price },
+    { t: 'item', no: labels.no, name: labels.item, amount: labels.price, indent: ITEM_HEAD_INDENT },
   );
 
   // One scale for the whole slip. Worked out before any row is built, because it depends on

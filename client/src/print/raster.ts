@@ -203,8 +203,11 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       continue;
     }
 
-    for (const line of wrap(meas, row.name, ITEM, false, nameMax)) {
-      ops.push({ op: 'text', text: line, x: nameX, y, size: ITEM, bold: false, align: 'left' });
+    // Only the column heading carries one, so the word sits over the item names rather than
+    // over the tick in front of them.
+    const indent = row.indent ?? 0;
+    for (const line of wrap(meas, row.name, ITEM, false, nameMax - indent)) {
+      ops.push({ op: 'text', text: line, x: nameX + indent, y, size: ITEM, bold: false, align: 'left' });
       y += lineHeight(ITEM);
     }
     if (row.note) {

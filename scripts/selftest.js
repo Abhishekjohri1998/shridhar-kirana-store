@@ -337,6 +337,14 @@ async function main() {
     knGst.rows.some((r) => r.t === 'center' && String(r.text).includes('29ABCDE1234F1Z5')
       && /[ಀ-೿]/.test(String(r.text))));
 
+  // Flush with the names, the heading sat over the given tick rather than over the words.
+  {
+    const rows = shared.buildReceipt(BILL, SETTINGS).rows.filter((r) => r.t === 'item');
+    eq('the column heading is nudged right of the names', rows[0].indent, shared.ITEM_HEAD_INDENT);
+    check('and the item lines themselves are not',
+      rows.slice(1).every((r) => r.indent === undefined));
+  }
+
   // The writing fills the row; a line of text drawn at the top of it sat in a band of its own
   // with the handwriting underneath, so one row read as two.
   check('text on a hand-written row sits in the middle of it',

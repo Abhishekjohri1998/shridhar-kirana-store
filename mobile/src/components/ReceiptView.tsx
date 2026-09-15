@@ -67,7 +67,9 @@ export function ReceiptView({ doc, width = 300 }: { doc: ReceiptDoc; width?: num
                 </View>
                 </>
               ) : (
-                <Text style={[styles.text, st]}>{row.name}</Text>
+                <Text style={[styles.text, st, row.indent ? { paddingLeft: px(row.indent) } : null]}>
+                  {row.name}
+                </Text>
               )}
               {row.note ? (
                 <Text style={[styles.text, { fontSize: px(18), lineHeight: px(18) * 1.5, color: '#555' }]}>
