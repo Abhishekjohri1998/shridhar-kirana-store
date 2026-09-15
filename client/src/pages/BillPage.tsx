@@ -130,12 +130,14 @@ export function BillPage() {
   });
 
   const goToNextName = (index: number) => {
-    const next = shop.cart[index + 1];
-    if (next) {
-      const field = names.current[next.itemId];
-      if (field) field.focus();
-      else wantName.current = next.itemId;
-      return;
+    // Down to the next line there is something to type in: a hand-written line has no box, and
+    // stopping at it left the cursor waiting for a field that would never appear.
+    for (let i = index + 1; i < shop.cart.length; i += 1) {
+      const field = names.current[shop.cart[i]!.itemId];
+      if (field) {
+        field.focus();
+        return;
+      }
     }
     wantName.current = '';
     wantFlip.current = true;

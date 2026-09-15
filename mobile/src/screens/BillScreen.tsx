@@ -164,14 +164,18 @@ export function BillScreen() {
   const wantName = useRef<string | null>(null);
 
   const goToNextName = useCallback((index: number) => {
-    const next = shop.cart[index + 1];
-    if (next) {
-      const field = names.current[next.itemId];
-      if (field) field.focus();
-      else wantName.current = next.itemId;
-      return;
+    // Down to the next line there is something to type in. A hand-written line has no box at
+    // all, so stopping at it left the cursor waiting for a field that would never appear and
+    // the shopkeeper stuck on the line above it.
+    for (let i = index + 1; i < shop.cart.length; i += 1) {
+      const field = names.current[shop.cart[i]!.itemId];
+      if (field) {
+        field.focus();
+        return;
+      }
     }
-    // The blank line this typing has just earned does not exist yet, and neither does its id.
+    // Nothing typeable below: this typing has just earned a fresh blank line, which does not
+    // exist yet and has no id to ask for. The slip always keeps one, and it is always a box.
     wantName.current = '';
     goToNewestLine();
   }, [shop.cart, goToNewestLine]);
