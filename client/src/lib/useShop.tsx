@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
@@ -522,7 +523,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     async (options: CommitOptions = {}) => {
       // The slip always carries one empty line so there is somewhere to write next. It is
       // scaffolding, not something the customer bought, so it never reaches the printer.
-      const lines = cart.filter((l) => l.ink || l.rate > 0 || l.nameKn.trim().length > 0);
+      const lines = cart.filter(lineHasSomething);
       if (lines.length === 0) throw new Error(t('bill.nothingYet'));
       const billTo = options.customer !== undefined ? options.customer : customer;
       const bill = await api.createBill({

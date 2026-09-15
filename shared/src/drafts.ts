@@ -66,6 +66,22 @@ export function reviveDraft(raw: Draft): Draft {
 }
 
 /**
+ * Whether a line carries anything at all.
+ *
+ * Written, priced, or typed -- any one of the three. The slip always keeps a spare line at the
+ * foot, so "is there anything here" is asked constantly: to decide what prints, what to keep when
+ * a bill is parked, when to add the next blank line, and whether a line can be cleared.
+ *
+ * It lives here because it was being written out by hand in nine places, and two of them still
+ * said `!ink && rate === 0` -- the rule from before items could be typed. On those two the cross
+ * that clears a line was greyed out for every typed item that had not been priced yet, so the
+ * shopkeeper could cancel a hand-written line but not a typed one.
+ */
+export function lineHasSomething(l: BillLine): boolean {
+  return (l.ink != null && l.ink.strokes.length > 0) || l.rate > 0 || l.nameKn.trim() !== '';
+}
+
+/**
  * Nothing on it worth keeping.
  *
  * The slip always carries one blank line so there is somewhere to write next, so "empty" cannot
@@ -78,9 +94,7 @@ export function isDraftEmpty(d: Draft): boolean {
   if (d.typed.name.trim() || d.typed.nameKn.trim() || d.typed.phone.trim()) return false;
   // A bill carrying nothing but a note is still something the shopkeeper wrote down on purpose.
   if (d.note.trim()) return false;
-  return !d.lines.some(
-    (l) => (l.ink && l.ink.strokes.length > 0) || l.rate > 0 || l.nameKn.trim().length > 0,
-  );
+  return !d.lines.some(lineHasSomething);
 }
 
 /** What the bill comes to so far, for the tab that names it. */

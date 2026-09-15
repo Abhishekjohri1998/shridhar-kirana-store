@@ -3,6 +3,7 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
+  lineHasSomething,
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer,
@@ -89,7 +90,7 @@ export function BillScreen() {
     const last = shop.cart[shop.cart.length - 1];
     // A typed name makes the line non-blank too, so typing an item brings the next one up the
     // same way a first pen stroke always has.
-    const lastIsBlank = last && !last.ink && last.rate === 0 && last.nameKn.trim() === '';
+    const lastIsBlank = last != null && !lineHasSomething(last);
     if (!lastIsBlank) shop.addBlankLine();
   }, [shop]);
 
@@ -223,7 +224,7 @@ export function BillScreen() {
   /** Lines that carry something. The trailing blank is scaffolding, not a purchase. */
   // A typed name counts as much as a written one now that most lines are typed: a line with a
   // description and no price yet is still a line the shopkeeper has started.
-  const written = shop.cart.filter((l) => l.ink || l.rate > 0 || l.nameKn.trim() !== '');
+  const written = shop.cart.filter(lineHasSomething);
   const hasSomething = written.length > 0;
   /** Every line that has anything on it is ticked, so the button offers to undo rather than redo. */
   const allGiven = written.length > 0 && written.every((l) => l.given === true);
@@ -457,7 +458,7 @@ export function BillScreen() {
           >
 
           {shop.cart.map((line, index) => {
-            const blank = !line.ink && line.rate === 0;
+            const blank = !lineHasSomething(line);
             return (
               <View
                 style={[styles.slipLine, compact && styles.slipLineCompact]}

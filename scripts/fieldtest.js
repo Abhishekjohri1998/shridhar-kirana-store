@@ -452,6 +452,22 @@ check('a fresh draft is empty', D.isDraftEmpty(blank));
 check('and comes to nothing', D.draftTotal(blank) === 0);
 check('a typed name alone makes it worth keeping', !D.isDraftEmpty({ ...blank, typed: { name: 'Ramesh', nameKn: '', phone: '' } }));
 check('so does a Kannada name alone', !D.isDraftEmpty({ ...blank, typed: { name: '', nameKn: RAMESH_KN, phone: '' } }));
+// The cross that clears a line is greyed out when the line carries nothing. It used to ask
+// `!ink && rate === 0` -- the rule from before items could be typed -- so a typed item with no
+// price yet counted as empty and could not be cancelled, while a hand-written one could.
+check('a typed name alone makes a line worth something',
+  D.lineHasSomething({ itemId: 'a', nameKn: 'Sugar 2kg', nameEn: '', qty: 1, rate: 0 }));
+check('so does a price on its own',
+  D.lineHasSomething({ itemId: 'a', nameKn: '', nameEn: '', qty: 1, rate: 20 }));
+check('and handwriting on its own',
+  D.lineHasSomething({ itemId: 'a', nameKn: '', nameEn: '', qty: 1, rate: 0,
+    ink: { w: 10, h: 10, strokes: [[0, 0, 5, 5]] } }));
+check('an untouched line carries nothing',
+  !D.lineHasSomething({ itemId: 'a', nameKn: '   ', nameEn: '', qty: 1, rate: 0 }));
+check('nor does a writing strip with no strokes on it yet',
+  !D.lineHasSomething({ itemId: 'a', nameKn: '', nameEn: '', qty: 1, rate: 0,
+    ink: { w: 10, h: 10, strokes: [] } }));
+
 check('a note alone makes it worth keeping', !D.isDraftEmpty({ ...blank, note: 'Delivery Tuesday' }));
 // A bill parked by an older app has no note at all. Read straight back, `isDraftEmpty` would
 // call .trim() on undefined and take the bill screen down on launch with the bill inside it.
