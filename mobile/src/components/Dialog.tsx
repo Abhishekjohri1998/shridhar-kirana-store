@@ -45,6 +45,13 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: '#00000066', justifyContent: 'center', padding: 16 },
   sheet: { backgroundColor: C.bg, borderRadius: 14, padding: 16, maxHeight: '88%' },
   title: { fontSize: 18, fontWeight: '700', color: C.ink, marginBottom: 12 },
-  body: { flexGrow: 0 },
-  footer: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  /*
+   * flexShrink is the whole fix. A ScrollView does not shrink by default, so a receipt of forty
+   * lines laid itself out at full height, the sheet ran past its own 88% and the Close button
+   * under it went off the bottom of the screen -- on the longest bills, which are exactly the
+   * ones worth previewing. Shrinking, it gives the footer its room and scrolls inside instead.
+   */
+  body: { flexGrow: 0, flexShrink: 1 },
+  /* Never gives up its height: the way out of a dialog does not scroll off. */
+  footer: { flexDirection: 'row', gap: 10, marginTop: 12, flexShrink: 0 },
 });

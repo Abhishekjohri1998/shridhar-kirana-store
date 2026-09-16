@@ -39,7 +39,9 @@ export function Dialog({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2>{title}</h2>
-        {children}
+        {/* The body scrolls, the heading and the buttons do not: a long receipt used to push the
+            way out of the dialog below the bottom of the screen. */}
+        <div className="dialog-body">{children}</div>
         {footer ? <div className="dialog-actions">{footer}</div> : null}
       </div>
     </div>

@@ -14,7 +14,7 @@
     "newArchEnabled": false,
     "android": {
       "package": "com.shridhar.billing",
-      "versionCode": 28,
+      "versionCode": 29,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0d6847"

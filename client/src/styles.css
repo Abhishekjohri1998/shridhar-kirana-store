@@ -1115,7 +1115,11 @@ select.input {
   width: 100%;
   max-width: 430px;
   max-height: 88vh;
-  overflow: auto;
+  /* A column with one scrolling part, so the heading and the buttons keep their place however
+     long the receipt is. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: var(--sh-3);
   animation: dialog-in var(--t-base) var(--ease-pop) both;
 }
@@ -1126,6 +1130,7 @@ select.input {
 .dialog:focus { outline: none; }
 
 .dialog h2 {
+  flex: none;
   margin: 0 0 14px;
   font-size: 1.12rem;
   font-weight: 700;
@@ -1133,7 +1138,9 @@ select.input {
   letter-spacing: -0.01em;
 }
 
-.dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; }
+.dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; flex: none; }
+/* min-height: 0 or a tall child refuses to shrink and pushes the buttons out of the dialog. */
+.dialog-body { flex: 1 1 auto; overflow: auto; min-height: 0; }
 
 /* ---------------------------------------------------------------- receipt
 
