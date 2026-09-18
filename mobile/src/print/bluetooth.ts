@@ -108,6 +108,13 @@ export async function printBytes(address: string, bytes: Uint8Array): Promise<vo
   const bt = requireModule();
   await ensurePermissions();
 
+  // Asked before connecting, so the shopkeeper is told "Bluetooth is off" rather than whatever
+  // the native module says about an adapter -- which is what reached the counter as
+  // "Bluetooth mAdapter is not enabled".
+  if ((await bt.isBluetoothEnabled()) === false) {
+    throw new PrinterError('Bluetooth is off. Turn it on and try again.');
+  }
+
   if (!(await connected(bt, address))) {
     await bt.connectToDevice(address, { CONNECTOR_TYPE: 'rfcomm', DELIMITER: '', READ_SIZE: 1024 });
   }

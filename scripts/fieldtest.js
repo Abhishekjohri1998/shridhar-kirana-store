@@ -199,60 +199,100 @@ check('fitPrefix takes the whole string when it fits',
   SH.fitPrefix('ಮೆ', 99, measure) === 'ಮೆ');
 
 console.log('');
-console.log('One size for every hand-written line on a slip');
+console.log('');
+console.log('The PIN check that works without a server');
 /*
- * The bug this guards: each line used to be fitted to the row height on its own, so a short
- * word like "1k" was blown up to the same 46 dots as a tall scrawl, and a slip came out with
- * the shopkeeper's own handwriting in three different sizes.
+ * The shop bills through power cuts and dead links, so the lock on a fresh start is checked
+ * against a digest kept on the device rather than against the server. Written out by hand
+ * because neither runtime offers a synchronous digest and a native one would mean rebuilding
+ * the app -- so these are the published vectors, which is what says the arithmetic is right.
+ */
+check('the empty string', SH.sha256('') === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+check('abc', SH.sha256('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+check('a sentence', SH.sha256('The quick brown fox jumps over the lazy dog') === 'd7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592');
+check('one that crosses a block boundary',
+  SH.sha256('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq')
+    === '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1');
+check('Kannada goes through as UTF-8', SH.sha256('ಅಕ್ಕಿ').length === 64);
+
+check('the same PIN and salt give the same digest',
+  SH.pinDigest('104528', 'abc') === SH.pinDigest('104528', 'abc'));
+check('a different PIN does not', SH.pinDigest('104528', 'abc') !== SH.pinDigest('104529', 'abc'));
+check('and neither does the same PIN on another device',
+  SH.pinDigest('104528', 'abc') !== SH.pinDigest('104528', 'xyz'));
+check('surrounding spaces are not part of the PIN',
+  SH.pinDigest(' 104528 ', 'abc') === SH.pinDigest('104528', 'abc'));
+check('the stored value does not contain the PIN',
+  !SH.pinDigest('104528', 'abc').includes('104528'));
+
+console.log('');
+console.log('Every hand-written line fitted to its own row');
+/*
+ * The shop's complaint, from a printed slip: three hand-written items came out at three
+ * different sizes, and lines sat at different heights within their rows. Both followed from one
+ * scale and one origin shared across the whole slip -- which was deliberate, to keep the
+ * proportions the shopkeeper wrote, and which read as raggedness on paper.
+ *
+ * Each line is now fitted to its own row. What these guard: that two lines of different sizes
+ * print the same height, that a line starts at the top of its row wherever it sat on the strip,
+ * that the strip's own pixel size no longer changes the printed size, and that a tiny mark is
+ * not magnified into a banner.
  */
 const TALL = { w: 300, h: 120, strokes: [[10, 10, 10, 110, 60, 110]] };
-const SMALL = { w: 300, h: 120, strokes: [[10, 50, 40, 50, 40, 70]] };
+// A smaller hand, but a real one: it covers a third of the strip, so it fills its row.
+const SMALL = { w: 300, h: 120, strokes: [[10, 40, 40, 40, 40, 82]] };
 const WIDE = { w: 900, h: 120, strokes: [[0, 60, 880, 60]] };
 const ROW = 46;
 const WIDTH = SH.inkMaxWidth(384);
+const drawnHeight = (ink, fit) => {
+  const b = SH.inkBounds(ink);
+  return (b.maxY - b.minY) * fit.scale;
+};
 
-const both = SH.planInk([TALL, SMALL], WIDTH, ROW);
-/*
- * The writing gets the whole height it is given; the pen's overhang is added to the *row* around
- * it (INK_ROW_ADVANCE), not taken out of the writing. Taking it out of the writing was the first
- * attempt and made every slip's handwriting slightly smaller, which the shop noticed at once.
- */
-check('the tallest line fills the height it is given', Math.abs(both.height - ROW) < 0.001,
-  both.height + ' vs ' + ROW);
-check('and the row is taller than the writing, to hold the pen',
+const tallFit = SH.inkRowFit(TALL, WIDTH, ROW);
+const smallFit = SH.inkRowFit(SMALL, WIDTH, ROW);
+check('a line fills the height it is given', Math.abs(drawnHeight(TALL, tallFit) - ROW) < 0.001,
+  drawnHeight(TALL, tallFit) + ' vs ' + ROW);
+check('and a smaller hand fills it too, so the lines are even',
+  Math.abs(drawnHeight(SMALL, smallFit) - ROW) < 0.001,
+  drawnHeight(SMALL, smallFit) + ' vs ' + ROW);
+check('each line starts at its own top, not at the top of the slip',
+  tallFit.originY === SH.inkBounds(TALL).minY && smallFit.originY === SH.inkBounds(SMALL).minY,
+  tallFit.originY + ' / ' + smallFit.originY);
+check('one line does not change another',
+  SH.inkRowFit(TALL, WIDTH, ROW).scale === tallFit.scale, String(tallFit.scale));
+
+// The fault that had nothing to do with taste: strokes are stored in the pixels of the strip
+// they were written on, and that strip is 96 or 116 tall depending on the room the row had.
+const ROOMY = { w: 600, h: 240, strokes: [[20, 20, 20, 220, 120, 220]] };
+check('the same writing on a bigger strip prints the same size',
+  Math.abs(drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) - drawnHeight(TALL, tallFit)) < 0.001,
+  drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) + ' vs ' + drawnHeight(TALL, tallFit));
+
+// A stray dash must not become the largest thing on the bill.
+const DASH = { w: 300, h: 120, strokes: [[10, 60, 40, 60]] };
+const dashFit = SH.inkRowFit(DASH, WIDTH, ROW);
+check('a tiny mark is not blown up to fill the row',
+  drawnHeight(DASH, dashFit) < ROW, String(drawnHeight(DASH, dashFit)));
+check('and the cap is what held it', Math.abs(dashFit.scale - (ROW / DASH.h) * SH.MAX_INK_UPSCALE) < 1e-9,
+  dashFit.scale + ' vs ' + (ROW / DASH.h) * SH.MAX_INK_UPSCALE);
+
+check('the row is taller than the writing, to hold the pen',
   SH.INK_ROW_ADVANCE === SH.INK_ROW_HEIGHT + 2 * SH.INK_BLEED,
   SH.INK_ROW_ADVANCE + ' vs ' + SH.INK_ROW_HEIGHT);
 check('and the pen has somewhere to go', SH.INK_BLEED * 2 >= SH.INK_STROKE_DOTS,
   'bleed ' + SH.INK_BLEED + ' vs stroke ' + SH.INK_STROKE_DOTS);
 check('the gutter is real', SH.INK_GUTTER > 0, String(SH.INK_GUTTER));
-check('the origin is the top of the union', both.originY === 10, String(both.originY));
-const drawnSmall = (SH.inkBounds(SMALL).maxY - both.originY) * both.scale;
-const drawnTall = (SH.inkBounds(TALL).maxY - both.originY) * both.scale;
-check('the small line stays smaller than the tall one', drawnSmall < drawnTall * 0.75,
-  drawnSmall + ' vs ' + drawnTall);
-check('order does not change the plan',
-  JSON.stringify(SH.planInk([SMALL, TALL], WIDTH, ROW)) === JSON.stringify(both));
-// inkFit still fits the space it is given exactly -- it is the thumbnail's rule, not the slip's.
-// Give it the same reduced space and the two agree, which is what says planInk subtracts the
-// gutter and the pen rather than doing something else to the scale.
-check('a line on its own matches a plain fit of the room it has',
-  Math.abs(
-    SH.planInk([TALL], WIDTH, ROW).scale
-      - SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROW).scale,
-  ) < 1e-9,
-  SH.planInk([TALL], WIDTH, ROW).scale + ' vs '
-    + SH.inkFit(TALL, WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED, ROW).scale);
-const wide = SH.planInk([WIDE, SMALL], WIDTH, ROW);
+
+const wideFit = SH.inkRowFit(WIDE, WIDTH, ROW);
 check('a line too wide for the paper caps the scale',
-  (SH.inkBounds(WIDE).maxX - SH.inkBounds(WIDE).minX) * wide.scale <= WIDTH + 0.001,
-  String(wide.scale));
-check('and then it is the width, not the row, that is filled', wide.height < ROW, String(wide.height));
-const none = SH.planInk([], WIDTH, ROW);
-check('an empty slip does not divide by zero',
-  Number.isFinite(none.scale) && none.scale > 0 && none.height === 0, JSON.stringify(none));
-const flat = SH.planInk([{ w: 300, h: 120, strokes: [[10, 40, 90, 40]] }], WIDTH, ROW);
+  (SH.inkBounds(WIDE).maxX - SH.inkBounds(WIDE).minX) * wideFit.scale <= WIDTH + 0.001,
+  String(wideFit.scale));
+check('and then it is the width, not the row, that is filled',
+  drawnHeight(WIDE, wideFit) < ROW, String(drawnHeight(WIDE, wideFit)));
+const flatFit = SH.inkRowFit({ w: 300, h: 120, strokes: [[10, 40, 90, 40]] }, WIDTH, ROW);
 check('a single flat line still gets a usable scale',
-  Number.isFinite(flat.scale) && flat.scale > 0, JSON.stringify(flat));
+  Number.isFinite(flatFit.scale) && flatFit.scale > 0, JSON.stringify(flatFit));
 
 console.log('');
 console.log('Phone numbers fold to one canonical form');

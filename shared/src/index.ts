@@ -13,3 +13,4 @@ export * from './receiptLabels';
 export * from './i18n';
 export * from './fields';
 export * from './serverUrl';
+export * from './hash';

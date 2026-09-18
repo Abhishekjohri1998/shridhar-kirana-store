@@ -10,6 +10,7 @@ import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { money, pickLang, type MsgKey } from '@shridhar/shared';
+import { useKeyboardOpen } from './src/lib/keyboard';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { PrintProvider } from './src/lib/usePrint';
 import { ShopProvider, useShop } from './src/lib/useShop';
@@ -116,6 +117,7 @@ function Shell() {
   const barWidth = useRef(0);
   const slide = useRef(new Animated.Value(0)).current;
   const frame = useSafeFrame();
+  const keyboardOpen = useKeyboardOpen();
   const insets = useHeldInsets();
 
   if (!shop.ready || !fontsReady) {
@@ -130,6 +132,9 @@ function Shell() {
   // Three gates, in the order a new phone hits them: where is the server, who are you, then work.
   if (!shop.serverUrl) return <ServerScreen />;
   if (!shop.signedIn) return <LoginScreen />;
+  // Closed from recents and opened again: the till is behind the PIN, but the token, the parked
+  // bills and everything else are exactly where they were.
+  if (shop.locked) return <LoginScreen locked />;
 
   const index = TABS.findIndex((t) => t.key === tab);
   const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
@@ -149,8 +154,15 @@ function Shell() {
 
   return (
     <PrintProvider>
+      {/*
+        * The floor comes off while the keyboard is up.
+        *
+        * `frame` is the safe-area height measured with no keyboard, and holding the shell to it
+        * while the window is shorter pushed the overflow into the only band that can shrink --
+        * the slip card, which clips -- so the item list vanished exactly when it was needed.
+        */}
       <View
-        style={[styles.shell, frame > 0 ? { minHeight: frame } : null]}
+        style={[styles.shell, frame > 0 && !keyboardOpen ? { minHeight: frame } : null]}
       >
         <View style={styles.header}>
           <Mark size={24} color={C.accent} />
@@ -178,8 +190,14 @@ function Shell() {
           </View>
         </View>
 
+        {/* Out of the way while the keyboard is up: it is 55px of the item list, and nobody
+            changes tab in the middle of writing a line. */}
         <View
-          style={[styles.tabBar, { paddingBottom: insets.bottom }]}
+          style={[
+            styles.tabBar,
+            { paddingBottom: insets.bottom },
+            keyboardOpen ? styles.tabBarHidden : null,
+          ]}
           onLayout={(e) => {
             barWidth.current = e.nativeEvent.layout.width;
             slide.setValue(index);
@@ -308,6 +326,7 @@ const styles = StyleSheet.create({
   visible: { flex: 1, minHeight: 0 },
   hidden: { display: 'none' },
 
+  tabBarHidden: { display: 'none' },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,

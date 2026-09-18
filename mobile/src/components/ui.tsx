@@ -129,10 +129,20 @@ export function SectionTitle({ children }: { children: ReactNode }) {
   return <Text style={[styles.section, handFont(String(children ?? ''), 16)]}>{children}</Text>;
 }
 
-export function ErrorText({ children }: { children: ReactNode }) {
+export function ErrorText({ children, onDismiss }: { children: ReactNode; onDismiss?: () => void }) {
   return (
     <Fade>
-      <Text style={styles.error}>{children}</Text>
+      <View style={styles.errorRow}>
+        <Text style={[styles.error, styles.errorGrow]}>{children}</Text>
+        {/* An error stays until it is read and tapped away -- it is usually telling the
+            shopkeeper the paper never came out. Without this there was no way to clear it at
+            all, and it sat on the screen taking room from the item list. */}
+        {onDismiss ? (
+          <Pressable onPress={onDismiss} accessibilityLabel="Dismiss" hitSlop={10}>
+            <Text style={styles.errorClose}>×</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </Fade>
   );
 }
@@ -221,18 +231,26 @@ const styles = StyleSheet.create({
   },
   section: { ...TYPE.section, marginBottom: 10 },
 
-  error: {
+  /* The box; the words inside it are `error`, so the × can sit beside them. */
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
     backgroundColor: C.dangerWash,
     borderWidth: 1,
     borderColor: C.dangerEdge,
-    color: C.danger,
-    fontWeight: '600',
     borderRadius: R.sm,
     padding: 11,
-    fontSize: 14,
     marginBottom: 10,
+  },
+  error: {
+    color: C.danger,
+    fontWeight: '600',
+    fontSize: 14,
     lineHeight: 19,
   },
+  errorGrow: { flex: 1 },
+  errorClose: { color: C.danger, fontSize: 20, lineHeight: 20, fontWeight: '700' },
   notice: {
     backgroundColor: C.accentWash,
     borderWidth: 1,

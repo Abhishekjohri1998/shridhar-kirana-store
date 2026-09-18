@@ -358,10 +358,10 @@ const NAME_X = shared.RASTER.pad + shared.RASTER.qtyCol;
 
 for (const paper of ['58mm', '80mm']) {
   const width = shared.paperProfile(paper).dots;
-  const plan = shared.planInk([EDGE_INK], shared.inkMaxWidth(width), shared.INK_ROW_HEIGHT);
+  const fit = shared.inkRowFit(EDGE_INK, shared.inkMaxWidth(width), shared.INK_ROW_HEIGHT);
   const inkDoc = {
     width,
-    rows: [{ t: 'ink', no: '1', ink: EDGE_INK, amount: '5', scale: plan.scale, originY: plan.originY }],
+    rows: [{ t: 'ink', no: '1', ink: EDGE_INK, amount: '5', scale: fit.scale, originY: fit.originY }],
   };
 
   for (const [who, rasterise] of [['web', webRasterize], ['phone', phoneRasterize]]) {

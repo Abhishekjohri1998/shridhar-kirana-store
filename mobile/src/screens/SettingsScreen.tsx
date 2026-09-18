@@ -113,7 +113,7 @@ export function SettingsScreen() {
       // The key, not the rendered text: switching to Kannada would otherwise leave the
       // confirmation of that very switch sitting there in English.
       setSaved(labelKey);
-      setTimeout(() => setSaved(null), 2200);
+      fadeAfter(2200, () => setSaved(null));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -128,6 +128,16 @@ export function SettingsScreen() {
    * blur and is not a request per keystroke either.
    */
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /*
+   * The confirmations clear themselves, and the handles are kept so they can be cancelled.
+   * Without that, saving twice quickly left two timers running and the first one wiped the
+   * second's message early -- and either could fire after the screen had gone.
+   */
+  const fading = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const fadeAfter = (ms: number, clear: () => void) => {
+    fading.current.push(setTimeout(clear, ms));
+  };
+  useEffect(() => () => { for (const id of fading.current) clearTimeout(id); }, []);
   const afterTyping = useCallback((fn: () => void) => {
     if (pending.current) clearTimeout(pending.current);
     pending.current = setTimeout(fn, 900);
@@ -239,7 +249,7 @@ export function SettingsScreen() {
       // them again. Parked bills hold customers of their own, and one of those got written back.
       await shop.forgetEverything();
       setErased(keepCustomers ? 'bills' : 'all');
-      setTimeout(() => setErased(null), 8000);
+      fadeAfter(8000, () => setErased(null));
     } catch (e) {
       // A 404 from the reset endpoint is not "missing": it is the server saying no reset password
       // has been set on it, which deserves that explanation rather than a bare "not found".

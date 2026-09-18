@@ -9,7 +9,10 @@ import {
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
-import { ApiError, api, getBaseUrl, getToken, loadStoredConfig, setServerUrl, setToken } from './api';
+import {
+  ApiError, api, checkStoredPin, forgetPin, getBaseUrl, getToken, loadStoredConfig,
+  rememberPin, setServerUrl, setToken,
+} from './api';
 
 const CACHE_KEY = 'shridhar.cache';
 /* One key per parked bill, and a small index saying which exist and which is showing.
@@ -74,6 +77,8 @@ type Shop = {
   ready: boolean;
   serverUrl: string;
   signedIn: boolean;
+  /** Signed in, but the PIN has not been given since the app was last opened. */
+  locked: boolean;
   offline: boolean;
 
   settings: Settings;
@@ -95,6 +100,8 @@ type Shop = {
 
   saveServerUrl: (url: string) => Promise<void>;
   signIn: (pin: string) => Promise<void>;
+  /** Let a signed-in session back in. Throws with a message if the PIN is wrong. */
+  unlock: (pin: string) => Promise<void>;
   signOut: () => void;
   forgetServer: () => void;
   reload: () => Promise<void>;
@@ -154,6 +161,18 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [serverUrl, setServerUrlState] = useState('');
   const [signedIn, setSignedIn] = useState(false);
+  /*
+   * Locked until the PIN is given, and true to begin with.
+   *
+   * "Opened fresh" needs no AppState listener: this module is evaluated once per process, so a
+   * warm resume keeps whatever the state was and a cold start begins here. Closing the app from
+   * recents ends the process, which is exactly the case the shop asked about.
+   *
+   * It is not the same as being signed out. Signing out drops the token and resets the slip,
+   * which would throw away a half-written bill someone parked before closing the app; locking
+   * keeps the token, keeps the drafts, and only puts the screen behind the PIN.
+   */
+  const [locked, setLocked] = useState(true);
   const [offline, setOffline] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [bills, setBills] = useState<Bill[]>([]);
@@ -431,15 +450,40 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     async (pin: string) => {
       const { token } = await api.login(pin);
       await setToken(token);
+      await rememberPin(pin);
       setSignedIn(true);
+      setLocked(false);
       await loadEverything();
     },
     [loadEverything],
   );
 
+  /**
+   * The PIN, checked on the device.
+   *
+   * Against the stored digest rather than the server, because the counter bills through power
+   * cuts and dead links and a lock that needs the network is a lock that can shut the shop out
+   * of its own till. An app upgraded from a build that predates the lock has nothing stored, so
+   * that one case falls back to the server once and stores a digest on the way through.
+   */
+  const unlock = useCallback(async (pin: string) => {
+    const known = await checkStoredPin(pin);
+    if (known === true) {
+      setLocked(false);
+      return;
+    }
+    if (known === false) throw new Error(t('login.wrongPin'));
+    const { token } = await api.login(pin);
+    await setToken(token);
+    await rememberPin(pin);
+    setLocked(false);
+  }, [t]);
+
   const signOut = useCallback(() => {
     void setToken(null);
+    void forgetPin();
     setSignedIn(false);
+    setLocked(true);
     resetDraft();
   }, [resetDraft]);
 
@@ -624,11 +668,11 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Shop>(
     () => ({
-      ready, serverUrl, signedIn, offline,
+      ready, serverUrl, signedIn, locked, offline,
       settings, bills, today, cart, cartTotal: billTotal(cart),
       customer, inactive, paidInput, printBalance, printBalanceTouched, note,
       lang, t, receiptLabels,
-      saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
+      saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setAllGiven,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
@@ -637,9 +681,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       saveSettings, forgetEverything, dataVersion,
     }),
     [
-      ready, serverUrl, signedIn, offline, settings, bills, today, cart,
+      ready, serverUrl, signedIn, locked, offline, settings, bills, today, cart,
       customer, inactive, paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
-      saveServerUrl, signIn, signOut, forgetServer, reload, refreshInactive,
+      saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setAllGiven,
       parked, newBill, switchBill, closeBill,

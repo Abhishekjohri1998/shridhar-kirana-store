@@ -1,6 +1,6 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
 import { lineAmount, money, round2 } from './money';
-import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, planInk } from './ink';
+import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkRowFit } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 import { pickLang } from './i18n';
@@ -195,14 +195,9 @@ export function buildReceipt(
     { t: 'item', no: labels.no, name: labels.item, amount: labels.price, indent: ITEM_HEAD_INDENT },
   );
 
-  // One scale for the whole slip. Worked out before any row is built, because it depends on
-  // every line at once: sizing each line to its own box made a short word print as large as a
-  // tall one.
-  const plan = planInk(
-    bill.lines.filter((l) => l.ink && l.ink.strokes.length > 0).map((l) => l.ink as Ink),
-    inkMaxWidth(paperProfile(settings.paper).dots),
-    INK_ROW_HEIGHT,
-  );
+  // Each hand-written line is fitted to its own row, so the slip reads as even lines rather
+  // than as writing of several different sizes drifting up and down. See inkRowFit.
+  const inkRoom = inkMaxWidth(paperProfile(settings.paper).dots);
 
   bill.lines.forEach((line, index) => {
     const shared = {
@@ -215,8 +210,9 @@ export function buildReceipt(
     };
     // Handwriting wins over the typed names: it is what the shopkeeper actually wrote.
     if (line.ink && line.ink.strokes.length > 0) {
+      const fit = inkRowFit(line.ink, inkRoom, INK_ROW_HEIGHT);
       rows.push({
-        t: 'ink', ink: line.ink, scale: plan.scale, originY: plan.originY,
+        t: 'ink', ink: line.ink, scale: fit.scale, originY: fit.originY,
         given: line.given === true, ...shared,
       });
     }

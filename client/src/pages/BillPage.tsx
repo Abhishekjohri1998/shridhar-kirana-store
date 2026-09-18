@@ -396,6 +396,8 @@ export function BillPage() {
           <ol className="slip-lines" ref={sheet} style={{ paddingBottom: tail }}>
             {shop.cart.map((line, index) => {
               const blank = !lineHasSomething(line);
+              // Written by default, typed when asked for -- see the mobile copy.
+              const isWriting = writing[line.itemId] ?? true;
               return (
                 <li
                   className="slip-line"
@@ -417,7 +419,7 @@ export function BillPage() {
                   <div className="slip-write">
                     {/* Typed by default, written when asked for: handwriting is one click away
                         and a line that already holds strokes opens as writing. */}
-                    {writing[line.itemId] ?? (line.ink != null) ? (
+                    {isWriting ? (
                       <>
                         <InkPad
                           ref={(handle) => { pads.current[line.itemId] = handle; }}
@@ -457,13 +459,13 @@ export function BillPage() {
                   {/* Swaps this one line between the two. */}
                   <button
                     className="slip-undo"
-                    aria-label={t('bill.handwriteLine', { n: index + 1 })}
-                    title={t('bill.handwriteLine', { n: index + 1 })}
-                    onClick={() => setWriting((w) => ({
-                      ...w, [line.itemId]: !(w[line.itemId] ?? (line.ink != null)),
-                    }))}
+                    aria-label={isWriting ? t('bill.typeLine', { n: index + 1 })
+                      : t('bill.handwriteLine', { n: index + 1 })}
+                    title={isWriting ? t('bill.typeLine', { n: index + 1 })
+                      : t('bill.handwriteLine', { n: index + 1 })}
+                    onClick={() => setWriting((w) => ({ ...w, [line.itemId]: !isWriting }))}
                   >
-                    {writing[line.itemId] ?? (line.ink != null) ? '⌨' : '✎'}
+                    {isWriting ? '⌨' : '✎'}
                   </button>
 
                   <span className="slip-price-tag" aria-hidden="true">{t('bill.price')}</span>

@@ -50,12 +50,37 @@ export function BillScreen() {
   const compact = width < 600;
   const [error, setError] = useState<string | null>(null);
   /** The bill just saved, so a copy can go to the customer while they are still standing here. */
+  /*
+   * Whether the keyboard was raised by a field on the slip itself.
+   *
+   * While it was, the foot gives its room to the item list -- the pay box, the note box and the
+   * heading come off, leaving the total and the two buttons. On a phone that is the difference
+   * between seeing the line being written and seeing none of the bill at all. It is tied to the
+   * focused field rather than simply to the keyboard so that typing *in* the note or the paid
+   * box can never hide the box being typed in.
+   */
+  const [typingInSlip, setTypingInSlip] = useState(false);
   const [justSaved, setJustSaved] = useState<Bill | null>(null);
+  /*
+   * The green "saved" note goes by itself; the red one does not.
+   *
+   * Neither used to. A bill that saved but failed to print left two banners stacked on the
+   * screen, about 150px of the item list, and nothing cleared either until the next print was
+   * attempted. A confirmation has done its job in a few seconds; a failure is telling the
+   * shopkeeper the paper never came out, so that one waits to be tapped away.
+   */
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showSaved = useCallback((bill: Bill | null) => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    setJustSaved(bill);
+    if (bill) savedTimer.current = setTimeout(() => setJustSaved(null), 4000);
+  }, []);
+  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
   /** Which parked bill is being thrown away, once it has something on it worth asking about. */
   const [closing, setClosing] = useState<string | null>(null);
   // Cleared when the shopkeeper moves to another bill: "Bill #14 saved" offering to share a
   // different bill's slip is worse than not offering at all.
-  useEffect(() => setJustSaved(null), [shop.activeDraftId]);
+  useEffect(() => showSaved(null), [shop.activeDraftId, showSaved]);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
@@ -112,6 +137,26 @@ export function BillScreen() {
     // row and finds it comfortably in view.
     wantFlip.current = true;
   }, []);
+
+  /**
+   * Put the row that just took focus where it can be seen.
+   *
+   * Nothing did this before: tapping a line far down the slip, or arriving at one with the
+   * action key, could leave the cursor in a box below the fold -- and once the keyboard is up
+   * there is less room than there was when the tap landed. Deferred a frame so the measurement
+   * is taken after the layout the keyboard caused, not before it.
+   */
+  const bringRowIntoView = useCallback((itemId: string) => {
+    setTimeout(() => {
+      const y = pageFlip({
+        rowTop: rowY.current[itemId] ?? 0,
+        rowHeight: rowH.current,
+        offset: offset.current,
+        viewport: viewport,
+      });
+      if (y != null) sheet.current?.scrollTo({ y, animated: true });
+    }, 120);
+  }, [viewport]);
 
   const turnPage = useCallback(() => {
     requestAnimationFrame(() => {
@@ -338,11 +383,14 @@ export function BillScreen() {
       for (const [id, text] of Object.entries(prev)) if (!gone.has(id)) left[id] = text;
       return left;
     });
-    setJustSaved(bill);
+    showSaved(bill);
     try {
       await printer.printBill(bill, shop.settings);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
+      // One banner, not two: this message already says the bill was saved, and the green note
+      // under it was only repeating the good half of the news.
+      showSaved(null);
       setError(t('bill.savedNotPrinted', { no: bill.no, reason }));
     }
   };
@@ -398,7 +446,7 @@ export function BillScreen() {
 
       <View style={styles.top}>
         <CustomerBar />
-        {error ? <ErrorText>{error}</ErrorText> : null}
+        {error ? <ErrorText onDismiss={() => setError(null)}>{error}</ErrorText> : null}
 
         {/* Offered here rather than only from History: the moment a customer asks for a copy is
             the moment they are still at the counter. */}
@@ -416,7 +464,7 @@ export function BillScreen() {
               }}
               style={styles.savedButton}
             />
-            <Pressable onPress={() => setJustSaved(null)} accessibilityLabel={t('common.close')}>
+            <Pressable onPress={() => showSaved(null)} accessibilityLabel={t('common.close')}>
               <Text style={styles.savedDismiss}>×</Text>
             </Pressable>
           </View>
@@ -463,6 +511,15 @@ export function BillScreen() {
 
           {shop.cart.map((line, index) => {
             const blank = !lineHasSomething(line);
+            /*
+             * Written by default, typed when asked for.
+             *
+             * Handwriting is how this slip was meant to be used and how the shop actually bills:
+             * a Kannada item name is quicker written than typed, and the counter went back to
+             * the pen within a week of typing becoming the default. Typing stays one tap away,
+             * per line, so a bill can still be half written and half typed.
+             */
+            const isWriting = writing[line.itemId] ?? true;
             return (
               <View
                 style={[styles.slipLine, compact && styles.slipLineCompact]}
@@ -493,15 +550,7 @@ export function BillScreen() {
                 </Pressable>
 
                 <View style={styles.slipWrite}>
-                  {/*
-                    * Typed by default, written when asked for.
-                    *
-                    * Handwriting was the founding idea of this slip, and it stays one tap away --
-                    * but with a Kannada keypad on the tablet, typing is quicker for most lines,
-                    * and a line that already holds strokes opens as writing so a parked bill
-                    * comes back the way it was left.
-                    */}
-                  {writing[line.itemId] ?? (line.ink != null) ? (
+                  {isWriting ? (
                     <>
                       <InkPad
                         ref={(handle) => { pads.current[line.itemId] = handle; }}
@@ -539,6 +588,8 @@ export function BillScreen() {
                       returnKeyType="next"
                       blurOnSubmit={false}
                       onSubmitEditing={() => goToNextName(index)}
+                      onFocus={() => { setTypingInSlip(true); bringRowIntoView(line.itemId); }}
+                      onBlur={() => setTypingInSlip(false)}
                     />
                   )}
                 </View>
@@ -546,14 +597,13 @@ export function BillScreen() {
                 {/* Swaps this one line between the two, and says which way it will go. */}
                 <Pressable
                   style={styles.colIcon}
-                  accessibilityLabel={t('bill.handwriteLine', { n: index + 1 })}
-                  onPress={() => setWriting((w) => ({
-                    ...w, [line.itemId]: !(w[line.itemId] ?? (line.ink != null)),
-                  }))}
+                  accessibilityLabel={
+                    isWriting ? t('bill.typeLine', { n: index + 1 })
+                      : t('bill.handwriteLine', { n: index + 1 })
+                  }
+                  onPress={() => setWriting((w) => ({ ...w, [line.itemId]: !isWriting }))}
                 >
-                  <Text style={styles.slipUndo}>
-                    {writing[line.itemId] ?? (line.ink != null) ? '⌨' : '✎'}
-                  </Text>
+                  <Text style={styles.slipUndo}>{isWriting ? '⌨' : '✎'}</Text>
                 </Pressable>
                 </View>
 
@@ -576,8 +626,12 @@ export function BillScreen() {
                   // raise it again -- a flicker on every single line.
                   blurOnSubmit={false}
                   onSubmitEditing={() => goToNextPrice(index)}
+                  onFocus={() => { setTypingInSlip(true); bringRowIntoView(line.itemId); }}
                   // The line is done; bring the fresh blank one into view.
-                  onBlur={() => { if (index >= shop.cart.length - 2) goToNewestLine(); }}
+                  onBlur={() => {
+                    setTypingInSlip(false);
+                    if (index >= shop.cart.length - 2) goToNewestLine();
+                  }}
                 />
 
                 <Pressable
@@ -625,6 +679,7 @@ export function BillScreen() {
         </View>
 
       <View style={styles.foot}>
+        {typingInSlip ? null : (
         <View style={styles.footHead}>
           <Text style={styles.footTitle}>{t('bill.currentBill')}</Text>
           {hasSomething ? (
@@ -633,8 +688,9 @@ export function BillScreen() {
             </Pressable>
           ) : null}
         </View>
+        )}
 
-        {shop.customer ? (
+        {shop.customer && !typingInSlip ? (
           <View style={styles.payBox}>
             <View style={styles.payRow}>
               <View style={{ flex: 1 }}>
@@ -673,6 +729,7 @@ export function BillScreen() {
 
         {/* The bill's own note. Outside the pay box on purpose: a walk-in cash sale is exactly
             the one that needs "to be collected Friday" written on it. */}
+        {typingInSlip ? null : (
         <View style={styles.noteBox}>
           <Text style={styles.payLabel}>{t('bill.note')}</Text>
           <TextInput
@@ -684,6 +741,7 @@ export function BillScreen() {
             onChangeText={shop.setNote}
           />
         </View>
+        )}
 
         {/* Without this line a TOTAL larger than the lines above has nothing explaining it. */}
         {carried > 0 ? (

@@ -1,8 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import { normaliseServerUrl, type Bill, type BillLine, type Customer, type Item, type Settings, type TodaySummary } from '@shridhar/shared';
+import { normaliseServerUrl, pinDigest, type Bill, type BillLine, type Customer, type Item, type Settings, type TodaySummary } from '@shridhar/shared';
 
 const TOKEN_KEY = 'shridhar.token';
+/*
+ * What the PIN is checked against when the app is opened again, and the per-device salt that
+ * makes it say nothing on its own. Kept beside the token because they are granted together: a
+ * session that has no token has nothing to unlock.
+ */
+const PIN_KEY = 'shridhar.pin';
+const SALT_KEY = 'shridhar.salt';
 const SERVER_KEY = 'shridhar.server';
 
 /**
@@ -56,6 +63,52 @@ export async function setServerUrl(raw: string): Promise<string> {
     /* it will just have to be entered again next launch */
   }
   return baseUrl;
+}
+
+/**
+ * Remember what the PIN was, without remembering the PIN.
+ *
+ * Called on a successful sign-in, when the server has just said the PIN is right -- so the
+ * digest can only ever be of a PIN the server accepted.
+ */
+export async function rememberPin(pin: string): Promise<void> {
+  try {
+    let salt = await AsyncStorage.getItem(SALT_KEY);
+    if (!salt) {
+      salt = String(Date.now()) + ':' + Math.random().toString(36).slice(2);
+      await AsyncStorage.setItem(SALT_KEY, salt);
+    }
+    await AsyncStorage.setItem(PIN_KEY, pinDigest(pin, salt));
+  } catch {
+    /* the lock simply falls back to asking the server */
+  }
+}
+
+/**
+ * Whether this is the PIN this device was signed in with.
+ *
+ * `null` means there is nothing stored to check against -- an app upgraded from a build that
+ * predates the lock -- and the caller should ask the server instead, which will store one.
+ */
+export async function checkStoredPin(pin: string): Promise<boolean | null> {
+  try {
+    const [salt, stored] = await Promise.all([
+      AsyncStorage.getItem(SALT_KEY),
+      AsyncStorage.getItem(PIN_KEY),
+    ]);
+    if (!salt || !stored) return null;
+    return pinDigest(pin, salt) === stored;
+  } catch {
+    return null;
+  }
+}
+
+export async function forgetPin(): Promise<void> {
+  try {
+    await AsyncStorage.multiRemove([PIN_KEY, SALT_KEY]);
+  } catch {
+    /* nothing to do */
+  }
 }
 
 export async function setToken(next: string | null): Promise<void> {

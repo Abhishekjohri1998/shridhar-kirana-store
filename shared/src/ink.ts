@@ -63,51 +63,54 @@ export function inkFit(ink: Ink, maxWidth: number, targetHeight: number): InkFit
   return { scale, w: drawnW * scale, h: drawnH * scale, box };
 }
 
-export type InkPlan = {
-  /** Multiply an ink coordinate by this to get output units. Shared by every line on a slip. */
-  scale: number;
-  /** Subtract this from a y before scaling, so every line sits on one baseline. */
-  originY: number;
-  /** Height of the tallest line once scaled, in output units. */
-  height: number;
-};
+/**
+ * How far a mark may be blown up beyond the size it was written at.
+ *
+ * Every line is fitted to its row, so a short mark would otherwise be magnified until it filled
+ * the row like a banner -- a stray dash becoming the largest thing on the bill.
+ *
+ * Writing that covers a quarter of the strip or more still fills its row exactly, which is what
+ * makes the lines even; below that it grows to this and stops, so a dash prints as a dash. Set
+ * from what the shop's own slips look like: a written item covers well over half the strip, and
+ * the marks that do not are the ones that should stay small.
+ */
+export const MAX_INK_UPSCALE = 4;
 
 /**
- * One scale and one baseline for every hand-written line on a slip.
+ * One line of handwriting, sized and trimmed to its own row.
  *
- * `inkFit` sizes a single piece of writing to fill the space it is given, which is right for a
- * thumbnail and wrong for a bill: fitting each line separately blew a short word like "1k" up to
- * the same height as one with an ascender, so nothing on the paper looked like it came from the
- * same hand. Sizing the whole slip together keeps the proportions the shopkeeper wrote.
+ * Every hand-written line on a slip used to share one scale and one vertical origin, taken from
+ * the union of all of them. It was meant to keep the shopkeeper's own proportions -- a short word
+ * staying short beside a tall one -- and on paper it read as raggedness: lines at visibly
+ * different sizes, and lines drifting down their row by however far the writing happened to sit
+ * below the top of the strip it was written on. The shop asked for even lines.
  *
- * The tallest line fills the row; the rest keep their true size against it. The vertical origin
- * is shared so the lines rest on a common baseline rather than each being trimmed to its own box.
+ * Fitting each line to its own box gives that, and fixes a fault that had nothing to do with
+ * taste: strokes are stored in the pixels of the strip they were written on, and that strip is
+ * not always the same size, so the same word printed a fifth larger when written on a roomier
+ * row. Scaling by the line's own height cancels the strip out -- twice the pixels, twice the
+ * measured height, the same dots on the paper.
  *
- * The gutter comes out of the width budget here, before a scale is chosen, rather than being
- * subtracted from the drawing afterwards -- otherwise the writing is sized to a space it no
- * longer has and a long line overruns the column.
+ * The gutter comes out of the width budget before a scale is chosen rather than being subtracted
+ * from the drawing afterwards; otherwise the writing is sized to a space it no longer has and a
+ * long line overruns the column.
  */
-export function planInk(inks: readonly Ink[], maxWidth: number, targetHeight: number): InkPlan {
-  let minY = Infinity;
-  let maxY = -Infinity;
-  let widest = 1;
-  for (const ink of inks) {
-    const box = inkBounds(ink);
-    if (box.minY < minY) minY = box.minY;
-    if (box.maxY > maxY) maxY = box.maxY;
-    widest = Math.max(widest, box.maxX - box.minX);
-  }
-  // No handwriting on the slip: the numbers still have to be finite for the callers.
-  if (!Number.isFinite(minY)) return { scale: 1, originY: 0, height: 0 };
-
-  const unionH = Math.max(1, maxY - minY);
-  // targetHeight is what the writing gets, not what the row is: the row is taller by the pen's
-  // overhang (INK_ROW_ADVANCE). Taking the overhang out of the writing instead made every slip's
-  // handwriting a little smaller, which the shop noticed. Width is different -- the column is a
-  // fixed width, so the gutter and the overhang genuinely come out of it.
+export function inkRowFit(
+  ink: Ink,
+  maxWidth: number,
+  targetHeight: number,
+): { scale: number; originY: number } {
+  const box = inkBounds(ink);
+  const drawnW = Math.max(1, box.maxX - box.minX);
+  const drawnH = Math.max(1, box.maxY - box.minY);
   const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
-  const scale = Math.min(targetHeight / unionH, roomW / widest);
-  return { scale, originY: minY, height: unionH * scale };
+  // What this writing would come to if the whole strip it was written on were the row. The same
+  // number whatever size that strip was, which is what makes it a fair ceiling.
+  const natural = targetHeight / Math.max(1, ink.h);
+  const scale = Math.min(targetHeight / drawnH, roomW / drawnW, natural * MAX_INK_UPSCALE);
+  // Its own top, not the slip's: this is what stops a line sitting low in its strip from
+  // printing low in its row.
+  return { scale, originY: box.minY };
 }
 
 /**

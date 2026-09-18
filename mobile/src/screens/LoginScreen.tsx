@@ -6,7 +6,14 @@ import { Button, ErrorText, Fade, Field } from '../components/ui';
 import { useShop } from '../lib/useShop';
 import { C, R, SP, TYPE, handFont, shadow } from '../theme';
 
-export function LoginScreen() {
+/**
+ * The PIN screen, in both of its jobs.
+ *
+ * `locked` is a session that is already signed in and only needs the PIN again -- the app was
+ * closed and reopened. It says so, because a shopkeeper who sees a login screen with a parked
+ * bill behind it needs to know the bill is still there.
+ */
+export function LoginScreen({ locked = false }: { locked?: boolean }) {
   const shop = useShop();
   const [pin, setPin] = useState('');
   const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
@@ -21,7 +28,8 @@ export function LoginScreen() {
     setBusy(true);
     setError(null);
     try {
-      await shop.signIn(pin.trim());
+      if (locked) await shop.unlock(pin.trim());
+      else await shop.signIn(pin.trim());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPin('');
@@ -38,7 +46,9 @@ export function LoginScreen() {
             <Mark size={46} color={C.accent} />
           </View>
           <Text style={[styles.title, handFont(shopName, 22)]}>{shopName}</Text>
-          <Text style={styles.lede}>{shop.t('login.prompt')}</Text>
+          <Text style={styles.lede}>
+            {locked ? shop.t('login.lockedPrompt') : shop.t('login.prompt')}
+          </Text>
 
           {error ? <ErrorText>{error}</ErrorText> : null}
 
@@ -52,7 +62,10 @@ export function LoginScreen() {
             onSubmitEditing={() => void submit()}
           />
           <Button
-            label={busy ? shop.t('login.checking') : shop.t('login.signIn')}
+            label={
+              busy ? shop.t('login.checking')
+                : (locked ? shop.t('login.unlock') : shop.t('login.signIn'))
+            }
             onPress={() => void submit()}
             disabled={busy}
           />
