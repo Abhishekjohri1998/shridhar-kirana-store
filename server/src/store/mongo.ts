@@ -91,6 +91,12 @@ const billSchema = new Schema<Bill>(
 billSchema.index({ at: -1 });
 billSchema.index({ 'customer.id': 1, no: -1 });
 
+/** Mongo's "that key is taken" -- error 11000, however the driver happens to wrap it. */
+function isDuplicateKey(err: unknown): boolean {
+  const code = (err as { code?: unknown })?.code;
+  return code === 11000 || code === 11001;
+}
+
 const customerSchema = new Schema<CustomerDoc>(
   {
     id: { type: String, required: true, unique: true, index: true },
@@ -468,7 +474,18 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         billCount: 0,
         lastVisit: null,
       };
-      await Customers.create(fresh);
+      try {
+        await Customers.create(fresh);
+      } catch (err) {
+        // A customer that already holds this id. It should not happen now that the id carries
+        // the whole clock and six random characters, but a save that fails is a customer the
+        // shop cannot write down -- so it is worth one more try with a fresh id rather than a
+        // 500 at the counter. Only for a duplicate key; anything else is a real fault and is
+        // thrown on.
+        if (!isDuplicateKey(err)) throw err;
+        fresh.id = makeCustomerId(name || (nameKn ?? ''), digits);
+        await Customers.create(fresh);
+      }
       return toCustomer(fresh);
     },
 

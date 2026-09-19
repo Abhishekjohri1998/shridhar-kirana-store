@@ -183,6 +183,16 @@ export function BillScreen() {
   });
 
   /**
+   * The field to put the cursor in once the row holding it has been rendered.
+   *
+   * Two things make the wanted box absent at the moment it is asked for: typing on the last
+   * line is what brings the next blank one into being, and while a line is being worked on it
+   * is the only one on the slip. Both land after this render, so the wish is remembered by id
+   * and granted by the effect below -- the same shape as wantFlip.
+   */
+  const wantFocus = useRef<{ id: string; kind: 'name' | 'price' } | null>(null);
+
+  /**
    * Price entered, on to the next one.
    *
    * A bill is written-then-priced, written-then-priced, and reaching across the row for each
@@ -193,6 +203,11 @@ export function BillScreen() {
   const goToNextPrice = useCallback((index: number) => {
     const next = shop.cart[index + 1];
     if (!next) {
+      // The last line: pricing it is what brings the next blank one into being, and that lands
+      // after this. Ask for the newest line's price box and the effect below grants it once the
+      // row exists. Scrolling alone was enough when every row was on screen; now that only the
+      // line in hand is shown, nothing appeared at all and the action key looked broken.
+      wantFocus.current = { id: '', kind: 'price' };
       goToNewestLine();
       return;
     }
@@ -213,16 +228,6 @@ export function BillScreen() {
    * that lands after this. So the wanted row is remembered by id and focused once it exists --
    * the same shape as wantFlip above, for the same reason.
    */
-  /**
-   * The field to put the cursor in once the row holding it has been rendered.
-   *
-   * Two things make the wanted box absent at the moment it is asked for: typing on the last
-   * line is what brings the next blank one into being, and while a line is being worked on it
-   * is the only one on the slip. Both land after this render, so the wish is remembered by id
-   * and granted by the effect below -- the same shape as wantFlip.
-   */
-  const wantFocus = useRef<{ id: string; kind: 'name' | 'price' } | null>(null);
-
   const goToNextName = useCallback((index: number) => {
     // Down to the next line there is something to type in. A hand-written line has no box at
     // all, so stopping at it left the cursor waiting for a field that would never appear and

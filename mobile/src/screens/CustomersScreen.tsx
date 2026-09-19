@@ -332,17 +332,20 @@ export function CustomersScreen() {
                 as it ends up here, and typing English still finds it either way. */}
             <ScriptField
               key={draft.id ?? 'new'}
-              label={t('cs.name')}
+              label={t('cs.name') + ' *'}
               value={draft.name}
               onChange={(name) => setDraft((d) => (d ? { ...d, name } : d))}
             />
             {/* Typed on a Kannada keypad. Either box will do, and whichever is filled is what
                 shows -- so a customer entered before this existed needs no revisiting. */}
             <Field
-              label={t('cs.nameKn')}
+              label={t('cs.nameKn') + ' *'}
               value={draft.nameKn}
               onChangeText={(nameKn) => setDraft((d) => (d ? { ...d, nameKn } : d))}
             />
+            {/* Either name box will do -- the star is on both because one of them is needed,
+                and a customer with neither is a row nobody can find again. */}
+            <Text style={styles.needName}>{t('cs.needName')}</Text>
             <Field
               label={t('cs.phone')}
               value={draft.phone}
@@ -404,5 +407,6 @@ const styles = StyleSheet.create({
   right: { alignItems: 'flex-end' },
   name: { fontSize: 16, fontWeight: '700', color: C.ink },
   small: { fontSize: 12, color: C.soft, marginTop: 2, lineHeight: 18 },
+  needName: { fontSize: 12, color: C.soft, marginTop: -4, marginBottom: 10, lineHeight: 17 },
   empty: { color: C.soft, textAlign: 'center', paddingVertical: 18 },
 });

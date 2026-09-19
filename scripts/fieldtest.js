@@ -448,7 +448,12 @@ check('spaces in a number are stripped',
 check('punctuation and the country code both come off',
   F.checkCustomer('R', '+91-98860-12345').phone === '9886012345',
   F.checkCustomer('R', '+91-98860-12345').phone);
-check('a too-short number is refused', !F.checkCustomer('R', '123').ok);
+// No floor any more, at the shop's asking: a half-typed number was being refused while the
+// customer stood at the counter, and how short is too short is theirs to judge.
+check('a short number is kept, not refused', F.checkCustomer('R', '123').ok);
+check('and it is kept as typed', F.checkCustomer('R', '123').phone === '123');
+check('a repeated digit is still caught once it is long enough',
+  !F.checkCustomer('R', '999999').ok);
 check('a too-long number is refused', !F.checkCustomer('R', '1234567890123456').ok);
 check('a letters-only number is refused as blank-with-no-name', !F.checkCustomer('', 'abcd').ok);
 check('an over-long name is refused', !F.checkCustomer('x'.repeat(81), '').ok);

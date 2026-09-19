@@ -234,12 +234,19 @@ export function checkCustomer(rawName: string, rawPhone: string, rawNameKn = '')
   if (name.length > 80 || nameKn.length > 80) {
     return { ok: false, error: 'That name is too long (80 characters).' };
   }
-  // Indian mobiles are ten digits. Shorter is accepted down to six for a landline, but not so
-  // short that it cannot be dialled.
-  if (phone.length > 0 && (phone.length < 6 || phone.length > 15)) {
+  /*
+   * Only an upper bound.
+   *
+   * There used to be a floor of six digits, on the reasoning that anything shorter cannot be
+   * dialled. At the counter it meant a half-typed number was refused while the customer stood
+   * there, and the shop asked for it to go: a short number is theirs to judge, not the till's.
+   * What is still refused is a number too long to be one, and a number that is one digit over
+   * and over, which is what a leaning finger produces.
+   */
+  if (phone.length > 15) {
     return { ok: false, error: 'That phone number does not look right — check the digits.' };
   }
-  if (phone.length > 0 && new Set(phone).size === 1) {
+  if (phone.length >= 6 && new Set(phone).size === 1) {
     return { ok: false, error: 'That phone number is the same digit repeated — check it.' };
   }
   return { ok: true, name, nameKn, phone };

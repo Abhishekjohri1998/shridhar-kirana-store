@@ -99,12 +99,25 @@ export function dayBounds(now = new Date()): { start: Date; end: Date } {
 
 
 
-/** Readable ids, so the data stays legible if anyone looks at the collection directly. */
+/**
+ * Readable ids, so the data stays legible if anyone looks at the collection directly.
+ *
+ * The suffix used to be the last four base-36 characters of the clock, which repeat every
+ * 36^4 milliseconds -- about twenty-eight minutes. A customer saved with no phone number drew
+ * from that, and one with no English name had no slug either, so every such customer was
+ * `customer-XXXX` out of the same small space. Two of them landing on the same id is rejected by
+ * the unique index, and what the shop saw was "Something went wrong on the server" when they
+ * tried to save a customer with a Kannada name and no phone.
+ *
+ * The whole timestamp, and randomness after it. Still legible, and no longer a lottery.
+ */
 export function makeCustomerId(name: string, phone: string): string {
   const digits = normalisePhone(phone);
   if (digits) return 'p' + digits;
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return (slug || 'customer') + '-' + Date.now().toString(36).slice(-4);
+  const stamp = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return (slug || 'customer') + '-' + stamp + rand;
 }
 
 export function customerBalance(c: { totalBilled: number; totalPaid: number }): number {

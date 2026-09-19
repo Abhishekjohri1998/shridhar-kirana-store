@@ -675,6 +675,26 @@ async function main() {
     eq('the id is derived from the number', created.body.id, 'p9886012345');
     eq('a new customer starts settled', created.body.balance, 0);
 
+    /*
+     * What the shop hit: "Something went wrong on the server" when saving a customer with no
+     * phone number, and more often still with a Kannada name and no phone. The id fell back to
+     * the last four base-36 characters of the clock, which come round again every twenty-eight
+     * minutes -- and with no English name there was no slug either, so every such customer was
+     * `customer-XXXX` out of that same small space. A collision is refused by the unique index
+     * and reaches the counter as a 500.
+     */
+    const noPhone = [];
+    for (let i = 0; i < 12; i += 1) {
+      const made = await post('/api/customers', { name: '', nameKn: 'ಗ್ರಾಹಕ ' + i, phone: '' });
+      eq('a customer with a Kannada name and no phone saves (' + i + ')', made.status, 201);
+      noPhone.push(made.body.id);
+    }
+    check('and every one of them got an id of its own',
+      new Set(noPhone).size === noPhone.length, noPhone.join(', '));
+    const shortPhone = await post('/api/customers', { name: 'Short', phone: '123' });
+    eq('a short number is accepted rather than refused', shortPhone.status, 201);
+    eq('and kept as typed', shortPhone.body.phone, '123');
+
     const again = await post('/api/customers', { name: 'Ramesh Kumar', phone: '9886012345' });
     eq('the same number is the same person, not a second record', again.body.id, created.body.id);
     eq('and their name is updated', again.body.name, 'Ramesh Kumar');
