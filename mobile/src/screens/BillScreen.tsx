@@ -51,15 +51,35 @@ export function BillScreen() {
   const [error, setError] = useState<string | null>(null);
   /** The bill just saved, so a copy can go to the customer while they are still standing here. */
   /*
-   * Whether the keyboard was raised by a field on the slip itself.
+   * The line being worked on, and while there is one the slip shows only that line.
    *
-   * While it was, the foot gives its room to the item list -- the pay box, the note box and the
-   * heading come off, leaving the total and the two buttons. On a phone that is the difference
-   * between seeing the line being written and seeing none of the bill at all. It is tied to the
-   * focused field rather than simply to the keyboard so that typing *in* the note or the paid
-   * box can never hide the box being typed in.
+   * The keyboard takes half the glass, and on the shop's own tablet that left the bill with
+   * nowhere to be: first the rows were squeezed to nothing, then an attempt to argue with the
+   * window made it worse. The shopkeeper's own answer was the simple one -- while a price or an
+   * item is being entered, the only line that matters is that one. So the rest step aside, the
+   * foot gives up the pay and note boxes, and what is left is the line being written, large and
+   * alone, well clear of the keyboard.
+   *
+   * Everything comes back the moment the field is left.
    */
-  const [typingInSlip, setTypingInSlip] = useState(false);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const typingInSlip = focusedId != null;
+  /*
+   * Moving from one field to the next blurs before it focuses, and letting that blur through
+   * would flash the whole bill back for a frame between every line. So a blur only counts if
+   * nothing else has taken focus by the next tick.
+   */
+  const blurring = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusRow = useCallback((itemId: string) => {
+    if (blurring.current) clearTimeout(blurring.current);
+    setFocusedId(itemId);
+  }, []);
+  const blurRow = useCallback(() => {
+    if (blurring.current) clearTimeout(blurring.current);
+    blurring.current = setTimeout(() => setFocusedId(null), 80);
+  }, []);
+  useEffect(() => () => { if (blurring.current) clearTimeout(blurring.current); }, []);
+
   const [justSaved, setJustSaved] = useState<Bill | null>(null);
   /*
    * The green "saved" note goes by itself; the red one does not.
@@ -138,26 +158,6 @@ export function BillScreen() {
     wantFlip.current = true;
   }, []);
 
-  /**
-   * Put the row that just took focus where it can be seen.
-   *
-   * Nothing did this before: tapping a line far down the slip, or arriving at one with the
-   * action key, could leave the cursor in a box below the fold -- and once the keyboard is up
-   * there is less room than there was when the tap landed. Deferred a frame so the measurement
-   * is taken after the layout the keyboard caused, not before it.
-   */
-  const bringRowIntoView = useCallback((itemId: string) => {
-    setTimeout(() => {
-      const y = pageFlip({
-        rowTop: rowY.current[itemId] ?? 0,
-        rowHeight: rowH.current,
-        offset: offset.current,
-        viewport: viewport,
-      });
-      if (y != null) sheet.current?.scrollTo({ y, animated: true });
-    }, 120);
-  }, [viewport]);
-
   const turnPage = useCallback(() => {
     requestAnimationFrame(() => {
       const cart = shop.cart;
@@ -192,10 +192,17 @@ export function BillScreen() {
    */
   const goToNextPrice = useCallback((index: number) => {
     const next = shop.cart[index + 1];
-    const field = next ? prices.current[next.itemId] : null;
+    if (!next) {
+      goToNewestLine();
+      return;
+    }
+    // Named first: while a line is being worked on it is the only one rendered, so the box
+    // being moved to does not exist until this has gone through a render.
+    focusRow(next.itemId);
+    const field = prices.current[next.itemId];
     if (field) field.focus();
-    else goToNewestLine();
-  }, [shop.cart, goToNewestLine]);
+    else wantFocus.current = { id: next.itemId, kind: 'price' };
+  }, [shop.cart, goToNewestLine, focusRow]);
 
   /**
    * Item entered, on to the next item -- never to the price beside it.
@@ -206,33 +213,51 @@ export function BillScreen() {
    * that lands after this. So the wanted row is remembered by id and focused once it exists --
    * the same shape as wantFlip above, for the same reason.
    */
-  const wantName = useRef<string | null>(null);
+  /**
+   * The field to put the cursor in once the row holding it has been rendered.
+   *
+   * Two things make the wanted box absent at the moment it is asked for: typing on the last
+   * line is what brings the next blank one into being, and while a line is being worked on it
+   * is the only one on the slip. Both land after this render, so the wish is remembered by id
+   * and granted by the effect below -- the same shape as wantFlip.
+   */
+  const wantFocus = useRef<{ id: string; kind: 'name' | 'price' } | null>(null);
 
   const goToNextName = useCallback((index: number) => {
     // Down to the next line there is something to type in. A hand-written line has no box at
     // all, so stopping at it left the cursor waiting for a field that would never appear and
     // the shopkeeper stuck on the line above it.
     for (let i = index + 1; i < shop.cart.length; i += 1) {
-      const field = names.current[shop.cart[i]!.itemId];
-      if (field) {
-        field.focus();
-        return;
-      }
+      const next = shop.cart[i]!;
+      // A line that is currently rendered says whether it has a box; one that is not is judged
+      // by the same rule the row itself uses.
+      const mounted = names.current[next.itemId];
+      const typeable = mounted != null || !(writing[next.itemId] ?? true);
+      if (!typeable) continue;
+      focusRow(next.itemId);
+      if (mounted) mounted.focus();
+      else wantFocus.current = { id: next.itemId, kind: 'name' };
+      return;
     }
     // Nothing typeable below: this typing has just earned a fresh blank line, which does not
     // exist yet and has no id to ask for. The slip always keeps one, and it is always a box.
-    wantName.current = '';
+    wantFocus.current = { id: '', kind: 'name' };
     goToNewestLine();
-  }, [shop.cart, goToNewestLine]);
+  }, [shop.cart, goToNewestLine, focusRow, writing]);
 
   useEffect(() => {
-    const wanted = wantName.current;
-    if (wanted == null) return;
+    const wanted = wantFocus.current;
+    if (!wanted) return;
     // '' means "whichever line is newest", which is the one the typing brought into being.
-    const target = wanted === '' ? shop.cart[shop.cart.length - 1]?.itemId : wanted;
-    const field = target ? names.current[target] : null;
-    if (!field) return;
-    wantName.current = null;
+    const target = wanted.id === '' ? shop.cart[shop.cart.length - 1]?.itemId : wanted.id;
+    if (!target) return;
+    const field = wanted.kind === 'price' ? prices.current[target] : names.current[target];
+    if (!field) {
+      // It will exist once the row showing it is on screen; say which row that is.
+      if (focusedId !== target) focusRow(target);
+      return;
+    }
+    wantFocus.current = null;
     field.focus();
   });
 
@@ -501,7 +526,9 @@ export function BillScreen() {
             style={styles.sheet}
             contentContainerStyle={[
               styles.sheetContent,
-              { paddingBottom: 8 + slipTailPadding(viewport, rowH.current) },
+              // The tail exists so the last line can be scrolled up the page. With one line
+              // showing there is nothing to scroll, and the tail would be a screen of blank.
+              { paddingBottom: 8 + (typingInSlip ? 0 : slipTailPadding(viewport, rowH.current)) },
             ]}
             keyboardShouldPersistTaps="handled"
             onLayout={(e) => setViewport(Math.round(e.nativeEvent.layout.height))}
@@ -509,7 +536,15 @@ export function BillScreen() {
             scrollEventThrottle={16}
           >
 
-          {shop.cart.map((line, index) => {
+          {/*
+            * While a line is being worked on it is the only one on the slip. `index` is still
+            * its place in the whole bill, because that is what every mutator is keyed by and
+            * what prints as the line number.
+            */}
+          {shop.cart
+            .map((line, index) => ({ line, index }))
+            .filter(({ line }) => focusedId == null || line.itemId === focusedId)
+            .map(({ line, index }) => {
             const blank = !lineHasSomething(line);
             /*
              * Written by default, typed when asked for.
@@ -588,8 +623,8 @@ export function BillScreen() {
                       returnKeyType="next"
                       blurOnSubmit={false}
                       onSubmitEditing={() => goToNextName(index)}
-                      onFocus={() => { setTypingInSlip(true); bringRowIntoView(line.itemId); }}
-                      onBlur={() => setTypingInSlip(false)}
+                      onFocus={() => focusRow(line.itemId)}
+                      onBlur={blurRow}
                     />
                   )}
                 </View>
@@ -626,10 +661,10 @@ export function BillScreen() {
                   // raise it again -- a flicker on every single line.
                   blurOnSubmit={false}
                   onSubmitEditing={() => goToNextPrice(index)}
-                  onFocus={() => { setTypingInSlip(true); bringRowIntoView(line.itemId); }}
+                  onFocus={() => focusRow(line.itemId)}
                   // The line is done; bring the fresh blank one into view.
                   onBlur={() => {
-                    setTypingInSlip(false);
+                    blurRow();
                     if (index >= shop.cart.length - 2) goToNewestLine();
                   }}
                 />
@@ -659,7 +694,7 @@ export function BillScreen() {
 
           {/* Under the last line, because it is about all of them. The same button undoes
               itself, and says which way it will go rather than leaving it to be guessed. */}
-          {written.length > 0 ? (
+          {written.length > 0 && !typingInSlip ? (
             <Pressable
               style={styles.selectAll}
               onPress={() => shop.setAllGiven(!allGiven)}
