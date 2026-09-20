@@ -554,7 +554,7 @@ export function BillScreen() {
               styles.sheetContent,
               // The tail exists so the last line can be scrolled up the page. With one line
               // showing there is nothing to scroll, and the tail would be a screen of blank.
-              { paddingBottom: 8 + (typingInSlip ? 0 : slipTailPadding(viewport, rowH.current)) },
+              { paddingBottom: 8 + slipTailPadding(viewport, rowH.current) },
             ]}
             keyboardShouldPersistTaps="handled"
             onLayout={(e) => setViewport(Math.round(e.nativeEvent.layout.height))}
@@ -712,7 +712,10 @@ export function BillScreen() {
 
           {/* Under the last line, because it is about all of them. The same button undoes
               itself, and says which way it will go rather than leaving it to be guessed. */}
-          {written.length > 0 && !typingInSlip ? (
+          {/* Part of the list, so it stays put whatever has focus. Hiding it while a field
+              was active was left over from the one-line view, and made "tick every item"
+              disappear at the moment the shopkeeper reached for it. */}
+          {written.length > 0 ? (
             <Pressable
               style={styles.selectAll}
               onPress={() => shop.setAllGiven(!allGiven)}
