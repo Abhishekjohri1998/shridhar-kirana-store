@@ -635,6 +635,14 @@ eqs('the last row that fits leaves it alone too', flip({ ...page, rowTop: 400 })
 eqs('one pixel past the fold turns the page', flip({ ...page, rowTop: 401 }), 401);
 eqs('and the row lands at the top, not one row up', flip({ ...page, rowTop: 900 }), 900);
 eqs('a row scrolled off the top comes back', flip({ ...page, offset: 600, rowTop: 300 }), 300);
+/*
+ * What the bill screen now leans on. Scrolling is driven only by a row taking focus -- leaving
+ * a field moves nothing -- so a row the shopkeeper has scrolled to and tapped has to be left
+ * exactly where they put it. Before, the price box scrolled to the newest line as it was left,
+ * and dragging up from line 27 towards line 2 was undone under their finger.
+ */
+eqs('tapping a row already on screen does not move the page',
+  flip({ ...page, offset: 300, rowTop: 350 }), null);
 eqs('the first row never scrolls above the slip', flip({ ...page, offset: 50, rowTop: 0 }), 0);
 eqs('nothing measured yet, nothing moves', flip({ rowTop: 900, rowHeight: 0, offset: 0, viewport: 500 }), null);
 eqs('no viewport either', flip({ rowTop: 900, rowHeight: 100, offset: 0, viewport: 0 }), null);

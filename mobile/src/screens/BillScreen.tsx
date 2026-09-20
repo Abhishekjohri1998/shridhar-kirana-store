@@ -182,87 +182,108 @@ export function BillScreen() {
     turnPage();
   });
 
-  /**
-   * The field to put the cursor in once the row holding it has been rendered.
+  /*
+   * Arriving at a line brings it into view; leaving one never moves the page.
    *
-   * Two things make the wanted box absent at the moment it is asked for: typing on the last
-   * line is what brings the next blank one into being, and while a line is being worked on it
-   * is the only one on the slip. Both land after this render, so the wish is remembered by id
-   * and granted by the effect below -- the same shape as wantFlip.
+   * That division is the whole of being able to read the bill again. Scrolling used to be
+   * driven from the price box's onBlur, so tapping out at line 27 and dragging up towards line
+   * 2 was undone a moment later. Now the only thing that scrolls is a row taking focus -- by
+   * tap, or by the action key walking down the column -- and a row already in view is left
+   * where it is, because pageFlip answers null for one that does not need moving.
+   *
+   * Deferred, so the measurement is taken after the layout the keyboard caused rather than
+   * before it.
    */
-  const wantFocus = useRef<{ id: string; kind: 'name' | 'price' } | null>(null);
+  useEffect(() => {
+    if (!focusedId) return undefined;
+    const id = setTimeout(() => {
+      const y = pageFlip({
+        rowTop: rowY.current[focusedId] ?? 0,
+        rowHeight: rowH.current,
+        offset: offset.current,
+        viewport,
+      });
+      if (y != null) sheet.current?.scrollTo({ y, animated: true });
+    }, 120);
+    return () => clearTimeout(id);
+  }, [focusedId, viewport]);
+
+  /**
+   * The field to put the cursor in once the row holding it exists.
+   *
+   * Only one thing still needs this: typing on the last line is what brings the next blank one
+   * into being, and that lands after the key has been pressed. `from` is the line that asked --
+   * without it, a last line with nothing on it appends nothing, `the newest line` resolves to
+   * the asker itself, and the cursor jumps back into the box it came from.
+   *
+   * The wish is a ref, so every path that sets one must also change some state, or nothing
+   * renders and the effect below never runs. That was the whole of "the action key does
+   * nothing": `blurOnSubmit` is false, so pressing it does not even blur.
+   */
+  const wantFocus = useRef<{ id: string; from: string; kind: 'name' | 'price' } | null>(null);
 
   /**
    * Price entered, on to the next one.
    *
    * A bill is written-then-priced, written-then-priced, and reaching across the row for each
-   * price box in turn is the friction that makes forty items feel like forty tasks. The action
-   * key moves to the line below instead; on the last line there is nothing below yet, so the
-   * fresh blank one is simply scrolled into view.
+   * price box in turn is the friction that makes forty items feel like forty tasks.
    */
   const goToNextPrice = useCallback((index: number) => {
+    const here = shop.cart[index];
     const next = shop.cart[index + 1];
-    if (!next) {
-      // The last line: pricing it is what brings the next blank one into being, and that lands
-      // after this. Ask for the newest line's price box and the effect below grants it once the
-      // row exists. Scrolling alone was enough when every row was on screen; now that only the
-      // line in hand is shown, nothing appeared at all and the action key looked broken.
-      wantFocus.current = { id: '', kind: 'price' };
-      goToNewestLine();
+    if (next) {
+      const field = prices.current[next.itemId];
+      focusRow(next.itemId);
+      if (field) field.focus();
+      else wantFocus.current = { id: next.itemId, from: here?.itemId ?? '', kind: 'price' };
       return;
     }
-    // Named first: while a line is being worked on it is the only one rendered, so the box
-    // being moved to does not exist until this has gone through a render.
-    focusRow(next.itemId);
-    const field = prices.current[next.itemId];
-    if (field) field.focus();
-    else wantFocus.current = { id: next.itemId, kind: 'price' };
+    // The last line. Pricing it is what earns the next blank one, and that arrives after this.
+    wantFocus.current = { id: '', from: here?.itemId ?? '', kind: 'price' };
+    goToNewestLine();
   }, [shop.cart, goToNewestLine, focusRow]);
 
   /**
-   * Item entered, on to the next item -- never to the price beside it.
+   * Item entered, on to the next item -- never across to the price beside it.
    *
-   * The shop writes the whole list first and prices it afterwards, so the action key on a
-   * description goes down the column, the way the price key already goes down its own. On the
-   * last line there is no next row yet: typing a name is what makes the blank one appear, and
-   * that lands after this. So the wanted row is remembered by id and focused once it exists --
-   * the same shape as wantFlip above, for the same reason.
+   * The shop writes the whole list first and prices it afterwards, so the two columns stay
+   * separate. Handwriting is the default, so the line below is usually a writing strip with no
+   * box to type in: a shopkeeper who is typing means to carry on typing, so the line being
+   * moved to is switched to typing as the cursor arrives. A line nobody hops into still opens
+   * as handwriting.
    */
   const goToNextName = useCallback((index: number) => {
-    // Down to the next line there is something to type in. A hand-written line has no box at
-    // all, so stopping at it left the cursor waiting for a field that would never appear and
-    // the shopkeeper stuck on the line above it.
-    for (let i = index + 1; i < shop.cart.length; i += 1) {
-      const next = shop.cart[i]!;
-      // A line that is currently rendered says whether it has a box; one that is not is judged
-      // by the same rule the row itself uses.
-      const mounted = names.current[next.itemId];
-      const typeable = mounted != null || !(writing[next.itemId] ?? true);
-      if (!typeable) continue;
+    const here = shop.cart[index];
+    const next = shop.cart[index + 1];
+    if (next) {
+      setWriting((w) => (w[next.itemId] === false ? w : { ...w, [next.itemId]: false }));
       focusRow(next.itemId);
-      if (mounted) mounted.focus();
-      else wantFocus.current = { id: next.itemId, kind: 'name' };
+      const field = names.current[next.itemId];
+      if (field) field.focus();
+      else wantFocus.current = { id: next.itemId, from: here?.itemId ?? '', kind: 'name' };
       return;
     }
-    // Nothing typeable below: this typing has just earned a fresh blank line, which does not
-    // exist yet and has no id to ask for. The slip always keeps one, and it is always a box.
-    wantFocus.current = { id: '', kind: 'name' };
+    wantFocus.current = { id: '', from: here?.itemId ?? '', kind: 'name' };
     goToNewestLine();
-  }, [shop.cart, goToNewestLine, focusRow, writing]);
+  }, [shop.cart, goToNewestLine, focusRow]);
 
   useEffect(() => {
     const wanted = wantFocus.current;
     if (!wanted) return;
-    // '' means "whichever line is newest", which is the one the typing brought into being.
+    // '' means "whichever line is newest", which is the one the typing brought into being. If
+    // that is still the line that asked, nothing was added yet and there is nowhere to go.
     const target = wanted.id === '' ? shop.cart[shop.cart.length - 1]?.itemId : wanted.id;
-    if (!target) return;
-    const field = wanted.kind === 'price' ? prices.current[target] : names.current[target];
-    if (!field) {
-      // It will exist once the row showing it is on screen; say which row that is.
-      if (focusedId !== target) focusRow(target);
+    if (!target || target === wanted.from) {
+      wantFocus.current = null;
       return;
     }
+    if (wanted.kind === 'name') {
+      setWriting((w) => (w[target] === false ? w : { ...w, [target]: false }));
+    }
+    const field = wanted.kind === 'price' ? prices.current[target] : names.current[target];
+    if (!field) return;
     wantFocus.current = null;
+    focusRow(target);
     field.focus();
   });
 
@@ -541,15 +562,7 @@ export function BillScreen() {
             scrollEventThrottle={16}
           >
 
-          {/*
-            * While a line is being worked on it is the only one on the slip. `index` is still
-            * its place in the whole bill, because that is what every mutator is keyed by and
-            * what prints as the line number.
-            */}
-          {shop.cart
-            .map((line, index) => ({ line, index }))
-            .filter(({ line }) => focusedId == null || line.itemId === focusedId)
-            .map(({ line, index }) => {
+          {shop.cart.map((line, index) => {
             const blank = !lineHasSomething(line);
             /*
              * Written by default, typed when asked for.
@@ -668,10 +681,10 @@ export function BillScreen() {
                   onSubmitEditing={() => goToNextPrice(index)}
                   onFocus={() => focusRow(line.itemId)}
                   // The line is done; bring the fresh blank one into view.
-                  onBlur={() => {
-                    blurRow();
-                    if (index >= shop.cart.length - 2) goToNewestLine();
-                  }}
+                  // Leaving a field never moves the page. It used to turn to the newest line,
+                  // which meant tapping out at line 27 and dragging up towards line 2 was
+                  // undone under the shopkeeper's finger about eighty milliseconds later.
+                  onBlur={blurRow}
                 />
 
                 <Pressable
