@@ -406,14 +406,24 @@ export function BillScreen() {
     }
   };
 
-  const onPrint = async () => {
+  /**
+   * Record the bill. Everything both buttons do before they part company.
+   *
+   * Saving and printing were one handler until the shop asked for a bill they could write down
+   * without putting it on paper. The split is exactly where it always was: this ends with the
+   * bill on the server and the green note on screen, and the printer is the caller's business.
+   *
+   * Returns null when it stopped early -- a paid figure that does not add up, a customer that
+   * would not save, a commit the server refused -- and the reason is already on screen by then.
+   */
+  const commitCurrentBill = async (): Promise<Bill | null> => {
     setError(null);
     if (!paidCheck.ok) {
       setError(paidCheck.error);
-      return;
+      return null;
     }
     const attached = await attachTypedCustomer();
-    if (!attached.ok) return;
+    if (!attached.ok) return null;
     let bill: Bill;
     try {
       bill = await shop.commitBill({
@@ -423,18 +433,41 @@ export function BillScreen() {
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      return;
+      return null;
     }
-    const printed = bill;
+    const saved = bill;
     // Only this bill's lines: the map is keyed by line id and shared with the bills still
     // parked, so wiping it wholesale would blank their half-typed prices too.
     setPriceText((prev) => {
-      const gone = new Set(printed.lines.map((l) => l.itemId));
+      const gone = new Set(saved.lines.map((l) => l.itemId));
       const left: Record<string, string> = {};
       for (const [id, text] of Object.entries(prev)) if (!gone.has(id)) left[id] = text;
       return left;
     });
     showSaved(bill);
+    return bill;
+  };
+
+  /*
+   * Saving does not touch the printer, so it must not wait on it: `printer.busy` covers
+   * printing and sharing alike, and a bill being shared is no reason to refuse to write one
+   * down. Its own flag, only so a second tap cannot commit the same bill twice.
+   */
+  const [saving, setSaving] = useState(false);
+
+  const onSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await commitCurrentBill();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onPrint = async () => {
+    const bill = await commitCurrentBill();
+    if (!bill) return;
     try {
       await printer.printBill(bill, shop.settings);
     } catch (e) {
@@ -823,8 +856,17 @@ export function BillScreen() {
             style={{ flex: 1 }}
             onPress={() => setPreview(draft())}
           />
+          {/* The bill written down without going to paper. The icons sit beside the words
+              rather than inside them, so Kannada keeps its own label. */}
           <Button
-            label={printer.busy ? t('bill.printing') : t('bill.print')}
+            label={'📂 ' + t('common.save')}
+            tone="plain"
+            disabled={!hasSomething || saving}
+            style={{ flex: 1 }}
+            onPress={() => void onSave()}
+          />
+          <Button
+            label={'🖨️ ' + (printer.busy ? t('bill.printing') : t('bill.print'))}
             disabled={!hasSomething || printer.busy}
             style={{ flex: 1.4 }}
             onPress={() => void onPrint()}

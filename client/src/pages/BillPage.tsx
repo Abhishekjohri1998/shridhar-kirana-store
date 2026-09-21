@@ -276,14 +276,17 @@ export function BillPage() {
     }
   };
 
-  const onPrint = async () => {
+  /**
+   * Record the bill. Everything both buttons do before they part company. See the phone's copy.
+   */
+  const commitCurrentBill = async (): Promise<Bill | null> => {
     setError(null);
     if (!paidCheck.ok) {
       setError(paidCheck.error);
-      return;
+      return null;
     }
     const attached = await attachTypedCustomer();
-    if (!attached.ok) return;
+    if (!attached.ok) return null;
     let bill: Bill;
     try {
       bill = await shop.commitBill({
@@ -293,22 +296,43 @@ export function BillPage() {
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      return;
+      return null;
     }
-    const printed = bill;
+    const saved = bill;
     // Only this bill's lines: the map is keyed by line id and shared with the bills still
     // parked, so wiping it wholesale would blank their half-typed prices too.
     setPriceText((prev) => {
-      const gone = new Set(printed.lines.map((l) => l.itemId));
+      const gone = new Set(saved.lines.map((l) => l.itemId));
       const left: Record<string, string> = {};
       for (const [id, text] of Object.entries(prev)) if (!gone.has(id)) left[id] = text;
       return left;
     });
     setJustSaved(bill);
+    return bill;
+  };
+
+  /* Saving touches no printer, so it waits on nothing but itself. */
+  const [saving, setSaving] = useState(false);
+
+  const onSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await commitCurrentBill();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onPrint = async () => {
+    const bill = await commitCurrentBill();
+    if (!bill) return;
     try {
       await printer.printBill(bill, shop.settings);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
+      // One banner, not two -- the phone learned this in build 31 and the browser never did.
+      setJustSaved(null);
       setError(t('bill.savedNotPrinted', { no: bill.no, reason }));
     }
   };
@@ -619,12 +643,16 @@ export function BillPage() {
           <button className="btn plain" disabled={!hasSomething} onClick={() => setPreview(draft())}>
             {t('bill.preview')}
           </button>
+          {/* The bill written down without going to paper. */}
+          <button className="btn plain" disabled={!hasSomething || saving} onClick={onSave}>
+            📂 {t('common.save')}
+          </button>
           <button
             className={printer.busy ? 'btn busy' : 'btn'}
             disabled={!hasSomething || printer.busy}
             onClick={onPrint}
           >
-            {printer.busy ? t('bill.printing') : t('bill.print')}
+            🖨️ {printer.busy ? t('bill.printing') : t('bill.print')}
           </button>
         </div>
       </div>

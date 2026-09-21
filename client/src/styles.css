@@ -926,7 +926,8 @@ button, input, select, textarea {
   transform-origin: right center;
 }
 
-.cart-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 9px; }
+/* Preview, save, print. */
+.cart-actions { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 9px; }
 
 /* ---------------------------------------------------------------- lists */
 
