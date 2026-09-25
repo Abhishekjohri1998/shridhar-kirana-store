@@ -226,56 +226,53 @@ check('the stored value does not contain the PIN',
   !SH.pinDigest('104528', 'abc').includes('104528'));
 
 console.log('');
-console.log('Every hand-written line fitted to its own row');
+console.log('Handwriting prints at the size it was written');
 /*
- * The shop's complaint, from a printed slip: three hand-written items came out at three
- * different sizes, and lines sat at different heights within their rows. Both followed from one
- * scale and one origin shared across the whole slip -- which was deliberate, to keep the
- * proportions the shopkeeper wrote, and which read as raggedness on paper.
+ * The shop wrote six lines at one letter size -- "No bro", "I", "Am", "Not writting" -- and got
+ * six sizes back. Every line was scaled to fill the row's height and then capped by width, so a
+ * short word was blown up and a long one was stretched, ran out of column and shrunk.
  *
- * Each line is now fitted to its own row. What these guard: that two lines of different sizes
- * print the same height, that a line starts at the top of its row wherever it sat on the strip,
- * that the strip's own pixel size no longer changes the printed size, and that a tiny mark is
- * not magnified into a banner.
+ * The rule now scales by the strip the line was written on. These guard what that means: a
+ * short word and a long line at the same letter height print at the same height; nothing is
+ * enlarged past the size it was written; a roomier strip still prints the same size; each line
+ * still starts at its own top; and width, when it binds, narrows only the line that needs it.
  */
-const TALL = { w: 300, h: 120, strokes: [[10, 10, 10, 110, 60, 110]] };
-// A smaller hand, but a real one: it covers a third of the strip, so it fills its row.
-const SMALL = { w: 300, h: 120, strokes: [[10, 40, 40, 40, 40, 82]] };
-const WIDE = { w: 900, h: 120, strokes: [[0, 60, 880, 60]] };
 const ROW = 46;
 const WIDTH = SH.inkMaxWidth(384);
 const drawnHeight = (ink, fit) => {
   const b = SH.inkBounds(ink);
   return (b.maxY - b.minY) * fit.scale;
 };
+// One strip, 300 by 120. Letters 40 units tall, the way one hand writes them.
+const SHORT = { w: 300, h: 120, strokes: [[20, 40, 20, 80]] };              // "I"
+const LONG = { w: 300, h: 120, strokes: [[10, 40, 60, 80, 120, 40, 180, 80]] }; // "Not writting"
 
-const tallFit = SH.inkRowFit(TALL, WIDTH, ROW);
-const smallFit = SH.inkRowFit(SMALL, WIDTH, ROW);
-check('a line fills the height it is given', Math.abs(drawnHeight(TALL, tallFit) - ROW) < 0.001,
-  drawnHeight(TALL, tallFit) + ' vs ' + ROW);
-check('and a smaller hand fills it too, so the lines are even',
-  Math.abs(drawnHeight(SMALL, smallFit) - ROW) < 0.001,
-  drawnHeight(SMALL, smallFit) + ' vs ' + ROW);
+const shortFit = SH.inkRowFit(SHORT, WIDTH, ROW);
+const longFit = SH.inkRowFit(LONG, WIDTH, ROW);
+check('a short word and a long line of one hand print at one height',
+  Math.abs(drawnHeight(SHORT, shortFit) - drawnHeight(LONG, longFit)) < 0.001,
+  drawnHeight(SHORT, shortFit) + ' vs ' + drawnHeight(LONG, longFit));
+check('and that height is the size it was written, a third of the strip',
+  Math.abs(drawnHeight(SHORT, shortFit) - ROW / 3) < 0.001, String(drawnHeight(SHORT, shortFit)));
+check('a short word is not blown up to fill the row', drawnHeight(SHORT, shortFit) < ROW,
+  String(drawnHeight(SHORT, shortFit)));
 check('each line starts at its own top, not at the top of the slip',
-  tallFit.originY === SH.inkBounds(TALL).minY && smallFit.originY === SH.inkBounds(SMALL).minY,
-  tallFit.originY + ' / ' + smallFit.originY);
-check('one line does not change another',
-  SH.inkRowFit(TALL, WIDTH, ROW).scale === tallFit.scale, String(tallFit.scale));
+  shortFit.originY === SH.inkBounds(SHORT).minY && longFit.originY === SH.inkBounds(LONG).minY);
 
-// The fault that had nothing to do with taste: strokes are stored in the pixels of the strip
-// they were written on, and that strip is 96 or 116 tall depending on the room the row had.
-const ROOMY = { w: 600, h: 240, strokes: [[20, 20, 20, 220, 120, 220]] };
+// Strokes are stored in the pixels of the strip, and the strip is not always one size.
+const ROOMY = { w: 600, h: 240, strokes: [[40, 80, 40, 160]] };
 check('the same writing on a bigger strip prints the same size',
-  Math.abs(drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) - drawnHeight(TALL, tallFit)) < 0.001,
-  drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) + ' vs ' + drawnHeight(TALL, tallFit));
+  Math.abs(drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) - drawnHeight(SHORT, shortFit)) < 0.001,
+  drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) + ' vs ' + drawnHeight(SHORT, shortFit));
 
-// A stray dash must not become the largest thing on the bill.
-const DASH = { w: 300, h: 120, strokes: [[10, 60, 40, 60]] };
-const dashFit = SH.inkRowFit(DASH, WIDTH, ROW);
-check('a tiny mark is not blown up to fill the row',
-  drawnHeight(DASH, dashFit) < ROW, String(drawnHeight(DASH, dashFit)));
-check('and the cap is what held it', Math.abs(dashFit.scale - (ROW / DASH.h) * SH.MAX_INK_UPSCALE) < 1e-9,
-  dashFit.scale + ' vs ' + (ROW / DASH.h) * SH.MAX_INK_UPSCALE);
+// A line written right across a very wide strip is the one case that meets the column.
+const EDGE = { w: 1200, h: 120, strokes: [[0, 40, 1190, 80]] };
+const edgeFit = SH.inkRowFit(EDGE, WIDTH, ROW);
+check('a line wider than the column is narrowed to fit',
+  (SH.inkBounds(EDGE).maxX - SH.inkBounds(EDGE).minX) * edgeFit.scale
+    <= WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED + 0.001,
+  String(edgeFit.scale));
+check('and only that line', SH.inkRowFit(SHORT, WIDTH, ROW).scale === shortFit.scale);
 
 check('the row is taller than the writing, to hold the pen',
   SH.INK_ROW_ADVANCE === SH.INK_ROW_HEIGHT + 2 * SH.INK_BLEED,
@@ -283,13 +280,6 @@ check('the row is taller than the writing, to hold the pen',
 check('and the pen has somewhere to go', SH.INK_BLEED * 2 >= SH.INK_STROKE_DOTS,
   'bleed ' + SH.INK_BLEED + ' vs stroke ' + SH.INK_STROKE_DOTS);
 check('the gutter is real', SH.INK_GUTTER > 0, String(SH.INK_GUTTER));
-
-const wideFit = SH.inkRowFit(WIDE, WIDTH, ROW);
-check('a line too wide for the paper caps the scale',
-  (SH.inkBounds(WIDE).maxX - SH.inkBounds(WIDE).minX) * wideFit.scale <= WIDTH + 0.001,
-  String(wideFit.scale));
-check('and then it is the width, not the row, that is filled',
-  drawnHeight(WIDE, wideFit) < ROW, String(drawnHeight(WIDE, wideFit)));
 const flatFit = SH.inkRowFit({ w: 300, h: 120, strokes: [[10, 40, 90, 40]] }, WIDTH, ROW);
 check('a single flat line still gets a usable scale',
   Number.isFinite(flatFit.scale) && flatFit.scale > 0, JSON.stringify(flatFit));

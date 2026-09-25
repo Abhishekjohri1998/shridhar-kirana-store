@@ -64,32 +64,23 @@ export function inkFit(ink: Ink, maxWidth: number, targetHeight: number): InkFit
 }
 
 /**
- * How far a mark may be blown up beyond the size it was written at.
+ * One line of handwriting, sized for its row: at the size it was written.
  *
- * Every line is fitted to its row, so a short mark would otherwise be magnified until it filled
- * the row like a banner -- a stray dash becoming the largest thing on the bill.
+ * Scaled by the strip it was written on, not by the writing. `natural` maps the whole strip onto
+ * the row, so a letter that filled half the strip fills half the row -- whatever else is on the
+ * line. The rule before this scaled every line to fill the row's height and then capped it by
+ * width, which made letter size depend on the word's length: a short "I" was blown up to the
+ * full row, and a long line was stretched tall, ran out of column and was shrunk back. The shop
+ * wrote six lines at one size and got six sizes.
  *
- * Writing that covers a quarter of the strip or more still fills its row exactly, which is what
- * makes the lines even; below that it grows to this and stops, so a dash prints as a dash. Set
- * from what the shop's own slips look like: a written item covers well over half the strip, and
- * the marks that do not are the ones that should stay small.
- */
-export const MAX_INK_UPSCALE = 4;
-
-/**
- * One line of handwriting, sized and trimmed to its own row.
+ * Two things from the rule before are kept. Each line starts at its own top, so a line written
+ * low in its strip does not print low in its row. And scaling by the strip's own height cancels
+ * the strip's pixel size: a roomier strip gives larger coordinates and a smaller `natural` in
+ * proportion, so the same word prints the same size from any screen.
  *
- * Every hand-written line on a slip used to share one scale and one vertical origin, taken from
- * the union of all of them. It was meant to keep the shopkeeper's own proportions -- a short word
- * staying short beside a tall one -- and on paper it read as raggedness: lines at visibly
- * different sizes, and lines drifting down their row by however far the writing happened to sit
- * below the top of the strip it was written on. The shop asked for even lines.
- *
- * Fitting each line to its own box gives that, and fixes a fault that had nothing to do with
- * taste: strokes are stored in the pixels of the strip they were written on, and that strip is
- * not always the same size, so the same word printed a fifth larger when written on a roomier
- * row. Scaling by the line's own height cancels the strip out -- twice the pixels, twice the
- * measured height, the same dots on the paper.
+ * Width is the only reason to shrink, and ordinary writing does not meet it: the tablet's strip,
+ * mapped onto the row, comes out about as wide as the 58mm column. It catches the odd line
+ * written edge to edge, and narrows that line alone.
  *
  * The gutter comes out of the width budget before a scale is chosen rather than being subtracted
  * from the drawing afterwards; otherwise the writing is sized to a space it no longer has and a
@@ -102,15 +93,9 @@ export function inkRowFit(
 ): { scale: number; originY: number } {
   const box = inkBounds(ink);
   const drawnW = Math.max(1, box.maxX - box.minX);
-  const drawnH = Math.max(1, box.maxY - box.minY);
   const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
-  // What this writing would come to if the whole strip it was written on were the row. The same
-  // number whatever size that strip was, which is what makes it a fair ceiling.
   const natural = targetHeight / Math.max(1, ink.h);
-  const scale = Math.min(targetHeight / drawnH, roomW / drawnW, natural * MAX_INK_UPSCALE);
-  // Its own top, not the slip's: this is what stops a line sitting low in its strip from
-  // printing low in its row.
-  return { scale, originY: box.minY };
+  return { scale: Math.min(natural, roomW / drawnW), originY: box.minY };
 }
 
 /**
