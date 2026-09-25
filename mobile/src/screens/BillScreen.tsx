@@ -63,7 +63,20 @@ export function BillScreen() {
    * Everything comes back the moment the field is left.
    */
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const typingInSlip = focusedId != null;
+  /*
+   * Writing the items, or finishing the bill.
+   *
+   * The screen used to guess from which text field had focus, and the guess stuck: save while
+   * a price box had focus, or close the keyboard with Android's back button, and it stayed
+   * convinced someone was typing -- hiding the payment box with the customer attached and the
+   * keyboard down. And handwriting never focuses a field at all, so while the shopkeeper wrote,
+   * Save and Print sat live seventy pixels under their palm, and a resting hand printed bills.
+   *
+   * So it is said out loud. The items view has the list and a total, and nothing that commits
+   * anything. The details view -- payment, note, Save, Print -- is reached by its own button,
+   * never by a stray touch, and touching the bill to write goes straight back.
+   */
+  const [view, setView] = useState<'items' | 'details'>('items');
   /*
    * Moving from one field to the next blurs before it focuses, and letting that blur through
    * would flash the whole bill back for a frame between every line. So a blur only counts if
@@ -100,7 +113,10 @@ export function BillScreen() {
   const [closing, setClosing] = useState<string | null>(null);
   // Cleared when the shopkeeper moves to another bill: "Bill #14 saved" offering to share a
   // different bill's slip is worse than not offering at all.
-  useEffect(() => showSaved(null), [shop.activeDraftId, showSaved]);
+  useEffect(() => {
+    showSaved(null);
+    setView('items');
+  }, [shop.activeDraftId, showSaved]);
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
@@ -445,6 +461,9 @@ export function BillScreen() {
       return left;
     });
     showSaved(bill);
+    // Back to writing for the next one. Committing the only bill keeps its draft id, so the
+    // reset on a bill change does not see it.
+    setView('items');
     return bill;
   };
 
@@ -644,6 +663,7 @@ export function BillScreen() {
                         height={roomy ? 116 : 96}
                         value={line.ink ?? null}
                         onChange={(ink) => shop.setLineInk(index, ink)}
+                        onBegin={() => setView('items')}
                         label={t('bill.writeLine', { n: index + 1 })}
                         undoLabel=""
                         clearLabel=""
@@ -674,7 +694,7 @@ export function BillScreen() {
                       returnKeyType="next"
                       blurOnSubmit={false}
                       onSubmitEditing={() => goToNextName(index)}
-                      onFocus={() => focusRow(line.itemId)}
+                      onFocus={() => { focusRow(line.itemId); setView('items'); }}
                       onBlur={blurRow}
                     />
                   )}
@@ -712,7 +732,7 @@ export function BillScreen() {
                   // raise it again -- a flicker on every single line.
                   blurOnSubmit={false}
                   onSubmitEditing={() => goToNextPrice(index)}
-                  onFocus={() => focusRow(line.itemId)}
+                  onFocus={() => { focusRow(line.itemId); setView('items'); }}
                   // The line is done; bring the fresh blank one into view.
                   // Leaving a field never moves the page. It used to turn to the newest line,
                   // which meant tapping out at line 27 and dragging up towards line 2 was
@@ -768,18 +788,33 @@ export function BillScreen() {
         </View>
 
       <View style={styles.foot}>
-        {typingInSlip ? null : (
+        {view === 'items' ? (
+          /* Nothing here commits anything, so a resting palm has nothing to press. */
+          <View style={styles.itemsBar}>
+            <View style={styles.itemsTotal}>
+              <Text style={styles.totalLabel}>{t('bill.total')}</Text>
+              <Text style={styles.totalValue}>{money(grandTotal)}</Text>
+            </View>
+            <Button
+              label={t('bill.details') + ' ›'}
+              style={{ flex: 1, maxWidth: 260 }}
+              onPress={() => setView('details')}
+            />
+          </View>
+        ) : (
+          <>
         <View style={styles.footHead}>
-          <Text style={styles.footTitle}>{t('bill.currentBill')}</Text>
+          <Pressable onPress={() => setView('items')} hitSlop={8}>
+            <Text style={styles.backToItems}>{'‹ ' + t('bill.backToItems')}</Text>
+          </Pressable>
           {hasSomething ? (
             <Pressable onPress={shop.clearCart}>
               <Text style={styles.clear}>{t('bill.clear')}</Text>
             </Pressable>
           ) : null}
         </View>
-        )}
 
-        {shop.customer && !typingInSlip ? (
+        {shop.customer ? (
           <View style={styles.payBox}>
             <View style={styles.payRow}>
               <View style={{ flex: 1 }}>
@@ -818,7 +853,6 @@ export function BillScreen() {
 
         {/* The bill's own note. Outside the pay box on purpose: a walk-in cash sale is exactly
             the one that needs "to be collected Friday" written on it. */}
-        {typingInSlip ? null : (
         <View style={styles.noteBox}>
           <Text style={styles.payLabel}>{t('bill.note')}</Text>
           <TextInput
@@ -830,7 +864,6 @@ export function BillScreen() {
             onChangeText={shop.setNote}
           />
         </View>
-        )}
 
         {/* Without this line a TOTAL larger than the lines above has nothing explaining it. */}
         {carried > 0 ? (
@@ -872,6 +905,8 @@ export function BillScreen() {
             onPress={() => void onPrint()}
           />
         </View>
+          </>
+        )}
       </View>
 
       <Dialog
@@ -1086,5 +1121,8 @@ const styles = StyleSheet.create({
   totalValue: { ...TYPE.display },
 
   actions: { flexDirection: 'row', gap: 10 },
+  itemsBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  itemsTotal: { flexShrink: 0 },
+  backToItems: { fontSize: 15, fontWeight: '700', color: C.accent },
   provisional: { ...TYPE.hint, textAlign: 'center', marginTop: 8 },
 });

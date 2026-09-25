@@ -45,12 +45,21 @@ type InkPadProps = {
   variant?: 'pad' | 'line';
   /** Ink to start from, so a line already written can be written on again. */
   value?: Ink | null;
+  /**
+   * The pen has touched down. Writing never focuses a text field, so without this the bill
+   * screen could not tell that someone had started writing -- and kept its Save and Print
+   * buttons live under the shopkeeper's palm.
+   */
+  onBegin?: () => void;
 };
 
 export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   onChange, height = 150, label, undoLabel, clearLabel, hint, strokeCount,
-  variant = 'pad', value,
+  variant = 'pad', value, onBegin,
 }, ref) {
+  // Held in a ref so a new callback each render does not rebuild the gesture mid-stroke.
+  const onBeginRef = useRef(onBegin);
+  onBeginRef.current = onBegin;
   /**
    * The ref is the source of truth and state only mirrors it for repaints. Reading the finished
    * strokes out of the render closure loses them when two lifts land in one React batch, which is
@@ -184,6 +193,7 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
         .onBegin((e) => {
           if (rejected(e.pointerType)) return;
           startStroke(e.x, e.y);
+          onBeginRef.current?.();
         })
         .onUpdate((e) => {
           if (rejected(e.pointerType)) return;
