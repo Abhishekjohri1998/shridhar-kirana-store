@@ -247,13 +247,18 @@ const drawnHeight = (ink, fit) => {
 const SHORT = { w: 300, h: 120, strokes: [[20, 40, 20, 80]] };              // "I"
 const LONG = { w: 300, h: 120, strokes: [[10, 40, 60, 80, 120, 40, 180, 80]] }; // "Not writting"
 
-const shortFit = SH.inkRowFit(SHORT, WIDTH, ROW);
-const longFit = SH.inkRowFit(LONG, WIDTH, ROW);
+// One enlargement for the slip, as buildReceipt uses it.
+const K = SH.inkSlipScale([SHORT, LONG], WIDTH, ROW);
+const shortFit = SH.inkRowFit(SHORT, WIDTH, ROW, K);
+const longFit = SH.inkRowFit(LONG, WIDTH, ROW, K);
 check('a short word and a long line of one hand print at one height',
   Math.abs(drawnHeight(SHORT, shortFit) - drawnHeight(LONG, longFit)) < 0.001,
   drawnHeight(SHORT, shortFit) + ' vs ' + drawnHeight(LONG, longFit));
-check('and that height is the size it was written, a third of the strip',
-  Math.abs(drawnHeight(SHORT, shortFit) - ROW / 3) < 0.001, String(drawnHeight(SHORT, shortFit)));
+// It printed smaller than the typed text beside it, and the shop asked for it a little bigger.
+check('and it prints larger than written, by the whole boost when nothing is in the way',
+  Math.abs(K - SH.INK_SIZE_BOOST) < 1e-9
+    && Math.abs(drawnHeight(SHORT, shortFit) - (ROW / 3) * SH.INK_SIZE_BOOST) < 0.001,
+  K + ' / ' + drawnHeight(SHORT, shortFit));
 check('a short word is not blown up to fill the row', drawnHeight(SHORT, shortFit) < ROW,
   String(drawnHeight(SHORT, shortFit)));
 check('each line starts at its own top, not at the top of the slip',
@@ -262,8 +267,8 @@ check('each line starts at its own top, not at the top of the slip',
 // Strokes are stored in the pixels of the strip, and the strip is not always one size.
 const ROOMY = { w: 600, h: 240, strokes: [[40, 80, 40, 160]] };
 check('the same writing on a bigger strip prints the same size',
-  Math.abs(drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) - drawnHeight(SHORT, shortFit)) < 0.001,
-  drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW)) + ' vs ' + drawnHeight(SHORT, shortFit));
+  Math.abs(drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW, K)) - drawnHeight(SHORT, shortFit)) < 0.001,
+  drawnHeight(ROOMY, SH.inkRowFit(ROOMY, WIDTH, ROW, K)) + ' vs ' + drawnHeight(SHORT, shortFit));
 
 // A line written right across a very wide strip is the one case that meets the column.
 const EDGE = { w: 1200, h: 120, strokes: [[0, 40, 1190, 80]] };
@@ -272,7 +277,19 @@ check('a line wider than the column is narrowed to fit',
   (SH.inkBounds(EDGE).maxX - SH.inkBounds(EDGE).minX) * edgeFit.scale
     <= WIDTH - SH.INK_GUTTER - 2 * SH.INK_BLEED + 0.001,
   String(edgeFit.scale));
-check('and only that line', SH.inkRowFit(SHORT, WIDTH, ROW).scale === shortFit.scale);
+// Enlarging each line on its own would let the short word grow while the wide one could not.
+// The slip holds back for its widest line, so the two stay one size.
+const withEdge = SH.inkSlipScale([SHORT, EDGE], WIDTH, ROW);
+check('a line too wide to enlarge holds the whole slip back, not just itself',
+  withEdge < SH.INK_SIZE_BOOST, String(withEdge));
+check('and the lines of one hand are still one size beside it',
+  Math.abs(drawnHeight(SHORT, SH.inkRowFit(SHORT, WIDTH, ROW, withEdge))
+    - drawnHeight({ ...EDGE, strokes: [[0, 40, 0, 80]] }, SH.inkRowFit(EDGE, WIDTH, ROW, withEdge))) < 0.001);
+// Writing that already fills most of the strip cannot be enlarged past the row.
+const TALLHAND = { w: 300, h: 120, strokes: [[20, 5, 20, 115]] };
+check('tall writing holds the enlargement to what the row can take',
+  drawnHeight(TALLHAND, SH.inkRowFit(TALLHAND, WIDTH, ROW, SH.inkSlipScale([TALLHAND], WIDTH, ROW)))
+    <= ROW + 0.001);
 
 check('the row is taller than the writing, to hold the pen',
   SH.INK_ROW_ADVANCE === SH.INK_ROW_HEIGHT + 2 * SH.INK_BLEED,

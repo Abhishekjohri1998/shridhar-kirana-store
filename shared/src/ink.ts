@@ -64,38 +64,65 @@ export function inkFit(ink: Ink, maxWidth: number, targetHeight: number): InkFit
 }
 
 /**
- * One line of handwriting, sized for its row: at the size it was written.
+ * How much larger than written the handwriting prints, at most.
+ *
+ * At exactly the size it was written it came out smaller than the typed text beside it -- a
+ * shopkeeper writes in the middle third of the strip, and a third of the row is about 21 dots
+ * against 24 for print. The shop asked for it a little bigger.
+ */
+export const INK_SIZE_BOOST = 1.6;
+
+/**
+ * One enlargement for every hand-written line on a slip.
+ *
+ * Shared, because enlarging each line on its own brings back the fault it replaced: a short word
+ * grows the full amount while a long line hits the edge of the column and cannot, and one hand
+ * prints at two sizes again. So the slip is enlarged as far as its widest and tallest lines
+ * allow -- `INK_SIZE_BOOST` if nothing is in the way -- and every line by the same amount.
+ */
+export function inkSlipScale(inks: readonly Ink[], maxWidth: number, targetHeight: number): number {
+  const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
+  let k = INK_SIZE_BOOST;
+  for (const ink of inks) {
+    const box = inkBounds(ink);
+    const natural = targetHeight / Math.max(1, ink.h);
+    const w = (box.maxX - box.minX) * natural;
+    const h = (box.maxY - box.minY) * natural;
+    if (w > 0) k = Math.min(k, roomW / w);
+    if (h > 0) k = Math.min(k, targetHeight / h);
+  }
+  return k;
+}
+
+/**
+ * One line of handwriting, sized for its row: at the size it was written, times the slip's
+ * shared enlargement.
  *
  * Scaled by the strip it was written on, not by the writing. `natural` maps the whole strip onto
  * the row, so a letter that filled half the strip fills half the row -- whatever else is on the
  * line. The rule before this scaled every line to fill the row's height and then capped it by
- * width, which made letter size depend on the word's length: a short "I" was blown up to the
- * full row, and a long line was stretched tall, ran out of column and was shrunk back. The shop
- * wrote six lines at one size and got six sizes.
+ * width, which made letter size depend on the word's length: the shop wrote six lines at one
+ * size and got six sizes.
  *
- * Two things from the rule before are kept. Each line starts at its own top, so a line written
- * low in its strip does not print low in its row. And scaling by the strip's own height cancels
- * the strip's pixel size: a roomier strip gives larger coordinates and a smaller `natural` in
- * proportion, so the same word prints the same size from any screen.
+ * Each line starts at its own top, so a line written low in its strip does not print low in its
+ * row. And scaling by the strip's own height cancels its pixel size: a roomier strip gives larger
+ * coordinates and a smaller `natural` in proportion, so the same word prints the same size from
+ * any screen.
  *
- * Width is the only reason to shrink, and ordinary writing does not meet it: the tablet's strip,
- * mapped onto the row, comes out about as wide as the 58mm column. It catches the odd line
- * written edge to edge, and narrows that line alone.
- *
- * The gutter comes out of the width budget before a scale is chosen rather than being subtracted
- * from the drawing afterwards; otherwise the writing is sized to a space it no longer has and a
- * long line overruns the column.
+ * `k` comes from `inkSlipScale`. The width cap here is only a safety net for a caller that does
+ * not pass one; with the slip's own `k` it never binds.
  */
 export function inkRowFit(
   ink: Ink,
   maxWidth: number,
   targetHeight: number,
+  k = 1,
 ): { scale: number; originY: number } {
   const box = inkBounds(ink);
   const drawnW = Math.max(1, box.maxX - box.minX);
   const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
   const natural = targetHeight / Math.max(1, ink.h);
-  return { scale: Math.min(natural, roomW / drawnW), originY: box.minY };
+  return { scale: Math.min(natural * k, roomW / drawnW), originY: box.minY };
 }
 
 /**
