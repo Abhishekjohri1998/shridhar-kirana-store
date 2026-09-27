@@ -70,7 +70,7 @@ export function inkFit(ink: Ink, maxWidth: number, targetHeight: number): InkFit
  * shopkeeper writes in the middle third of the strip, and a third of the row is about 21 dots
  * against 24 for print. The shop asked for it a little bigger.
  */
-export const INK_SIZE_BOOST = 1.6;
+export const INK_SIZE_BOOST = 1.8;
 
 /**
  * One enlargement for every hand-written line on a slip.
@@ -89,7 +89,10 @@ export function inkSlipScale(inks: readonly Ink[], maxWidth: number, targetHeigh
     const w = (box.maxX - box.minX) * natural;
     const h = (box.maxY - box.minY) * natural;
     if (w > 0) k = Math.min(k, roomW / w);
-    if (h > 0) k = Math.min(k, targetHeight / h);
+    // Height is deliberately not a limit here. One line written unusually tall used to hold the
+    // whole bill back -- the shop's bill 49 printed at 1.23 for one scribble. That line is now
+    // fitted to its own row in inkRowFit, and every other line keeps the slip's size.
+    void h;
   }
   return k;
 }
@@ -122,7 +125,13 @@ export function inkRowFit(
   const drawnW = Math.max(1, box.maxX - box.minX);
   const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
   const natural = targetHeight / Math.max(1, ink.h);
-  return { scale: Math.min(natural * k, roomW / drawnW), originY: box.minY };
+  const drawnH = Math.max(1, box.maxY - box.minY);
+  const scale = Math.min(natural * k, roomW / drawnW, targetHeight / drawnH);
+  // Centred in the row, not hung from its top. The tick, the line number and the price are
+  // centred (INK_TEXT_DY); writing that stopped filling the row once it was sized as written sat
+  // above them, about fifteen dots off on the shop's own slips.
+  const spare = Math.max(0, targetHeight - drawnH * scale);
+  return { scale, originY: box.minY - spare / 2 / scale };
 }
 
 /**

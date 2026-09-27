@@ -261,8 +261,24 @@ check('and it prints larger than written, by the whole boost when nothing is in 
   K + ' / ' + drawnHeight(SHORT, shortFit));
 check('a short word is not blown up to fill the row', drawnHeight(SHORT, shortFit) < ROW,
   String(drawnHeight(SHORT, shortFit)));
-check('each line starts at its own top, not at the top of the slip',
-  shortFit.originY === SH.inkBounds(SHORT).minY && longFit.originY === SH.inkBounds(LONG).minY);
+// Centred in the row, where the tick, the number and the price already sit. Hung from the top,
+// the writing's middle was about fifteen dots above theirs on the shop's own slips.
+const centreOf = (ink, fit) => {
+  const bx = SH.inkBounds(ink);
+  return ((bx.minY + bx.maxY) / 2 - fit.originY) * fit.scale;
+};
+check('a line of writing is centred in its row',
+  Math.abs(centreOf(SHORT, shortFit) - ROW / 2) < 0.5 && Math.abs(centreOf(LONG, longFit) - ROW / 2) < 0.5,
+  centreOf(SHORT, shortFit) + ' / ' + centreOf(LONG, longFit) + ' vs ' + ROW / 2);
+check('wherever it was written on its strip',
+  Math.abs(centreOf({ ...SHORT, strokes: [[20, 70, 20, 110]] },
+    SH.inkRowFit({ ...SHORT, strokes: [[20, 70, 20, 110]] }, WIDTH, ROW, K)) - ROW / 2) < 0.5);
+// One tall scribble no longer holds the whole bill back; it is fitted to its own row instead.
+const SCRIBBLE = { w: 300, h: 120, strokes: [[20, 2, 20, 118]] };
+const kWithScribble = SH.inkSlipScale([SHORT, LONG, SCRIBBLE], WIDTH, ROW);
+check('a tall line does not shrink the rest', Math.abs(kWithScribble - K) < 1e-9, kWithScribble + ' vs ' + K);
+check('and stays inside its own row',
+  drawnHeight(SCRIBBLE, SH.inkRowFit(SCRIBBLE, WIDTH, ROW, kWithScribble)) <= ROW + 0.001);
 
 // Strokes are stored in the pixels of the strip, and the strip is not always one size.
 const ROOMY = { w: 600, h: 240, strokes: [[40, 80, 40, 160]] };
