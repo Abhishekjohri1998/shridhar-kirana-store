@@ -222,6 +222,35 @@ function billDoc(lines) {
     check('and can be turned off', !hiddenGst.validateSync() && hiddenGst.showGstin === false);
   }
 
+  // Items, and the two fields added beside them: a bill's rounding and the shop's rounding step.
+  // Each optional with its default, never `required: true` beside one.
+  {
+    const Item = registered.Item;
+    check('the item model is registered', !!Item);
+    const bareItem = new Item({ id: 'i-1', units: [{ code: 'pc', perBase: 1, price: 5 }] });
+    check('an item with only a unit is valid', !bareItem.validateSync(),
+      String(bareItem.validateSync()));
+    check('and reads as active', bareItem.active === true);
+    check('with no place', bareItem.place === '');
+    check('and a unit with no slabs or range', bareItem.units[0].slabs.length === 0
+      && bareItem.units[0].min === null && bareItem.units[0].max === null);
+    check('an item needs its units', !!new Item({ id: 'i-2' }).validateSync()
+      || new Item({ id: 'i-2' }).units.length === 0);
+    const unrounded = new Bill({
+      no: 1, at: new Date().toISOString(),
+      lines: [{ itemId: 'x', nameKn: 'Rice', nameEn: '', qty: 1, rate: 10 }],
+      total: 10, paid: 10, balance: 0, showBalance: false,
+    });
+    check('a bill with no rounding is valid', !unrounded.validateSync());
+    check('and reads as none', unrounded.roundOff === 0, JSON.stringify(unrounded.roundOff));
+    const oldSettings = new SettingsModel({
+      key: 'shop', shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
+      showRate: false, inactiveAfterDays: 30,
+    });
+    check('settings from before rounding are valid', !oldSettings.validateSync());
+    check('and do not round', oldSettings.roundTo === 0, JSON.stringify(oldSettings.roundTo));
+  }
+
   // The Kannada twins: optional, defaulting to '', so a record written before they existed reads
   // as empty rather than undefined -- which is what lets pickLang fall back cleanly.
   const oldCustomer = new Customer({

@@ -75,6 +75,7 @@ export function SettingsIcon({ className }: IconProps) {
 
 export const SECTION_ICONS = {
   '/bill': BillIcon,
+  '/items': ItemsIcon,
   '/customers': CustomersIcon,
   '/history': HistoryIcon,
   '/settings': SettingsIcon,

@@ -17,6 +17,7 @@ import { reportInsets, useHeldInsets } from './src/lib/screenEdges';
 import { BillScreen } from './src/screens/BillScreen';
 import { CustomersScreen } from './src/screens/CustomersScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
+import { ItemsScreen } from './src/screens/ItemsScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { ServerScreen } from './src/screens/ServerScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -24,6 +25,7 @@ import { C, R, T, TYPE, handFont, shadow } from './src/theme';
 
 const TABS = [
   { key: 'bill', label: 'nav.bill' },
+  { key: 'items', label: 'nav.items' },
   { key: 'customers', label: 'nav.customers' },
   { key: 'history', label: 'nav.history' },
   { key: 'settings', label: 'nav.settings' },
@@ -178,6 +180,9 @@ function Shell() {
         <View style={styles.body}>
           <View style={tab === 'bill' ? styles.visible : styles.hidden}>
             <BillScreen />
+          </View>
+          <View style={tab === 'items' ? styles.visible : styles.hidden}>
+            <ItemsScreen />
           </View>
           <View style={tab === 'customers' ? styles.visible : styles.hidden}>
             <CustomersScreen />

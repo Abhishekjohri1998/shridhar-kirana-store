@@ -179,12 +179,17 @@ export const api = {
   health: () => request<{ ok: boolean; storage: 'mongo' | 'file' }>('/health'),
   login: (pin: string) => request<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ pin }) }),
 
-  listItems: () => request<Item[]>('/items'),
-  createItem: (item: Omit<Item, 'id'> & { id?: string }) =>
+  /** The catalogue. `all` includes items no longer sold, kept for history. */
+  listItems: (all = false) => request<Item[]>('/items' + (all ? '?all=1' : '')),
+  searchItems: (q: string) => request<Item[]>('/items/search?q=' + encodeURIComponent(q)),
+  createItem: (item: Omit<Item, 'id'>) =>
     request<Item>('/items', { method: 'POST', body: JSON.stringify(item) }),
   updateItem: (id: string, item: Omit<Item, 'id'>) =>
     request<Item>('/items/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(item) }),
   deleteItem: (id: string) => request<void>('/items/' + encodeURIComponent(id), { method: 'DELETE' }),
+  /** A spreadsheet back in. All or nothing: a bad row saves nothing and says which. */
+  importItems: (csv: string) =>
+    request<{ saved: number }>('/items/import', { method: 'POST', body: JSON.stringify({ csv }) }),
 
   getSettings: () => request<Settings>('/settings'),
   updateSettings: (patch: Partial<Settings>) =>

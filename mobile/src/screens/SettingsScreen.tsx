@@ -391,6 +391,18 @@ export function SettingsScreen() {
           onChange={(next) => void save({ paper: next }, 'set.savedPaper')}
         />
         <Text style={styles.hint}>{t('set.paperNote', { mm: paper.printableMm, dots: paper.dots })}</Text>
+        <Text style={styles.label}>{t('set.roundTo')}</Text>
+        <Choice<'0' | '1' | '5' | '10'>
+          options={[
+            { key: '0', label: t('set.roundNone') },
+            { key: '1', label: t('set.round1') },
+            { key: '5', label: t('set.round5') },
+            { key: '10', label: t('set.round10') },
+          ]}
+          value={String(shop.settings.roundTo ?? 0) as '0' | '1' | '5' | '10'}
+          onChange={(next) => void save({ roundTo: Number(next) }, 'set.savedRounding')}
+        />
+        <Text style={styles.hint}>{t('set.roundNote')}</Text>
       </Card>
 
       <Card style={styles.card}>

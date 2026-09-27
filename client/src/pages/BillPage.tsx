@@ -237,6 +237,7 @@ export function BillPage() {
     ...(previewCustomer() ? { customer: previewCustomer() } : {}),
     lines: written,
     total: shop.cartTotal,
+    ...(shop.cartRoundOff ? { roundOff: shop.cartRoundOff } : {}),
     paid: paidValid ? paidAmount : shop.cartTotal,
     balance: balanceAfter,
     // What they owed walking in. `balanceAfter` above is already this plus today's lines less

@@ -95,6 +95,7 @@ export function Mark({ size = 26, color = C.accent }: Props) {
 
 export const SECTION_ICONS = {
   bill: BillIcon,
+  items: ItemsIcon,
   customers: CustomersIcon,
   history: HistoryIcon,
   settings: SettingsIcon,

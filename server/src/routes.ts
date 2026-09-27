@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ERASE_WORD, INK_LIMITS, checkGstin, inkPointCount } from '@shridhar/shared';
+import {
+  ERASE_WORD, INK_LIMITS, checkGstin, checkItem, csvToItems, inkPointCount, itemsToCsv,
+} from '@shridhar/shared';
 import { issueToken, pinMatches, requireAuth, secretMatches } from './auth';
 import { env } from './env';
 import { HttpError, handler } from './http';
@@ -49,6 +51,8 @@ const settingsBody = z.object({
   showRate: z.boolean().optional(),
   showGstin: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
+  // 0 is off. Nothing larger than 10: a shop rounding to 100 is not rounding, it is guessing.
+  roundTo: z.coerce.number().int().min(0).max(10).optional(),
 });
 
 const customerBody = z.object({
@@ -109,6 +113,103 @@ api.put('/settings', handler(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------- customers
+
+/*
+ * Items: the catalogue the typing mode will search, and stock will count. Checked by the same
+ * checkItem the items screen uses, so the screen and the server refuse the same things.
+ */
+const slabBody = z.object({
+  minQty: z.coerce.number().finite().positive().max(1_000_000),
+  rate: z.coerce.number().finite().nonnegative().max(10_000_000),
+});
+const unitBody = z.object({
+  code: z.string().trim().min(1).max(20),
+  label: z.string().trim().max(40).default(''),
+  labelKn: z.string().trim().max(40).default(''),
+  perBase: z.coerce.number().finite().positive().max(1_000_000),
+  price: z.coerce.number().finite().nonnegative().max(10_000_000),
+  slabs: z.array(slabBody).max(10).default([]),
+  min: z.coerce.number().finite().nonnegative().nullable().optional(),
+  max: z.coerce.number().finite().nonnegative().nullable().optional(),
+});
+const itemBody = z.object({
+  id: z.string().trim().min(1).max(80).optional(),
+  nameEn: z.string().trim().max(80).default(''),
+  nameKn: z.string().trim().max(80).default(''),
+  units: z.array(unitBody).min(1).max(8),
+  place: z.string().trim().max(60).default(''),
+  reorderAt: z.coerce.number().finite().nonnegative().max(1_000_000).default(0),
+  active: z.boolean().default(true),
+});
+
+function saveableItem(raw: unknown) {
+  const body = itemBody.parse(raw);
+  const item = { ...body, units: body.units.map((u) => ({ ...u, min: u.min ?? null, max: u.max ?? null })) };
+  const problem = checkItem(item);
+  if (problem) throw new HttpError(400, problem);
+  return item;
+}
+
+api.get('/items', handler(async (req, res) => {
+  res.json(await getRepo().listItems(req.query.all === '1'));
+}));
+
+api.get('/items/search', handler(async (req, res) => {
+  const q = z.string().trim().max(60).default('').parse(req.query.q ?? '');
+  res.json(q ? await getRepo().searchItems(q, 20) : []);
+}));
+
+/*
+ * The whole catalogue as a spreadsheet. Before /items/:id, so "export.csv" is not taken for an
+ * id. Sent as a download with a dated name, because a shop that exports twice wants two files.
+ */
+api.get('/items/export.csv', handler(async (_req, res) => {
+  const csv = itemsToCsv(await getRepo().listItems(true));
+  const day = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="items-' + day + '.csv"');
+  res.send(csv);
+}));
+
+/*
+ * A spreadsheet back in. All or nothing: a file with one bad row changes nothing and says which
+ * rows, so the shop is never left with half a price list updated.
+ */
+api.post('/items/import', handler(async (req, res) => {
+  const { csv } = z.object({ csv: z.string().min(1).max(240_000) }).parse(req.body);
+  const parsed = csvToItems(csv);
+  if (parsed.errors.length) {
+    res.status(400).json({ error: parsed.errors.slice(0, 20).join(' '), errors: parsed.errors });
+    return;
+  }
+  const saved = [];
+  for (const it of parsed.items) saved.push(await getRepo().saveItem(saveableItem(it)));
+  res.json({ saved: saved.length });
+}));
+
+api.get('/items/:id', handler(async (req, res) => {
+  const item = await getRepo().getItem(z.string().trim().min(1).parse(req.params.id));
+  if (!item) throw new HttpError(404, 'No such item');
+  res.json(item);
+}));
+
+api.post('/items', handler(async (req, res) => {
+  const item = saveableItem(req.body);
+  const { id: _ignored, ...fields } = item;
+  res.status(201).json(await getRepo().saveItem(fields));
+}));
+
+api.put('/items/:id', handler(async (req, res) => {
+  const id = z.string().trim().min(1).parse(req.params.id);
+  if (!(await getRepo().getItem(id))) throw new HttpError(404, 'No such item');
+  res.json(await getRepo().saveItem({ ...saveableItem(req.body), id }));
+}));
+
+api.delete('/items/:id', handler(async (req, res) => {
+  const id = z.string().trim().min(1).parse(req.params.id);
+  if (!(await getRepo().deleteItem(id))) throw new HttpError(404, 'No such item');
+  res.status(204).end();
+}));
 
 api.get('/customers', handler(async (_req, res) => {
   res.json(await getRepo().listCustomers());
@@ -285,7 +386,9 @@ api.post('/bills', handler(async (req, res) => {
 
   // The number, the total and the balance are the server's to decide. A browser that sends its
   // own figures, whether by bug or by hand, cannot change what gets recorded.
+  const { roundTo } = await getRepo().getSettings();
   const bill = await getRepo().createBill({
+    roundTo,
     lines: body.lines.map((l) => ({
       itemId: l.itemId,
       nameKn: l.nameKn || l.nameEn,
