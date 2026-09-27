@@ -307,6 +307,13 @@ check('tall writing holds the enlargement to what the row can take',
   drawnHeight(TALLHAND, SH.inkRowFit(TALLHAND, WIDTH, ROW, SH.inkSlipScale([TALLHAND], WIDTH, ROW)))
     <= ROW + 0.001);
 
+// A two-line item: the strip is twice as tall, and maps onto a row twice as tall, so its letters
+// print exactly the size of every other line's.
+const TWO = { ...SHORT, h: SHORT.h * 2 };
+check('a two-line strip prints its letters the same size as a one-line strip',
+  Math.abs(drawnHeight(TWO, SH.inkRowFit(TWO, WIDTH, ROW * 2, K)) - drawnHeight(SHORT, shortFit)) < 0.001,
+  drawnHeight(TWO, SH.inkRowFit(TWO, WIDTH, ROW * 2, K)) + ' vs ' + drawnHeight(SHORT, shortFit));
+
 check('the row is taller than the writing, to hold the pen',
   SH.INK_ROW_ADVANCE === SH.INK_ROW_HEIGHT + 2 * SH.INK_BLEED,
   SH.INK_ROW_ADVANCE + ' vs ' + SH.INK_ROW_HEIGHT);

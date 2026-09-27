@@ -89,6 +89,11 @@ export const INK_TEXT_DY = Math.round((INK_ROW_ADVANCE - RASTER.itemSize) / 2);
  * rasterisers disagreed, and one harness had been missing the tick glyph entirely without anyone
  * noticing. One list, built once, cannot drift from itself.
  */
+/** How many rows tall a line's writing strip was. Absent or odd values read as one. */
+export function inkRowsOf(line: BillLine): number {
+  return line.inkRows === 2 ? 2 : 1;
+}
+
 export function rasterNumbers() {
   return {
     inkMarkW: INK_MARK_W,
@@ -123,6 +128,8 @@ export type Row =
   /** A handwritten description in the item column, with the price beside it. */
   | {
       t: 'ink'; no: string; ink: Ink; amount: string; note?: string; scale: number; originY: number;
+      /** Rows tall: 2 for an item written as two lines in one cell. Absent means 1. */
+      rows?: number;
       /** Marked as handed over. Drawn before the writing, where the typed rows carry it in text. */
       given?: boolean;
     }
@@ -238,9 +245,10 @@ export function buildReceipt(
   ));
   // One enlargement for the whole slip, so every line of one hand stays one size.
   const inkK = inkSlipScale(
-    bill.lines.filter((l) => l.ink && l.ink.strokes.length > 0).map((l) => l.ink as Ink),
+    written.map((l) => l.ink as Ink),
     inkRoom,
     INK_ROW_HEIGHT,
+    written.map((l) => inkRowsOf(l)),
   );
 
   bill.lines.forEach((line, index) => {
@@ -252,13 +260,23 @@ export function buildReceipt(
       amount: money(lineAmount(line.qty, line.rate)),
       note: settings.showRate ? '@ ' + money(line.rate) : undefined,
     };
-    // Handwriting wins over the typed names: it is what the shopkeeper actually wrote.
+    const typed = line.nameKn || line.nameEn;
     if (line.ink && line.ink.strokes.length > 0) {
-      const fit = inkRowFit(line.ink, inkRoom, INK_ROW_HEIGHT, inkK);
+      const tall = inkRowsOf(line);
+      const fit = inkRowFit(line.ink, inkRoom, INK_ROW_HEIGHT * tall, inkK);
+      /*
+       * Written and typed both: both print, the writing first, at the shop's asking. The number,
+       * the tick and the price go with the writing; the typed words follow on a row of their own
+       * with none of those, so the item is still one line of the bill.
+       */
       rows.push({
         t: 'ink', ink: line.ink, scale: fit.scale, originY: fit.originY,
-        given: line.given === true, ...shared,
+        given: line.given === true, ...(tall > 1 ? { rows: tall } : {}),
+        ...shared, ...(typed.trim() ? { note: undefined } : {}),
       });
+      if (typed.trim()) {
+        rows.push({ t: 'item', no: '', amount: '', name: typed, note: shared.note });
+      }
     }
     else {
       const name = line.nameKn || line.nameEn;

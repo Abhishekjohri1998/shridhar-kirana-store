@@ -80,12 +80,18 @@ export const INK_SIZE_BOOST = 1.8;
  * prints at two sizes again. So the slip is enlarged as far as its widest and tallest lines
  * allow -- `INK_SIZE_BOOST` if nothing is in the way -- and every line by the same amount.
  */
-export function inkSlipScale(inks: readonly Ink[], maxWidth: number, targetHeight: number): number {
+export function inkSlipScale(
+  inks: readonly Ink[],
+  maxWidth: number,
+  targetHeight: number,
+  /** Rows tall each strip was, when not one: a two-line item maps onto twice the height. */
+  rows?: readonly number[],
+): number {
   const roomW = Math.max(1, maxWidth - INK_GUTTER - 2 * INK_BLEED);
   let k = INK_SIZE_BOOST;
-  for (const ink of inks) {
+  for (const [i, ink] of inks.entries()) {
     const box = inkBounds(ink);
-    const natural = targetHeight / Math.max(1, ink.h);
+    const natural = (targetHeight * (rows?.[i] ?? 1)) / Math.max(1, ink.h);
     const w = (box.maxX - box.minX) * natural;
     const h = (box.maxY - box.minY) * natural;
     if (w > 0) k = Math.min(k, roomW / w);

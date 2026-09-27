@@ -190,7 +190,10 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
     const nameMax = Math.max(40, W - PAD - amountW - 12 - nameX);
     // A hand-written row is three times the height of a line of text, so its number and price
     // drop to the middle to sit level with the writing rather than above it.
-    const textY = row.t === 'ink' ? y + INK_TEXT_DY : y;
+    // A two-line item is twice as tall, and its number, tick and price centre on all of it.
+    const inkTall = row.t === 'ink' ? (row.rows ?? 1) : 1;
+    const inkAdvance = inkTall * INK_ROW_HEIGHT + 2 * INK_BLEED;
+    const textY = row.t === 'ink' ? (inkTall === 1 ? y + INK_TEXT_DY : y + (inkAdvance - ITEM) / 2) : y;
     ops.push({ op: 'text', text: row.no, x: PAD, y: textY, size: ITEM, bold: false, align: 'left' });
     ops.push({ op: 'text', text: row.amount, x: W - PAD, y: textY, size: ITEM, bold: false, align: 'right' });
 
@@ -216,7 +219,7 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       const drawnW = (box.maxX - box.minX) * scale;
       if (room > 0 && drawnW > room) {
         scale = scale * (room / drawnW);
-        originY = (box.minY + box.maxY) / 2 - INK_ROW_HEIGHT / 2 / scale;
+        originY = (box.minY + box.maxY) / 2 - (inkTall * INK_ROW_HEIGHT) / 2 / scale;
       }
       ops.push({
         op: 'ink', ink: row.ink, x: nameX + markW + INK_BLEED, y: y + INK_BLEED,
@@ -224,7 +227,7 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       });
       // A shared scale means nothing overruns the row, so the advance is simply the row: the
       // writing, plus the room the pen needs above and below it.
-      y += INK_ROW_ADVANCE;
+      y += inkTall === 1 ? INK_ROW_ADVANCE : inkAdvance;
       if (row.note) {
         for (const line of wrap(meas, row.note, 18, false, W - PAD - nameX)) {
           ops.push({ op: 'text', text: line, x: nameX, y, size: 18, bold: false, align: 'left' });

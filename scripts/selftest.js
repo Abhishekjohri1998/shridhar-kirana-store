@@ -250,6 +250,37 @@ async function main() {
   eq('paid prints when the balance is shown', paidRow && paidRow.right, '1000');
   eq('balance prints when the balance is shown', balanceRow && balanceRow.right, '422');
 
+  console.log('\nReceipt document: written and typed on one line, and two-line items');
+  {
+    const both = shared.buildReceipt({
+      ...BILL,
+      lines: [{ itemId: 'b1', nameKn: 'Sugar 2kg', nameEn: '', qty: 1, rate: 90, given: true, ink: SAMPLE_INK }],
+    }, SETTINGS);
+    const itemRows = both.rows.filter((r) => r.t === 'ink' || (r.t === 'item' && r.no !== 'No.'));
+    eq('a line both written and typed prints both', itemRows.length, 2);
+    eq('the writing first', itemRows[0].t, 'ink');
+    eq('with the number and the price', itemRows[0].no + '/' + itemRows[0].amount, '1/90');
+    eq('then the typed words', itemRows[1].name, 'Sugar 2kg');
+    eq('with no number and no price of their own', itemRows[1].no + '/' + itemRows[1].amount, '/');
+    check('and the price is printed once, not twice',
+      both.rows.filter((r) => (r.t === 'ink' || r.t === 'item') && r.amount === '90').length === 1);
+    const inkOnly = shared.buildReceipt({
+      ...BILL, lines: [{ itemId: 'b2', nameKn: '', nameEn: '', qty: 1, rate: 90, ink: SAMPLE_INK }],
+    }, SETTINGS);
+    eq('writing alone prints as before', inkOnly.rows.filter((r) => r.t === 'ink').length, 1);
+    check('with nothing typed after it', !inkOnly.rows.some((r) => r.t === 'item' && r.no === ''));
+    const tall = shared.buildReceipt({
+      ...BILL,
+      lines: [{ itemId: 'b3', nameKn: '', nameEn: '', qty: 1, rate: 90, inkRows: 2,
+        ink: { ...SAMPLE_INK, h: SAMPLE_INK.h * 2 } }],
+    }, SETTINGS);
+    eq('a two-line item is one row twice as tall', tall.rows.find((r) => r.t === 'ink').rows, 2);
+    const one = shared.buildReceipt({
+      ...BILL, lines: [{ itemId: 'b4', nameKn: '', nameEn: '', qty: 1, rate: 90, ink: SAMPLE_INK }],
+    }, SETTINGS);
+    check('and a one-line item carries no row count', one.rows.find((r) => r.t === 'ink').rows === undefined);
+  }
+
   console.log('\nReceipt document: which script it speaks');
   const KN_SET = {
     ...SETTINGS,
@@ -758,6 +789,17 @@ async function main() {
     eq('and an unticked one as not', ticked.body.lines[1].given, false);
     const reread = await call('/api/bills/' + ticked.body.no, { headers: auth });
     eq('which survives a reread', reread.body.lines[0].given, true);
+
+    // Lines are copied field by field on the way in, which is exactly where `given` was once
+    // lost. A two-line item has to make it through the same copy.
+    const tallBill = await post('/api/bills', {
+      lines: [{ itemId: 'w1', qty: 1, rate: 50, inkRows: 2, ink: { ...SAMPLE_INK, h: SAMPLE_INK.h * 2 } }],
+    });
+    eq('a two-line item is saved as two lines', tallBill.body.lines[0].inkRows, 2);
+    eq('and survives a reread', (await call('/api/bills/' + tallBill.body.no, { headers: auth })).body.lines[0].inkRows, 2);
+    eq('a third size is refused', (await post('/api/bills', {
+      lines: [{ itemId: 'w2', qty: 1, rate: 50, inkRows: 3, ink: SAMPLE_INK }],
+    })).status, 400);
 
     // The mark is composed into the name in buildReceipt, so all four renderers get it from one
     // string and cannot disagree about it.

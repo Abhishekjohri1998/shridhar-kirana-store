@@ -589,15 +589,32 @@ button, input, select, textarea {
 
 .inkline:hover { background: rgba(17, 127, 87, 0.04); }
 
-.slip-ghost {
+/* A faint line across the middle of the writing strip: where the number, tick and price sit.
+   On screen only -- nothing here is part of the ink. */
+.slip-guide {
   position: absolute;
-  left: 10px;
+  left: 6px;
+  right: 6px;
   top: 50%;
-  transform: translateY(-50%);
+  height: 1px;
+  background: var(--line);
   pointer-events: none;
-  font-size: 0.86rem;
-  color: var(--ink-400);
 }
+/* Two lines for a long item, tucked in the strip's corner so the row keeps its seven columns. */
+.slip-rows {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  color: var(--ink-400);
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.slip-rows.on { color: var(--brand-600); }
 
 .slip-price {
   width: 100%;

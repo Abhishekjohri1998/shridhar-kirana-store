@@ -51,6 +51,7 @@ const lineSchema = new Schema<BillLine>(
     // Optional with a plain default, never `required: true` beside one -- that pairing on the
     // names above is what made every print return 500 and the reason schematest exists.
     given: { type: Boolean, required: false, default: false },
+    inkRows: { type: Number, required: false, default: 1 },
   },
   { _id: false, versionKey: false },
 );

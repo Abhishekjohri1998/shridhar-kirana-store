@@ -59,6 +59,12 @@ export type BillLine = {
    * existed, which reads as "not marked" rather than "not given".
    */
   given?: boolean;
+  /**
+   * How many rows tall the writing strip was: 2 for an item too long for one line, written as
+   * two lines in one cell. It prints across two rows' height at the same letter size as every
+   * other line. Absent on every line written before this existed, which reads as 1.
+   */
+  inkRows?: number;
   qty: number;
   rate: number;
 };

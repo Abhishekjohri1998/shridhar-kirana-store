@@ -657,10 +657,16 @@ export function BillScreen() {
                 <View style={styles.slipWrite}>
                   {isWriting ? (
                     <>
+                      {/* A faint line across the middle: where the number, the tick and the
+                          price sit, so writing lands level with them. On screen only. */}
+                      <View style={styles.slipGuide} pointerEvents="none" />
                       <InkPad
                         ref={(handle) => { pads.current[line.itemId] = handle; }}
                         variant="line"
-                        height={roomy ? 116 : 96}
+                        // Shorter than it was: nobody wrote in the top half of the old strip,
+                        // which is what left the writing sitting below the tick and the price.
+                        // Printed size is unaffected -- writing is scaled by its own strip.
+                        height={(roomy ? 80 : 72) * (line.inkRows === 2 ? 2 : 1)}
                         value={line.ink ?? null}
                         onChange={(ink) => shop.setLineInk(index, ink)}
                         onBegin={() => setView('items')}
@@ -670,14 +676,6 @@ export function BillScreen() {
                         hint=""
                         strokeCount={() => ''}
                       />
-                      {/* pointerEvents none, or the hint sits on top of the writing strip and
-                          eats every stroke aimed at it -- which is exactly where someone starts
-                          writing. The web stylesheet has always said this; the phone did not. */}
-                      {!line.ink ? (
-                        <View style={styles.slipGhostWrap} pointerEvents="none">
-                          <Text style={styles.slipGhost}>{t('bill.writeHint')}</Text>
-                        </View>
-                      ) : null}
                     </>
                   ) : (
                     <TextInput
@@ -711,6 +709,18 @@ export function BillScreen() {
                 >
                   <Text style={styles.slipUndo}>{isWriting ? '⌨' : '✎'}</Text>
                 </Pressable>
+                {/* A long item: the strip becomes two rows tall, and prints as one item across
+                    two rows at the same letter size. Pressed again, back to one. */}
+                {isWriting ? (
+                  <Pressable
+                    style={styles.colIcon}
+                    accessibilityLabel={t('bill.twoLines', { n: index + 1 })}
+                    accessibilityState={{ selected: line.inkRows === 2 }}
+                    onPress={() => shop.setLineRows(index, line.inkRows === 2 ? 1 : 2)}
+                  >
+                    <Text style={[styles.slipUndo, line.inkRows === 2 && styles.slipRowsOn]}>↵</Text>
+                  </Pressable>
+                ) : null}
                 </View>
 
                 <View style={compact ? styles.slipRowBottom : styles.slipRowWideRight}>
@@ -1054,8 +1064,10 @@ const styles = StyleSheet.create({
   slipRowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
-  slipGhostWrap: { position: 'absolute', left: 10, right: 0, top: 0, bottom: 0, justifyContent: 'center' },
-  slipGhost: { fontSize: 13, color: C.faint },
+  slipGuide: {
+    position: 'absolute', left: 6, right: 6, top: '50%', height: 1, backgroundColor: C.line, opacity: 0.7,
+  },
+  slipRowsOn: { color: C.accent },
   slipPrice: {
     minHeight: 46,
     paddingHorizontal: 10,

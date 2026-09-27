@@ -445,10 +445,22 @@ export function BillPage() {
                         and a line that already holds strokes opens as writing. */}
                     {isWriting ? (
                       <>
+                        {/* Where the number, tick and price sit, so writing lands level with them. */}
+                        <span className="slip-guide" aria-hidden="true" />
+                        {/* A long item across two rows, printed as one item at the same size. */}
+                        <button
+                          className={line.inkRows === 2 ? 'slip-rows on' : 'slip-rows'}
+                          aria-label={t('bill.twoLines', { n: index + 1 })}
+                          aria-pressed={line.inkRows === 2}
+                          title={t('bill.twoLines', { n: index + 1 })}
+                          onClick={() => shop.setLineRows(index, line.inkRows === 2 ? 1 : 2)}
+                        >
+                          ↵
+                        </button>
                         <InkPad
                           ref={(handle) => { pads.current[line.itemId] = handle; }}
                           variant="line"
-                          height={96}
+                          height={80 * (line.inkRows === 2 ? 2 : 1)}
                           value={line.ink ?? null}
                           onChange={(ink) => shop.setLineInk(index, ink)}
                           label={t('bill.writeLine', { n: index + 1 })}
@@ -458,7 +470,6 @@ export function BillPage() {
                           hint=""
                           strokeCount={() => ''}
                         />
-                        {!line.ink ? <span className="slip-ghost">{t('bill.writeHint')}</span> : null}
                       </>
                     ) : (
                       <input

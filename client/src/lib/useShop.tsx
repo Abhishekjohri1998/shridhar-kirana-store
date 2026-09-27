@@ -136,6 +136,8 @@ type Shop = {
   setLineRate: (index: number, rate: number) => void;
   setLineName: (index: number, name: string) => void;
   setLineGiven: (index: number, given: boolean) => void;
+  /** One or two rows of writing for this line. See BillLine.inkRows. */
+  setLineRows: (index: number, rows: 1 | 2) => void;
   /** Ticks or unticks every line at once. */
   setAllGiven: (given: boolean) => void;
   removeLine: (index: number) => void;
@@ -478,6 +480,28 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /** Handed over, as against merely listed. */
+  /*
+   * A line written across two rows. The strip grows, and the writing already on it keeps its
+   * place: the stored strip height changes with it, so the pad does not stretch the strokes to
+   * the new shape -- it rescales whenever the size it is handed differs from its own.
+   */
+  const setLineRows = useCallback((index: number, rows: 1 | 2) => {
+    setCart((prev) => {
+      const existing = prev[index];
+      if (!existing) return prev;
+      const was = existing.inkRows === 2 ? 2 : 1;
+      if (was === rows) return prev;
+      const next = [...prev];
+      const { inkRows: _drop, ...rest } = existing;
+      next[index] = {
+        ...rest,
+        ...(rows === 2 ? { inkRows: 2 } : {}),
+        ...(existing.ink ? { ink: { ...existing.ink, h: (existing.ink.h * rows) / was } } : {}),
+      };
+      return next;
+    });
+  }, []);
+
   const setLineGiven = useCallback((index: number, given: boolean) => {
     setCart((prev) => {
       const next = [...prev];
@@ -580,7 +604,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setLineName, setLineGiven, setAllGiven,
+      setLineName, setLineGiven, setLineRows, setAllGiven,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
       customerDraft, setCustomerDraft,
@@ -591,7 +615,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setLineName, setLineGiven, setAllGiven,
+      setLineName, setLineGiven, setLineRows, setAllGiven,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,
       saveSettings, forgetEverything, dataVersion,

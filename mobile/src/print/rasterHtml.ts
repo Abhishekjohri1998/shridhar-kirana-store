@@ -210,7 +210,10 @@ export const RASTER_SCRIPT = `
         var nameMax = Math.max(40, (W - PAD - amtW - 12) - nameX);
         // A hand-written row is three times the height of a line of text, so its number and
         // price drop to the middle to sit level with the writing rather than above it.
-        var textY = row.t === 'ink' ? y + INK_TEXT_DY : y;
+        // A two-line item is twice as tall, and its number, tick and price centre on all of it.
+        var inkTall = row.t === 'ink' ? (row.rows || 1) : 1;
+        var inkAdvance = inkTall * INK_ROW_HEIGHT + 2 * INK_BLEED;
+        var textY = row.t === 'ink' ? (inkTall === 1 ? y + INK_TEXT_DY : y + (inkAdvance - ITEM) / 2) : y;
         ops.push({ op: 'text', text: row.no, x: PAD, y: textY, size: ITEM, bold: false, align: 'left' });
         ops.push({ op: 'text', text: row.amount, x: W - PAD, y: textY, size: ITEM, bold: false, align: 'right' });
 
@@ -234,14 +237,14 @@ export const RASTER_SCRIPT = `
           var idrawn = (ibox.maxX - ibox.minX) * iscale;
           if (iroom > 0 && idrawn > iroom) {
             iscale = iscale * (iroom / idrawn);
-            iorigin = (ibox.minY + ibox.maxY) / 2 - INK_ROW_HEIGHT / 2 / iscale;
+            iorigin = (ibox.minY + ibox.maxY) / 2 - (inkTall * INK_ROW_HEIGHT) / 2 / iscale;
           }
           ops.push({
             op: 'ink', ink: row.ink, x: nameX + markW + INK_BLEED, y: y + INK_BLEED,
             scale: iscale, originY: iorigin
           });
           // A shared scale means nothing overruns the row.
-          y += INK_H;
+          y += inkTall === 1 ? INK_H : inkAdvance;
           if (row.note) {
             var inl = wrap(row.note, 18, false, W - PAD - nameX);
             for (n = 0; n < inl.length; n++) {

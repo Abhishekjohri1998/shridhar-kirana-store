@@ -278,6 +278,15 @@ const CASES = [
   }), { paper: '58mm' }],
   // A free-text note is the one row on the slip whose length nobody controls, so the wrap the
   // two rasterisers each work out for themselves has to come to the same dots.
+  // A line both written and typed prints both; a long item is written across two rows.
+  ['written and typed on one line', bill({
+    lines: [{ itemId: 'b1', nameKn: 'Sugar 2kg', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 90, given: true }],
+    total: 90, paid: 90,
+  }), { paper: '58mm' }],
+  ['an item written across two rows', bill({
+    lines: [{ itemId: 't1', nameKn: '', nameEn: '', ink: { ...SAMPLE_INK, h: SAMPLE_INK.h * 2 }, inkRows: 2, qty: 1, rate: 1000, given: true }],
+    total: 1000, paid: 1000,
+  }), { paper: '58mm' }],
   ['with a short note', bill({ note: 'Delivery Tuesday' }), { paper: '58mm' }],
   ['with a note long enough to wrap', bill({
     note: 'Delivery Tuesday morning, two empty bags to be returned with the driver',
@@ -443,6 +452,33 @@ for (const paper of ['58mm', '80mm']) {
           right >= 0 && right < priceLeft - 4, 'writing ends at ' + right + ', price starts at ' + Math.round(priceLeft));
       }
     }
+  }
+}
+// A two-row item beside a four-digit price, ticked: the writing must stop short of it too.
+{
+  const TALL_WIDE = { ...WIDE_WRITING, h: WIDE_WRITING.h * 2,
+    strokes: [[8, 10, 120, 222, 240, 10, 360, 222, 468, 12]] };
+  const bill = {
+    no: 1, at: '2026-09-27T18:27:00', total: 1000, paid: 1000, balance: 0, showBalance: false,
+    lines: [{ itemId: 'l1', nameKn: '', nameEn: '', qty: 1, rate: 1000, given: true, inkRows: 2, ink: TALL_WIDE }],
+  };
+  const full = shared.buildReceipt(bill, { ...baseSettings, paper: '58mm' });
+  const inkRow = full.rows.find((r) => r.t === 'ink');
+  const advance = 2 * shared.INK_ROW_HEIGHT + 2 * shared.INK_BLEED;
+  const textTop = (advance - shared.RASTER.itemSize) / 2;
+  const priceLeft = full.width - shared.RASTER.pad - [...inkRow.amount].length * shared.RASTER.itemSize * 0.55;
+  for (const [who, rasterise] of [['web', webRasterize], ['phone', phoneRasterize]]) {
+    const img = rasterise({ width: full.width, rows: [inkRow] });
+    const bpr = Math.ceil(img.width / 8);
+    const on = (row, col) => ((img.bits[row * bpr + (col >> 3)] >> (7 - (col & 7))) & 1) === 1;
+    let right = -1;
+    for (let row = 0; row < Math.min(img.height, advance); row += 1) {
+      if (row >= textTop && row < textTop + shared.RASTER.itemSize) continue;
+      for (let col = img.width - 1; col >= 0; col -= 1) if (on(row, col)) { right = Math.max(right, col); break; }
+    }
+    check(who + ' two-row item, ticked, price 1000: the writing stops before the price',
+      right >= 0 && right < priceLeft - 4, 'writing ends at ' + right + ', price starts at ' + Math.round(priceLeft));
+    check(who + ' and the row is twice as tall', img.height >= advance, String(img.height));
   }
 }
 // The common case is untouched: short prices and no tick leave the room exactly as it was.

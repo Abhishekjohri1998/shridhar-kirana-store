@@ -34,6 +34,8 @@ const lineBody = z.object({
   rate: z.coerce.number().finite().nonnegative().max(1_000_000),
   /** Handed over, as against merely listed. Reaches the saved bill so a reprint shows it. */
   given: z.boolean().default(false),
+  // A two-line item. Only 1 or 2; anything else is a client bug, not a third size.
+  inkRows: z.union([z.literal(1), z.literal(2)]).optional(),
 });
 
 const settingsBody = z.object({
@@ -294,6 +296,9 @@ api.post('/bills', handler(async (req, res) => {
       qty: l.qty,
       rate: l.rate,
       given: l.given,
+      // Copied field by field, so every new field has to be named here -- `given` was once lost
+      // exactly this way.
+      ...(l.inkRows === 2 ? { inkRows: 2 } : {}),
     })),
     ...(body.customerId ? { customerId: body.customerId } : {}),
     ...(body.paid == null ? {} : { paid: body.paid }),
