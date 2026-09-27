@@ -1,5 +1,6 @@
 import {
-  GIVEN_MARK, INK_BLEED, INK_GUTTER, INK_ROW_ADVANCE, INK_STROKE_DOTS, INK_TEXT_DY, RASTER, fitPrefix, inkBounds,
+  AMOUNT_GAP, GIVEN_MARK, INK_BLEED, INK_GUTTER, INK_MARK_W, INK_ROW_ADVANCE, INK_ROW_HEIGHT, INK_STROKE_DOTS,
+  INK_TEXT_DY, RASTER, fitPrefix, inkBounds,
   type Ink, type ReceiptDoc,
 } from '@shridhar/shared';
 
@@ -160,9 +161,24 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
     }
     if (row.t === 'kv') {
       const size = row.size ?? 22;
-      ops.push({ op: 'text', text: row.left, x: PAD, y, size, bold: !!row.bold, align: 'left' });
-      ops.push({ op: 'text', text: row.right, x: W - PAD, y, size, bold: !!row.bold, align: 'right' });
+      const bold = !!row.bold;
+      meas.font = font(size, bold);
+      const fits = meas.measureText(row.left).width + meas.measureText(row.right).width + AMOUNT_GAP
+        <= W - 2 * PAD;
+      ops.push({ op: 'text', text: row.left, x: PAD, y, size, bold, align: 'left' });
+      if (fits) {
+        ops.push({ op: 'text', text: row.right, x: W - PAD, y, size, bold, align: 'right' });
+        y += lineHeight(size);
+        continue;
+      }
+      // Too long to share a line -- a long customer name, say -- so the value takes the lines
+      // under its label rather than printing over it. The screen preview already wraps it; now
+      // the paper agrees with the screen.
       y += lineHeight(size);
+      for (const line of wrap(meas, row.right, size, bold, W - 2 * PAD)) {
+        ops.push({ op: 'text', text: line, x: W - PAD, y, size, bold, align: 'right' });
+        y += lineHeight(size);
+      }
       continue;
     }
 
@@ -182,22 +198,38 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       // A typed row carries its tick inside the name; handwriting has no string to put it in, so
       // it is drawn and the writing starts after it. The mobile rasteriser does the same thing in
       // the same order -- rastertest compares the two dot for dot.
-      const markW = row.given ? meas.measureText(GIVEN_MARK).width : 0;
+      // A fixed slot, not the tick's measured width, so the room left for the writing is known
+      // before anything is drawn -- see buildReceipt.
+      const markW = row.given ? INK_MARK_W : 0;
       if (row.given) {
         ops.push({ op: 'text', text: GIVEN_MARK, x: nameX, y: textY, size: ITEM, bold: false, align: 'left' });
       }
       // Shifted by the pen's overhang so its painted edge lands on the column, not half outside
       // it. The width cap is already in row.scale, worked out by planInk across the whole slip.
+      // The safety net. buildReceipt already leaves the writing room for this price, from an
+      // estimate; if the real price is wider than estimated, this line is narrowed to end a gap
+      // short of it rather than print over the money. The phone does the same sum.
+      let scale = row.scale;
+      let originY = row.originY;
+      const box = inkBounds(row.ink);
+      const room = W - PAD - amountW - AMOUNT_GAP - (nameX + markW) - 2 * INK_BLEED;
+      const drawnW = (box.maxX - box.minX) * scale;
+      if (room > 0 && drawnW > room) {
+        scale = scale * (room / drawnW);
+        originY = (box.minY + box.maxY) / 2 - INK_ROW_HEIGHT / 2 / scale;
+      }
       ops.push({
         op: 'ink', ink: row.ink, x: nameX + markW + INK_BLEED, y: y + INK_BLEED,
-        scale: row.scale, originY: row.originY,
+        scale, originY,
       });
       // A shared scale means nothing overruns the row, so the advance is simply the row: the
       // writing, plus the room the pen needs above and below it.
       y += INK_ROW_ADVANCE;
       if (row.note) {
-        ops.push({ op: 'text', text: row.note, x: nameX, y, size: 18, bold: false, align: 'left' });
-        y += lineHeight(18);
+        for (const line of wrap(meas, row.note, 18, false, W - PAD - nameX)) {
+          ops.push({ op: 'text', text: line, x: nameX, y, size: 18, bold: false, align: 'left' });
+          y += lineHeight(18);
+        }
       }
       y += 4;
       continue;
@@ -211,8 +243,10 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       y += lineHeight(ITEM);
     }
     if (row.note) {
-      ops.push({ op: 'text', text: row.note, x: nameX, y, size: 18, bold: false, align: 'left' });
-      y += lineHeight(18);
+      for (const line of wrap(meas, row.note, 18, false, W - PAD - nameX)) {
+        ops.push({ op: 'text', text: line, x: nameX, y, size: 18, bold: false, align: 'left' });
+        y += lineHeight(18);
+      }
     }
     y += 4;
   }

@@ -18,6 +18,25 @@ export const PAPER_WIDTH = 384;
  */
 export const GIVEN_MARK = '✓ ';
 
+/**
+ * The room a tick takes in front of handwriting, in dots.
+ *
+ * Fixed rather than measured, so the width left for the writing can be worked out before a
+ * single glyph is drawn -- and so the two printers cannot measure it a pixel apart.
+ */
+export const INK_MARK_W = 30;
+
+/** Gap between the end of an item and its price, in dots. The printers keep the same one. */
+export const AMOUNT_GAP = 12;
+
+/**
+ * A generous width for a price, from its characters. Real digits are nearer 0.57 of the font
+ * size; 0.6 errs on the side of the writing stopping short, never of it touching the money.
+ */
+export function amountWidthEstimate(amount: string): number {
+  return [...amount].length * RASTER.itemSize * 0.6;
+}
+
 /** Dot height a handwritten description is scaled to. Tall enough for Kannada vowel signs to
  *  survive the print head, short enough that a long bill still fits on a sensible length of roll.
  *  Raised from 46 at the shop's asking: their own hand is the point of the slip, and it was
@@ -72,6 +91,9 @@ export const INK_TEXT_DY = Math.round((INK_ROW_ADVANCE - RASTER.itemSize) / 2);
  */
 export function rasterNumbers() {
   return {
+    inkMarkW: INK_MARK_W,
+    amountGap: AMOUNT_GAP,
+    inkRowHeight: INK_ROW_HEIGHT,
     pad: RASTER.pad,
     itemSize: RASTER.itemSize,
     qtyCol: RASTER.qtyCol,
@@ -197,7 +219,23 @@ export function buildReceipt(
 
   // Each hand-written line is fitted to its own row, so the slip reads as even lines rather
   // than as writing of several different sizes drifting up and down. See inkRowFit.
-  const inkRoom = inkMaxWidth(paperProfile(settings.paper).dots);
+  /*
+   * How wide the writing may be, from what is actually on this slip: less the tick when a line
+   * is ticked, and less the widest price among the written lines. It used to be a fixed figure
+   * per paper, which is how "✓ 1kg whee powder" ran into its 1000 on the shop's own slip -- the
+   * tick pushed the writing right and nothing took that back off. Never more than the old
+   * figure, so a bill with short prices and no ticks prints exactly as it did.
+   */
+  const dots = paperProfile(settings.paper).dots;
+  const written = bill.lines.filter((l) => l.ink && l.ink.strokes.length > 0);
+  const widestAmount = written.reduce(
+    (w, l) => Math.max(w, amountWidthEstimate(money(lineAmount(l.qty, l.rate)))), 0);
+  const tickSlot = written.some((l) => l.given === true) ? INK_MARK_W : 0;
+  const nameX = RASTER.pad + RASTER.qtyCol + INK_GUTTER;
+  const inkRoom = Math.max(80, Math.min(
+    inkMaxWidth(dots),
+    dots - RASTER.pad - widestAmount - AMOUNT_GAP - nameX - tickSlot + INK_GUTTER,
+  ));
   // One enlargement for the whole slip, so every line of one hand stays one size.
   const inkK = inkSlipScale(
     bill.lines.filter((l) => l.ink && l.ink.strokes.length > 0).map((l) => l.ink as Ink),

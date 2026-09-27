@@ -154,6 +154,9 @@ export const RASTER_SCRIPT = `
       var INK_S = payload.inkStrokeDots;
       var GIVEN_MARK = payload.givenMark;
       var INK_TEXT_DY = payload.inkTextDy;
+      var INK_MARK_W = payload.inkMarkW;
+      var AMOUNT_GAP = payload.amountGap;
+      var INK_ROW_HEIGHT = payload.inkRowHeight;
       var W = doc.width;
 
       var ops = [], y = 0, i, n;
@@ -177,9 +180,24 @@ export const RASTER_SCRIPT = `
 
         if (row.t === 'kv') {
           var ks = row.size || 22;
-          ops.push({ op: 'text', text: row.left, x: PAD, y: y, size: ks, bold: !!row.bold, align: 'left' });
-          ops.push({ op: 'text', text: row.right, x: W - PAD, y: y, size: ks, bold: !!row.bold, align: 'right' });
+          var kb = !!row.bold;
+          meas.font = font(ks, kb);
+          var kfits = meas.measureText(row.left).width + meas.measureText(row.right).width + AMOUNT_GAP
+            <= W - 2 * PAD;
+          ops.push({ op: 'text', text: row.left, x: PAD, y: y, size: ks, bold: kb, align: 'left' });
+          if (kfits) {
+            ops.push({ op: 'text', text: row.right, x: W - PAD, y: y, size: ks, bold: kb, align: 'right' });
+            y += lh(ks);
+            continue;
+          }
+          // Too long to share a line: the value takes the lines under its label. Same as the
+          // counter PC's copy.
           y += lh(ks);
+          var kl = wrap(row.right, ks, kb, W - 2 * PAD);
+          for (i = 0; i < kl.length; i++) {
+            ops.push({ op: 'text', text: kl[i], x: W - PAD, y: y, size: ks, bold: kb, align: 'right' });
+            y += lh(ks);
+          }
           continue;
         }
 
@@ -200,21 +218,36 @@ export const RASTER_SCRIPT = `
           // A typed row carries its tick inside the name; handwriting has no string to put it in,
           // so it is drawn and the writing starts after it. Same thing in the same order as the
           // counter PC's copy -- rastertest compares the two dot for dot.
-          var markW = row.given ? meas.measureText(GIVEN_MARK).width : 0;
+          // A fixed slot, not the tick's measured width -- see buildReceipt.
+          var markW = row.given ? INK_MARK_W : 0;
           if (row.given) {
             ops.push({ op: 'text', text: GIVEN_MARK, x: nameX, y: textY, size: ITEM, bold: false, align: 'left' });
           }
           // Shifted by the pen's overhang so its painted edge lands on the column, not half
           // outside it. The width cap is already in row.scale, from planInk.
+          // The safety net: narrowed to end a gap short of the real price if the estimate was
+          // short. The identical sum to the counter PC's copy.
+          var iscale = row.scale;
+          var iorigin = row.originY;
+          var ibox = inkBounds(row.ink);
+          var iroom = W - PAD - amtW - AMOUNT_GAP - (nameX + markW) - 2 * INK_BLEED;
+          var idrawn = (ibox.maxX - ibox.minX) * iscale;
+          if (iroom > 0 && idrawn > iroom) {
+            iscale = iscale * (iroom / idrawn);
+            iorigin = (ibox.minY + ibox.maxY) / 2 - INK_ROW_HEIGHT / 2 / iscale;
+          }
           ops.push({
             op: 'ink', ink: row.ink, x: nameX + markW + INK_BLEED, y: y + INK_BLEED,
-            scale: row.scale, originY: row.originY
+            scale: iscale, originY: iorigin
           });
           // A shared scale means nothing overruns the row.
           y += INK_H;
           if (row.note) {
-            ops.push({ op: 'text', text: row.note, x: nameX, y: y, size: 18, bold: false, align: 'left' });
-            y += lh(18);
+            var inl = wrap(row.note, 18, false, W - PAD - nameX);
+            for (n = 0; n < inl.length; n++) {
+              ops.push({ op: 'text', text: inl[n], x: nameX, y: y, size: 18, bold: false, align: 'left' });
+              y += lh(18);
+            }
           }
           y += 4;
           continue;
@@ -229,8 +262,11 @@ export const RASTER_SCRIPT = `
           y += lh(ITEM);
         }
         if (row.note) {
-          ops.push({ op: 'text', text: row.note, x: nameX, y: y, size: 18, bold: false, align: 'left' });
-          y += lh(18);
+          var tnl = wrap(row.note, 18, false, W - PAD - nameX);
+          for (n = 0; n < tnl.length; n++) {
+            ops.push({ op: 'text', text: tnl[n], x: nameX, y: y, size: 18, bold: false, align: 'left' });
+            y += lh(18);
+          }
         }
         y += 4;
       }

@@ -396,6 +396,87 @@ for (const paper of ['58mm', '80mm']) {
 }
 
 
+/*
+ * Nothing prints over anything else.
+ *
+ * The shop's slip: "✓ 1kg whee powder", handwritten, ran straight into its price 1000. The
+ * writing's width was a fixed figure per paper that knew nothing of the tick in front of it or
+ * the price after it. Here, on both printers: a line of writing drawn right across its strip,
+ * with and without a tick, beside a four-digit price and a decimal one, on both papers. The
+ * writing must stop short of where the price starts. The fake canvas measures text at 0.55 of
+ * its size per character, so the price's left edge is known exactly.
+ */
+console.log('');
+console.log('Nothing prints over the price');
+const WIDE_WRITING = { w: 476, h: 116, strokes: [[8, 10, 120, 106, 240, 10, 360, 106, 468, 12]] };
+const baseSettings = {
+  shopName: 'S', footer: 'F', language: 'en', showRate: false, inactiveAfterDays: 30,
+};
+for (const paper of ['58mm', '80mm']) {
+  for (const [amountLabel, qty, rate] of [['1000', 1, 1000], ['12345.50', 1, 12345.5], ['90', 1, 90]]) {
+    for (const given of [true, false]) {
+      const bill = {
+        no: 1, at: '2026-09-27T18:27:00', total: qty * rate, paid: qty * rate, balance: 0, showBalance: false,
+        lines: [{ itemId: 'l1', nameKn: '', nameEn: '', qty, rate, given, ink: WIDE_WRITING }],
+      };
+      const full = shared.buildReceipt(bill, { ...baseSettings, paper });
+      const inkRow = full.rows.find((r) => r.t === 'ink');
+      const oneRow = { width: full.width, rows: [inkRow] };
+      const label = paper + ', ' + (given ? 'ticked, ' : '') + 'price ' + amountLabel;
+      const priceLeft = full.width - shared.RASTER.pad - [...inkRow.amount].length * shared.RASTER.itemSize * 0.55;
+      const textTop = shared.INK_TEXT_DY;
+      const textBottom = shared.INK_TEXT_DY + shared.RASTER.itemSize;
+      for (const [who, rasterise] of [['web', webRasterize], ['phone', phoneRasterize]]) {
+        const img = rasterise(oneRow);
+        const bpr = Math.ceil(img.width / 8);
+        const on = (row, col) => ((img.bits[row * bpr + (col >> 3)] >> (7 - (col & 7))) & 1) === 1;
+        // Rows above and below the text band hold writing only, so the rightmost black dot there
+        // is where the writing ends.
+        let right = -1;
+        for (let row = 0; row < Math.min(img.height, shared.INK_ROW_ADVANCE); row += 1) {
+          if (row >= textTop && row < textBottom) continue;
+          for (let col = img.width - 1; col >= 0; col -= 1) {
+            if (on(row, col)) { right = Math.max(right, col); break; }
+          }
+        }
+        check(who + ' ' + label + ': the writing stops before the price',
+          right >= 0 && right < priceLeft - 4, 'writing ends at ' + right + ', price starts at ' + Math.round(priceLeft));
+      }
+    }
+  }
+}
+// The common case is untouched: short prices and no tick leave the room exactly as it was.
+{
+  const plain = {
+    no: 1, at: '2026-09-27T18:27:00', total: 90, paid: 90, balance: 0, showBalance: false,
+    lines: [{ itemId: 'l1', nameKn: '', nameEn: '', qty: 1, rate: 90, ink: WIDE_WRITING }],
+  };
+  const doc = shared.buildReceipt(plain, { ...baseSettings, paper: '58mm' });
+  const before = shared.inkRowFit(WIDE_WRITING, shared.inkMaxWidth(384), shared.INK_ROW_HEIGHT,
+    shared.inkSlipScale([WIDE_WRITING], shared.inkMaxWidth(384), shared.INK_ROW_HEIGHT));
+  check('a bill with a short price and no tick prints as it always did',
+    Math.abs(doc.rows.find((r) => r.t === 'ink').scale - before.scale) < 1e-9);
+}
+
+console.log('');
+console.log('A long name does not print over its label');
+for (const name of ['Arjuna Yallari Mukkal Basavaraj Kartikar Honnalli', 'ಅರ್ಜುನ ಯಲ್ಲರಿ ಮುಕ್ಕಲ್ ಬಸವರಾಜ ಕಾರ್ತಿಕರ್ ಹೊನ್ನಳ್ಳಿ']) {
+  const withName = (n) => shared.buildReceipt({
+    no: 1, at: '2026-09-27T18:27:00', total: 90, paid: 90, balance: 0, showBalance: false,
+    customer: { id: 'c1', name: n, phone: '9886012345' },
+    lines: [{ itemId: 'l1', nameKn: 'Rice', nameEn: '', qty: 1, rate: 90 }],
+  }, { ...baseSettings, paper: '58mm' });
+  for (const [who, rasterise] of [['web', webRasterize], ['phone', phoneRasterize]]) {
+    const short = rasterise(withName('Ram')).height;
+    const long = rasterise(withName(name)).height;
+    check(who + ': the long name takes a line of its own under the label', long > short,
+      short + ' vs ' + long);
+  }
+  const w = webRasterize(withName(name));
+  const ph = phoneRasterize(withName(name));
+  check('and both printers agree on it', w.height === ph.height && Buffer.compare(Buffer.from(w.bits), Buffer.from(ph.bits)) === 0);
+}
+
 fs.rmSync(BUILD, { recursive: true, force: true });
 
 console.log('');
