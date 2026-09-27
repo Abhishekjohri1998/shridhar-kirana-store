@@ -1,10 +1,10 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, itemMatches, roundOff, round2,
-  type Bill, type BillLine, type Customer, type Ink, type Item, type Settings, type TodaySummary,
+  DEFAULT_SETTINGS, billTotal, customerMatches, round2,
+  type Bill, type BillLine, type Customer, type Ink, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makeItemId, normalisePhone, upsertDoc,
+  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, normalisePhone, upsertDoc,
   type CustomerInput, type NewBill, type Repo,
 } from './types';
 
@@ -84,7 +84,6 @@ const billSchema = new Schema<Bill>(
     cancelledAt: { type: String, required: false, default: null },
     showBalance: { type: Boolean, required: true, default: false },
     note: { type: String, required: false, default: '' },
-    roundOff: { type: Number, required: false, default: 0 },
   },
   { versionKey: false },
 );
@@ -133,8 +132,6 @@ const settingsSchema = new Schema<SettingsDoc>(
     showRate: { type: Boolean, required: true },
     showGstin: { type: Boolean, required: false, default: true },
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
-    // Optional with a default, never `required: true` beside one -- see the bill schema.
-    roundTo: { type: Number, required: false, default: 0 },
   },
   { versionKey: false },
 );
@@ -162,52 +159,9 @@ const Customers: Model<CustomerDoc> =
 const SettingsModel: Model<SettingsDoc> =
   (mongoose.models.Settings as Model<SettingsDoc> | undefined) ??
   mongoose.model<SettingsDoc>('Settings', settingsSchema);
-/*
- * Items. A unit is a sub-document rather than a row of its own: an item is always read and
- * written whole, and a pack price that could be saved without its item is a pack of nothing.
- * Every optional field is `required: false` with its default -- never `required: true` beside
- * one, the pairing that made every print 500.
- */
-const slabSchema = new Schema(
-  { minQty: { type: Number, required: true }, rate: { type: Number, required: true } },
-  { _id: false },
-);
-const unitSchema = new Schema(
-  {
-    code: { type: String, required: true },
-    label: { type: String, required: false, default: '' },
-    labelKn: { type: String, required: false, default: '' },
-    perBase: { type: Number, required: true },
-    price: { type: Number, required: true },
-    slabs: { type: [slabSchema], required: false, default: [] },
-    min: { type: Number, required: false, default: null },
-    max: { type: Number, required: false, default: null },
-  },
-  { _id: false },
-);
-const itemSchema = new Schema<Item>(
-  {
-    id: { type: String, required: true, unique: true, index: true },
-    nameEn: { type: String, required: false, default: '' },
-    nameKn: { type: String, required: false, default: '' },
-    units: { type: [unitSchema], required: true },
-    place: { type: String, required: false, default: '' },
-    reorderAt: { type: Number, required: false, default: 0 },
-    active: { type: Boolean, required: false, default: true },
-  },
-  { versionKey: false },
-);
-const Items: Model<Item> =
-  (mongoose.models.Item as Model<Item> | undefined) ?? mongoose.model<Item>('Item', itemSchema);
-
 const Counters: Model<CounterDoc> =
   (mongoose.models.Counter as Model<CounterDoc> | undefined) ??
   mongoose.model<CounterDoc>('Counter', counterSchema);
-
-/** English name first, then Kannada, so the list reads the same on every screen. */
-function byName(items: Item[]): Item[] {
-  return [...items].sort((a, b) => (a.nameEn || a.nameKn).localeCompare(b.nameEn || b.nameKn));
-}
 
 export async function createMongoRepo(uri: string): Promise<Repo> {
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
@@ -226,40 +180,6 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
   // back out through the one piece of code that knows how to move it.
   const repo: Repo = {
     kind: 'mongo',
-
-    async listItems(includeInactive = false) {
-      const docs = await Items.find(includeInactive ? {} : { active: true }).lean();
-      return byName(docs.map((d) => strip(d as unknown as Item)));
-    },
-
-    async getItem(id) {
-      const doc = await Items.findOne({ id }).lean();
-      return doc ? strip(doc as unknown as Item) : null;
-    },
-
-    async searchItems(q, limit) {
-      // Filtered in JS for the same reason customers are: the match is phonetic, across two
-      // scripts, and a kirana's catalogue is a few thousand rows at most.
-      const docs = await Items.find({ active: true }).lean();
-      return byName(docs.map((d) => strip(d as unknown as Item)).filter((i) => itemMatches(i, q)))
-        .slice(0, limit);
-    },
-
-    async saveItem(input) {
-      const { id, ...fields } = input;
-      if (id) {
-        const doc = await Items.findOneAndUpdate({ id }, { $set: fields }, { new: true }).lean();
-        if (doc) return strip(doc as unknown as Item);
-      }
-      const item: Item = { ...fields, id: id ?? makeItemId() };
-      await Items.create(item);
-      return item;
-    },
-
-    async deleteItem(id) {
-      const res = await Items.deleteOne({ id });
-      return res.deletedCount > 0;
-    },
 
     async getSettings() {
       const doc = await SettingsModel.findOneAndUpdate(
@@ -292,11 +212,8 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return doc ? strip(doc as unknown as Bill) : null;
     },
 
-    async createBill({ lines, customerId, paid, showBalance, note, roundTo }) {
-      // The rounding goes inside the total, so balances and cancellations need no change.
-      const lineSum = billTotal(lines);
-      const rounded = roundOff(lineSum, roundTo ?? 0);
-      const total = round2(lineSum + rounded);
+    async createBill({ lines, customerId, paid, showBalance, note }) {
+      const total = billTotal(lines);
       const takings = round2(paid ?? total);
 
       /*
@@ -376,7 +293,6 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         previousBalance,
         previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
         showBalance: showBalance ?? false,
-        ...(rounded !== 0 ? { roundOff: rounded } : {}),
         note: note ?? '',
       };
 

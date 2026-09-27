@@ -1788,18 +1788,3 @@ select.input {
   cursor: pointer;
 }
 .select-all input { width: 22px; height: 22px; accent-color: var(--accent); }
-
-/* One unit of an item in the editor: its name, what it holds, price and range on one line. */
-.unit-box {
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: 10px;
-  margin-bottom: 10px;
-  display: grid;
-  gap: 8px;
-}
-.unit-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-.unit-grid .field, .unit-box > .field { margin: 0; }
-@media (max-width: 600px) {
-  .unit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}

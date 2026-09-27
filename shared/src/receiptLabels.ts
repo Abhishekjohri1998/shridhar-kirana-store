@@ -26,8 +26,6 @@ export type ReceiptLabels = {
   balance: string;
   /** Prefixes the bill's own note, under the totals. */
   note: string;
-  /** The rounding line above the total. */
-  roundOff: string;
 };
 
 export const EN_RECEIPT_LABELS: ReceiptLabels = {
@@ -43,5 +41,4 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   paid: 'Paid',
   balance: 'Balance',
   note: 'Note',
-  roundOff: 'Round off',
 };

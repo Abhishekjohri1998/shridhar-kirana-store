@@ -278,8 +278,6 @@ const CASES = [
   }), { paper: '58mm' }],
   // A free-text note is the one row on the slip whose length nobody controls, so the wrap the
   // two rasterisers each work out for themselves has to come to the same dots.
-  // A rounded bill prints its adjustment as its own line above the total.
-  ['rounded to the rupee', bill({ total: 1370, roundOff: -0.4 }), { paper: '58mm' }],
   ['with a short note', bill({ note: 'Delivery Tuesday' }), { paper: '58mm' }],
   ['with a note long enough to wrap', bill({
     note: 'Delivery Tuesday morning, two empty bags to be returned with the driver',

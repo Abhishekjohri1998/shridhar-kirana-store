@@ -5,8 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
-  nextLineId, receiptLabelsFor, reviveDraft, roundOff, round2,
-  type Bill, type BillLine, type Customer, type Draft, type Ink, type Lang,
+  nextLineId, receiptLabelsFor, reviveDraft, round2,
+  type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -85,10 +85,7 @@ type Shop = {
   bills: Bill[];
   today: TodaySummary;
   cart: BillLine[];
-  /** What the bill comes to, rounded the way the server will round it. */
   cartTotal: number;
-  /** The rounding inside that figure, for the slip's "Round off" line. */
-  cartRoundOff: number;
   customer: Customer | null;
   inactive: Customer[];
   paidInput: string;
@@ -121,6 +118,7 @@ type Shop = {
   dataVersion: number;
   refreshInactive: () => Promise<void>;
 
+  addItemToCart: (item: Item, qty?: number) => void;
   addLooseLine: (input: { name?: string; ink?: Ink | null; rate: number; qty: number }) => void;
   setLineQty: (index: number, qty: number) => void;
   setLineInk: (index: number, ink: Ink | null) => void;
@@ -504,6 +502,19 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     resetDraft();
   }, [resetDraft]);
 
+  const addItemToCart = useCallback((item: Item, qty = 1) => {
+    setCart((prev) => {
+      const at = prev.findIndex((l) => l.itemId === item.id && l.rate === item.rate && !l.ink);
+      if (at >= 0) {
+        const next = [...prev];
+        const existing = next[at]!;
+        next[at] = { ...existing, qty: existing.qty + qty };
+        return next;
+      }
+      return [...prev, { itemId: item.id, nameKn: item.nameKn, nameEn: item.nameEn, qty, rate: item.rate }];
+    });
+  }, []);
+
   const addLooseLine = useCallback(
     ({ name, ink, rate, qty }: { name?: string; ink?: Ink | null; rate: number; qty: number }) => {
       const trimmed = (name ?? '').trim();
@@ -658,12 +669,11 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Shop>(
     () => ({
       ready, serverUrl, signedIn, locked, offline,
-      settings, bills, today, cart, cartTotal: round2(billTotal(cart) + roundOff(billTotal(cart), settings.roundTo)),
-      cartRoundOff: roundOff(billTotal(cart), settings.roundTo),
+      settings, bills, today, cart, cartTotal: billTotal(cart),
       customer, inactive, paidInput, printBalance, printBalanceTouched, note,
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
-      addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setAllGiven,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
@@ -674,7 +684,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       ready, serverUrl, signedIn, locked, offline, settings, bills, today, cart,
       customer, inactive, paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
-      addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setAllGiven,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft, saveSettings,

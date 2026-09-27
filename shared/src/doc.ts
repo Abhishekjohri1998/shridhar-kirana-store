@@ -254,16 +254,8 @@ export function buildReceipt(
     });
   }
 
-  rows.push({ t: 'sep' });
-  // The rounding, said out loud, so the lines above plus this come to the total below. A 'kv'
-  // row, which all four renderers already draw -- nothing new for the printer to learn.
-  if (bill.roundOff) {
-    rows.push({
-      t: 'kv', left: labels.roundOff,
-      right: (bill.roundOff > 0 ? '+' : '') + money(bill.roundOff), size: 20,
-    });
-  }
   rows.push(
+    { t: 'sep' },
     // bill.total is the shop's own figure and is left alone; only what the paper says changes.
     { t: 'kv', left: labels.total, right: money(round2(bill.total + carried)), size: 30, bold: true },
   );

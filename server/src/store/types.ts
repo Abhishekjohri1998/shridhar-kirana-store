@@ -11,16 +11,7 @@ export type NewBill = {
   showBalance?: boolean;
   /** Extra information about this sale, printed under the totals. */
   note?: string;
-  /** The shop's rounding step, from settings. 0 leaves the total as the lines add up. */
-  roundTo?: number;
 };
-
-export type ItemInput = Omit<Item, 'id'> & { id?: string };
-
-/** Readable, and unique without asking the database: the whole clock and six random characters. */
-export function makeItemId(): string {
-  return 'i-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
 
 export type CustomerInput = {
   id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
@@ -34,16 +25,15 @@ export type Repo = {
   kind: 'mongo' | 'file';
 
   /**
-   * The item list. Inactive items are left out unless asked for: they are kept only so old
-   * bills and history can still name them.
+   * Fill an empty shop with its starter catalogue, in one write.
+   *
+   * One write matters: this used to be a loop of single upserts, and a restart part-way through
+   * (tsx watch reloading, or a crash) left four of the twenty-four items on disk. The next boot
+   * then saw a non-empty shop, skipped seeding, and the other twenty were gone for good. Doing it
+   * as one operation means the outcome is all of them or none, and none is retried next boot.
+   *
+   * Returns how many were inserted -- zero when the shop already had items.
    */
-  listItems(includeInactive?: boolean): Promise<Item[]>;
-  getItem(id: string): Promise<Item | null>;
-  /** Items that answer to what was typed, in English or Kannada. Active ones only. */
-  searchItems(q: string, limit: number): Promise<Item[]>;
-  /** Create when `id` is absent, replace otherwise. */
-  saveItem(input: ItemInput): Promise<Item>;
-  deleteItem(id: string): Promise<boolean>;
 
   getSettings(): Promise<Settings>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;

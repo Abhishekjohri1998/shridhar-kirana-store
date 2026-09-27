@@ -4,55 +4,15 @@ import type { PaperKey } from './paper';
 export type Lang = 'en' | 'kn';
 export const LANGS: Lang[] = ['en', 'kn'];
 
-/**
- * One way an item is sold, with its own price.
- *
- * Shop-defined, not a fixed list: page 7 of the shop's brief is about exactly this. Clinic Plus
- * goes by the *line* of 16 sachets, because that is what customers ask for; Parle-G is sold as a
- * piece for 5, a pack of 24 for 110 -- not 120 -- and a box of six packs. Billing software with a
- * fixed list of units gets every one of those wrong.
- */
-export type ItemUnit = {
-  /** Short and stable: "pc", "line", "pack", "box". Unique within the item. */
-  code: string;
-  label: string;
-  labelKn: string;
-  /**
-   * How many base units one of these is. The base unit itself is 1. Stock is always counted in
-   * base units, so a box and a piece of Parle-G come out of the same number.
-   */
-  perBase: number;
-  /** Price for one of this unit, in rupees. */
-  price: number;
-  /**
-   * Cheaper when more are bought. Each slab says "from this many units, this rate each", and the
-   * highest slab reached applies. Empty means the one price above.
-   */
-  slabs: PriceSlab[];
-  /** The allowed bargaining range per unit. A rate outside it is allowed but flagged. */
-  min?: number | null;
-  max?: number | null;
-};
-
-export type PriceSlab = { minQty: number; rate: number };
-
-/**
- * One sellable good.
- *
- * `nameKn` is what prints and what most customers read; `nameEn` is what the shopkeeper often
- * types. Either finds it. The first unit is the base unit, the one stock is counted in.
- */
+/** One sellable good. `nameKn` is what gets printed, `nameEn` is what the shopkeeper types to search. */
 export type Item = {
   id: string;
-  nameEn: string;
   nameKn: string;
-  units: ItemUnit[];
-  /** Where it is kept, free text: "Rack 3", "Back room". What the worker display groups by. */
-  place: string;
-  /** Below this many base units in the shop, it is running out. 0 means never flagged. */
-  reorderAt: number;
-  /** Stopped selling it. Hidden from search, kept for old bills and history. */
-  active: boolean;
+  nameEn: string;
+  /** Price per unit, in rupees. */
+  rate: number;
+  /** Free text shown next to the rate: pc, kg, ltr, pkt ... */
+  unit: string;
 };
 
 /**
@@ -118,14 +78,7 @@ export type Bill = {
   /** Copied in, so a renamed customer does not change an old receipt. */
   customer?: BillCustomer;
   lines: BillLine[];
-  /**
-   * What the customer pays: the lines, plus `roundOff`. Every balance, every day's takings and
-   * every cancellation already works from this figure, which is why the rounding lives inside
-   * it rather than beside it.
-   */
   total: number;
-  /** The rounding folded into `total`, printed as its own line. 0 or absent when not rounded. */
-  roundOff?: number;
   /** Cash taken for this bill. Equal to the total on a fully paid bill. */
   paid: number;
   /** What the customer still owes across every bill, as of this one. */
@@ -207,11 +160,6 @@ export type Settings = {
   showRate: boolean;
   /** A customer quiet for this many days is flagged as needing a nudge. */
   inactiveAfterDays: number;
-  /**
-   * Round the bill to this many rupees: 0 for no rounding. The difference prints as its own
-   * "Round off" line so the slip still adds up.
-   */
-  roundTo: number;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -225,7 +173,6 @@ export const DEFAULT_SETTINGS: Settings = {
   footerKn: '',
   showRate: false,
   inactiveAfterDays: 30,
-  roundTo: 0,
 };
 
 export type TodaySummary = { count: number; total: number };

@@ -1,12 +1,12 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, itemMatches, roundOff, round2,
+  DEFAULT_SETTINGS, billTotal, customerMatches, round2,
   type Bill, type Customer, type Item, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makeItemId, normalisePhone,
-  type ItemInput, type NewBill, type Repo,
+  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, normalisePhone,
+  type NewBill, type Repo,
 } from './types';
 
 type CustomerRow = {
@@ -33,11 +33,6 @@ type Db = {
   settings: Settings;
   billNo: number;
 };
-
-/** English name first, then Kannada, so the list reads the same on every screen. */
-function byName(items: Item[]): Item[] {
-  return [...items].sort((a, b) => (a.nameEn || a.nameKn).localeCompare(b.nameEn || b.nameKn));
-}
 
 const EMPTY: Db = { items: [], bills: [], customers: [], settings: { ...DEFAULT_SETTINGS }, billNo: 0 };
 
@@ -77,40 +72,6 @@ export async function createFileRepo(dir: string): Promise<Repo> {
     kind: 'file',
 
 
-    async listItems(includeInactive = false) {
-      return byName(db.items.filter((i) => includeInactive || i.active));
-    },
-
-    async getItem(id) {
-      return db.items.find((i) => i.id === id) ?? null;
-    },
-
-    async searchItems(q, limit) {
-      return byName(db.items.filter((i) => i.active && itemMatches(i, q))).slice(0, limit);
-    },
-
-    saveItem(input: ItemInput) {
-      return serial(async () => {
-        const { id, ...fields } = input;
-        const at = id ? db.items.findIndex((i) => i.id === id) : -1;
-        const item: Item = { ...fields, id: at >= 0 ? db.items[at]!.id : id ?? makeItemId() };
-        if (at >= 0) db.items[at] = item;
-        else db.items.push(item);
-        await flush();
-        return item;
-      });
-    },
-
-    deleteItem(id) {
-      return serial(async () => {
-        const before = db.items.length;
-        db.items = db.items.filter((i) => i.id !== id);
-        if (db.items.length === before) return false;
-        await flush();
-        return true;
-      });
-    },
-
     async getSettings() {
       return { ...DEFAULT_SETTINGS, ...db.settings };
     },
@@ -134,12 +95,9 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return db.bills.find((b) => b.no === no) ?? null;
     },
 
-    createBill({ lines, customerId, paid, showBalance, note, roundTo }: NewBill) {
+    createBill({ lines, customerId, paid, showBalance, note }: NewBill) {
       return serial(async () => {
-        // The rounding goes inside the total, so balances and cancellations need no change.
-        const lineSum = billTotal(lines);
-        const rounded = roundOff(lineSum, roundTo ?? 0);
-        const total = round2(lineSum + rounded);
+        const total = billTotal(lines);
         const takings = round2(paid ?? total);
 
         let row: CustomerRow | undefined;
@@ -184,7 +142,6 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           previousBalance,
           previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
           showBalance: showBalance ?? false,
-          ...(rounded !== 0 ? { roundOff: rounded } : {}),
           note: note ?? '',
         };
         db.bills.push(bill);

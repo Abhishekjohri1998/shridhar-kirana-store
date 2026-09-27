@@ -957,77 +957,12 @@ async function main() {
       method: 'PUT', headers: auth, body: JSON.stringify({ inactiveAfterDays: 0 }),
     })).status, 400);
 
-    console.log('\nAPI: items');
-    // The catalogue is back, this time for the typing mode and for stock: one item sold several
-    // ways. Parle-G as a piece, a pack of 24 for 110, a box of six packs.
-    const put = (p, body) => call(p, { method: 'PUT', headers: auth, body: JSON.stringify(body) });
-    const parle = {
-      nameEn: 'Parle-G', nameKn: '\u0caa\u0cbe\u0cb0\u0ccd\u0cb2\u0cc6', place: 'Rack 2', reorderAt: 48,
-      units: [
-        { code: 'pc', perBase: 1, price: 5, slabs: [{ minQty: 10, rate: 4.5 }], min: 4, max: 6 },
-        { code: 'pack', perBase: 24, price: 110 },
-        { code: 'box', perBase: 144, price: 640 },
-      ],
-    };
-    const madeItem = await post('/api/items', parle);
-    eq('an item is created', madeItem.status, 201);
-    check('with an id of its own', typeof madeItem.body.id === 'string' && madeItem.body.id.startsWith('i-'));
-    eq('keeping all three units', madeItem.body.units.length, 3);
-    eq('and the pack at its own price', madeItem.body.units[1].price, 110);
-    eq('an unset range reads as none', madeItem.body.units[2].min, null);
-    eq('it is listed', (await call('/api/items', { headers: auth })).body.length, 1);
-    eq('found by English', (await call('/api/items/search?q=parle', { headers: auth })).body.length, 1);
-    eq('found by Kannada',
-      (await call('/api/items/search?q=' + encodeURIComponent('\u0caa\u0cbe'), { headers: auth })).body.length, 1);
-    eq('not found by something else', (await call('/api/items/search?q=rice', { headers: auth })).body.length, 0);
-    eq('a unit counted wrong is refused',
-      (await post('/api/items', { ...parle, units: [{ code: 'pack', perBase: 24, price: 110 }] })).status, 400);
-    eq('an item with no name is refused', (await post('/api/items', { ...parle, nameEn: '', nameKn: '' })).status, 400);
-    const edited = await put('/api/items/' + madeItem.body.id, { ...parle, place: 'Rack 5' });
-    eq('an item is edited in place', edited.body.place, 'Rack 5');
-    eq('under the same id', edited.body.id, madeItem.body.id);
-    const retired = await put('/api/items/' + madeItem.body.id, { ...parle, active: false });
-    eq('it can be retired', retired.body.active, false);
-    eq('a retired item is not in the list', (await call('/api/items', { headers: auth })).body.length, 0);
-    eq('nor in search', (await call('/api/items/search?q=parle', { headers: auth })).body.length, 0);
-    eq('but is kept for history', (await call('/api/items?all=1', { headers: auth })).body.length, 1);
-
-    const exported = await fetch(base + '/api/items/export.csv', { headers: auth });
-    const exportedText = await exported.text();
-    eq('the catalogue exports as a spreadsheet', exported.headers.get('content-type'), 'text/csv; charset=utf-8');
-    check('with one row per unit', exportedText.trim().split(/\r?\n/).length === 4, exportedText);
-    const reimported = await post('/api/items/import', {
-      csv: exportedText.split('Rack 2').join('Rack 9')
-        + 'new,Clinic Plus,,Rack 1,0,yes,pc,,,1,2,,,\r\nnew,Clinic Plus,,Rack 1,0,yes,line,,,16,30,,,\r\n',
-    });
-    eq('a spreadsheet comes back in', reimported.status, 200);
-    eq('saving every item in it', reimported.body.saved, 2);
-    const afterImport = (await call('/api/items?all=1', { headers: auth })).body;
-    eq('an existing item is updated, not duplicated', afterImport.length, 2);
-    eq('and its edit is kept', afterImport.find((i) => i.nameEn === 'Parle-G').place, 'Rack 9');
-    eq('Clinic Plus arrives by the line', afterImport.find((i) => i.nameEn === 'Clinic Plus').units[1].perBase, 16);
-    const badImport = await post('/api/items/import', { csv: 'name_en,name_kn,unit,price\nRice,,kg,lots\n' });
-    eq('a sheet with a bad row is refused whole', badImport.status, 400);
-    eq('and nothing is saved from it', (await call('/api/items?all=1', { headers: auth })).body.length, 2);
-    const gone = await call('/api/items/' + madeItem.body.id, { method: 'DELETE', headers: auth });
-    eq('an item can be deleted', gone.status, 204);
-
-    console.log('\nAPI: rounding');
-    await put('/api/settings', { roundTo: 1 });
-    const roundedBill = await post('/api/bills', { lines: [{ itemId: 'r1', qty: 1, rate: 123.4 }] });
-    eq('the bill is rounded to the rupee', roundedBill.body.total, 123);
-    eq('with the rounding kept beside it', roundedBill.body.roundOff, -0.4);
-    const slip = shared.buildReceipt(roundedBill.body, { ...SETTINGS });
-    check('and printed as its own line',
-      slip.rows.some((r) => r.t === 'kv' && r.left === 'Round off' && r.right === '-0.40'),
-      JSON.stringify(slip.rows.filter((r) => r.t === 'kv')));
-    await put('/api/settings', { roundTo: 0 });
-    const plainBill = await post('/api/bills', { lines: [{ itemId: 'r2', qty: 1, rate: 123.4 }] });
-    eq('with rounding off, the lines are the total', plainBill.body.total, 123.4);
-    check('and no rounding is recorded', !plainBill.body.roundOff);
-    eq('a rounding step that is not one is refused', (await put('/api/settings', { roundTo: 100 })).status, 400);
-
     console.log('\nAPI: settings');
+    // The catalogue is gone: every line of a bill is written by hand now, so there is no item
+    // endpoint left. What matters is that the routes that did exist are truly gone rather than
+    // quietly still answering.
+    eq('the item list is gone', (await call('/api/items', { headers: auth })).status, 404);
+    eq('adding an item is gone', (await post('/api/items', { nameEn: 'Milk', rate: 28 })).status, 404);
 
     // Normalised on the way in, like every other figure the browser sends: the number goes on
     // paper, so it should read the same however it was typed.

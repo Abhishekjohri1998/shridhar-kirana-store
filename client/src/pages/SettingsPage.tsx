@@ -372,21 +372,6 @@ export function SettingsPage() {
         <p className="muted small" style={{ margin: 0 }}>
           {t('set.paperNote', { mm: paper.printableMm, dots: paper.dots })}
         </p>
-        <div className="field">
-          <label htmlFor="s-round">{t('set.roundTo')}</label>
-          <select
-            id="s-round"
-            className="input"
-            value={String(shop.settings.roundTo ?? 0)}
-            onChange={(e) => void save({ roundTo: Number(e.target.value) }, 'set.savedRounding')}
-          >
-            <option value="0">{t('set.roundNone')}</option>
-            <option value="1">{t('set.round1')}</option>
-            <option value="5">{t('set.round5')}</option>
-            <option value="10">{t('set.round10')}</option>
-          </select>
-        </div>
-        <p className="muted small" style={{ margin: 0 }}>{t('set.roundNote')}</p>
       </section>
 
       <section className="card stack">
