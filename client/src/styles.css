@@ -589,18 +589,11 @@ button, input, select, textarea {
 
 .inkline:hover { background: rgba(17, 127, 87, 0.04); }
 
-/* A faint line across the middle of the writing strip: where the number, tick and price sit.
-   On screen only -- nothing here is part of the ink. */
-.slip-guide {
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  top: 50%;
-  height: 1px;
-  background: var(--line);
-  pointer-events: none;
-}
-/* Two lines for a long item, tucked in the strip's corner so the row keeps its seven columns. */
+/* An added line of writing for the same item, with its own remove button. */
+.slip-more { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.slip-more > :first-child { flex: 1; min-width: 0; }
+/* A new line of writing for a long item, tucked in the strip's corner so the row keeps its
+   seven columns. */
 .slip-rows {
   position: absolute;
   top: 2px;
@@ -614,7 +607,7 @@ button, input, select, textarea {
   padding: 4px 6px;
   cursor: pointer;
 }
-.slip-rows.on { color: var(--brand-600); }
+.slip-rows:disabled { opacity: 0.35; cursor: default; }
 
 .slip-price {
   width: 100%;

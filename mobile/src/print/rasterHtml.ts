@@ -222,7 +222,8 @@ export const RASTER_SCRIPT = `
           // so it is drawn and the writing starts after it. Same thing in the same order as the
           // counter PC's copy -- rastertest compares the two dot for dot.
           // A fixed slot, not the tick's measured width -- see buildReceipt.
-          var markW = row.given ? INK_MARK_W : 0;
+          // A continued line of a ticked item keeps the tick's slot, so it stays flush.
+          var markW = row.given || row.markSlot ? INK_MARK_W : 0;
           if (row.given) {
             ops.push({ op: 'text', text: GIVEN_MARK, x: nameX, y: textY, size: ITEM, bold: false, align: 'left' });
           }

@@ -657,9 +657,6 @@ export function BillScreen() {
                 <View style={styles.slipWrite}>
                   {isWriting ? (
                     <>
-                      {/* A faint line across the middle: where the number, the tick and the
-                          price sit, so writing lands level with them. On screen only. */}
-                      <View style={styles.slipGuide} pointerEvents="none" />
                       <InkPad
                         ref={(handle) => { pads.current[line.itemId] = handle; }}
                         variant="line"
@@ -676,6 +673,34 @@ export function BillScreen() {
                         hint=""
                         strokeCount={() => ''}
                       />
+                      {/* A long item carried on to the next line, as it would be on paper: each
+                          added strip is the same height as the first and part of the same item. */}
+                      {(line.moreInk ?? []).map((extra, s) => (
+                        <View key={s} style={styles.moreStrip}>
+                          <View style={{ flex: 1 }}>
+                            <InkPad
+                              variant="line"
+                              height={roomy ? 80 : 72}
+                              value={extra.strokes.length ? extra : null}
+                              onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
+                              onBegin={() => setView('items')}
+                              label={t('bill.writeLine', { n: index + 1 })}
+                              undoLabel=""
+                              clearLabel=""
+                              hint=""
+                              strokeCount={() => ''}
+                            />
+                          </View>
+                          <Pressable
+                            style={styles.colIcon}
+                            accessibilityLabel={t('bill.removeStrip', { n: index + 1 })}
+                            onPress={() => shop.removeLineStrip(index, s)}
+                            hitSlop={6}
+                          >
+                            <Text style={styles.slipRemove}>×</Text>
+                          </Pressable>
+                        </View>
+                      ))}
                     </>
                   ) : (
                     <TextInput
@@ -709,16 +734,15 @@ export function BillScreen() {
                 >
                   <Text style={styles.slipUndo}>{isWriting ? '⌨' : '✎'}</Text>
                 </Pressable>
-                {/* A long item: the strip becomes two rows tall, and prints as one item across
-                    two rows at the same letter size. Pressed again, back to one. */}
+                {/* A new line to write on for this same item, under the one there. Up to two. */}
                 {isWriting ? (
                   <Pressable
                     style={styles.colIcon}
-                    accessibilityLabel={t('bill.twoLines', { n: index + 1 })}
-                    accessibilityState={{ selected: line.inkRows === 2 }}
-                    onPress={() => shop.setLineRows(index, line.inkRows === 2 ? 1 : 2)}
+                    disabled={(line.moreInk ?? []).length >= 2}
+                    accessibilityLabel={t('bill.addStrip', { n: index + 1 })}
+                    onPress={() => shop.addLineStrip(index)}
                   >
-                    <Text style={[styles.slipUndo, line.inkRows === 2 && styles.slipRowsOn]}>↵</Text>
+                    <Text style={[styles.slipUndo, (line.moreInk ?? []).length >= 2 && styles.slipRemoveOff]}>↵</Text>
                   </Pressable>
                 ) : null}
                 </View>
@@ -1064,10 +1088,7 @@ const styles = StyleSheet.create({
   slipRowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
-  slipGuide: {
-    position: 'absolute', left: 6, right: 6, top: '50%', height: 1, backgroundColor: C.line, opacity: 0.7,
-  },
-  slipRowsOn: { color: C.accent },
+  moreStrip: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
   slipPrice: {
     minHeight: 46,
     paddingHorizontal: 10,

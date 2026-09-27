@@ -57,6 +57,7 @@ export function ReceiptView({ doc, width = 300 }: { doc: ReceiptDoc; width?: num
                     column, so as plain siblings the tick stacked above the writing. */}
                 <View style={styles.inkLine}>
                   {row.given ? <Text style={[styles.text, st]}>{GIVEN_MARK}</Text> : null}
+                  {!row.given && row.markSlot ? <Text style={[styles.text, st, { opacity: 0 }]}>{GIVEN_MARK}</Text> : null}
                   <InkView
                     ink={row.ink}
                     scale={row.scale}

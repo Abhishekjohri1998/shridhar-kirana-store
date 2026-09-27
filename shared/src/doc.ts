@@ -89,6 +89,18 @@ export const INK_TEXT_DY = Math.round((INK_ROW_ADVANCE - RASTER.itemSize) / 2);
  * rasterisers disagreed, and one harness had been missing the tick glyph entirely without anyone
  * noticing. One list, built once, cannot drift from itself.
  */
+/**
+ * The strips of writing on a line that have anything on them, in order: the first strip, then
+ * any added under it. The first keeps the tall-cell height build 42 could save; the rest are
+ * always one row.
+ */
+export function inkStrips(line: BillLine): { ink: Ink; rows: number }[] {
+  const out: { ink: Ink; rows: number }[] = [];
+  if (line.ink && line.ink.strokes.length > 0) out.push({ ink: line.ink, rows: inkRowsOf(line) });
+  for (const ink of line.moreInk ?? []) if (ink.strokes.length > 0) out.push({ ink, rows: 1 });
+  return out;
+}
+
 /** How many rows tall a line's writing strip was. Absent or odd values read as one. */
 export function inkRowsOf(line: BillLine): number {
   return line.inkRows === 2 ? 2 : 1;
@@ -130,6 +142,11 @@ export type Row =
       t: 'ink'; no: string; ink: Ink; amount: string; note?: string; scale: number; originY: number;
       /** Rows tall: 2 for an item written as two lines in one cell. Absent means 1. */
       rows?: number;
+      /**
+       * A continuation of a ticked item: no tick of its own, but it starts where the ticked
+       * line's writing starts, so the item's lines stay flush with each other.
+       */
+      markSlot?: boolean;
       /** Marked as handed over. Drawn before the writing, where the typed rows carry it in text. */
       given?: boolean;
     }
@@ -234,7 +251,7 @@ export function buildReceipt(
    * figure, so a bill with short prices and no ticks prints exactly as it did.
    */
   const dots = paperProfile(settings.paper).dots;
-  const written = bill.lines.filter((l) => l.ink && l.ink.strokes.length > 0);
+  const written = bill.lines.filter((l) => inkStrips(l).length > 0);
   const widestAmount = written.reduce(
     (w, l) => Math.max(w, amountWidthEstimate(money(lineAmount(l.qty, l.rate)))), 0);
   const tickSlot = written.some((l) => l.given === true) ? INK_MARK_W : 0;
@@ -244,11 +261,13 @@ export function buildReceipt(
     dots - RASTER.pad - widestAmount - AMOUNT_GAP - nameX - tickSlot + INK_GUTTER,
   ));
   // One enlargement for the whole slip, so every line of one hand stays one size.
+  // Every strip of every item, so the continuation lines are held to the one size too.
+  const allStrips = written.flatMap((l) => inkStrips(l));
   const inkK = inkSlipScale(
-    written.map((l) => l.ink as Ink),
+    allStrips.map((s) => s.ink),
     inkRoom,
     INK_ROW_HEIGHT,
-    written.map((l) => inkRowsOf(l)),
+    allStrips.map((s) => s.rows),
   );
 
   bill.lines.forEach((line, index) => {
@@ -261,18 +280,26 @@ export function buildReceipt(
       note: settings.showRate ? '@ ' + money(line.rate) : undefined,
     };
     const typed = line.nameKn || line.nameEn;
-    if (line.ink && line.ink.strokes.length > 0) {
-      const tall = inkRowsOf(line);
-      const fit = inkRowFit(line.ink, inkRoom, INK_ROW_HEIGHT * tall, inkK);
+    const strips = inkStrips(line);
+    if (strips.length > 0) {
       /*
-       * Written and typed both: both print, the writing first, at the shop's asking. The number,
-       * the tick and the price go with the writing; the typed words follow on a row of their own
-       * with none of those, so the item is still one line of the bill.
+       * The item's first line of writing carries its number, tick and price. Lines continued on
+       * strips added under it follow with none of those, flush with it. Written and typed both:
+       * the typed words come last, again with none of those, so the item is still one line of
+       * the bill and its price prints once.
        */
-      rows.push({
-        t: 'ink', ink: line.ink, scale: fit.scale, originY: fit.originY,
-        given: line.given === true, ...(tall > 1 ? { rows: tall } : {}),
-        ...shared, ...(typed.trim() ? { note: undefined } : {}),
+      const last = strips.length - 1;
+      strips.forEach((strip, i) => {
+        const fit = inkRowFit(strip.ink, inkRoom, INK_ROW_HEIGHT * strip.rows, inkK);
+        const tail = i === last && !typed.trim();
+        rows.push({
+          t: 'ink', ink: strip.ink, scale: fit.scale, originY: fit.originY,
+          ...(strip.rows > 1 ? { rows: strip.rows } : {}),
+          ...(i === 0
+            ? { given: line.given === true, no: shared.no, amount: shared.amount }
+            : { given: false, no: '', amount: '', ...(line.given === true ? { markSlot: true } : {}) }),
+          ...(tail && shared.note ? { note: shared.note } : {}),
+        });
       });
       if (typed.trim()) {
         rows.push({ t: 'item', no: '', amount: '', name: typed, note: shared.note });

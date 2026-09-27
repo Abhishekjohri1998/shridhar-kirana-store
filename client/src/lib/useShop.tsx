@@ -136,8 +136,12 @@ type Shop = {
   setLineRate: (index: number, rate: number) => void;
   setLineName: (index: number, name: string) => void;
   setLineGiven: (index: number, given: boolean) => void;
-  /** One or two rows of writing for this line. See BillLine.inkRows. */
-  setLineRows: (index: number, rows: 1 | 2) => void;
+  /** Another line of writing for the same item, under its first. At most two more. */
+  addLineStrip: (index: number) => void;
+  /** Take away one of the added lines of writing. */
+  removeLineStrip: (index: number, strip: number) => void;
+  /** Writing on one of the added lines. */
+  setLineMoreInk: (index: number, strip: number, ink: Ink | null) => void;
   /** Ticks or unticks every line at once. */
   setAllGiven: (given: boolean) => void;
   removeLine: (index: number) => void;
@@ -481,26 +485,47 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   /** Handed over, as against merely listed. */
   /*
-   * A line written across two rows. The strip grows, and the writing already on it keeps its
-   * place: the stored strip height changes with it, so the pad does not stretch the strokes to
-   * the new shape -- it rescales whenever the size it is handed differs from its own.
+   * More lines of writing for one item, as a long item carries on to the next line on paper.
+   * Each added strip is an empty Ink in `moreInk` until something is written on it; empty ones
+   * are dropped before a bill is saved, so an added strip nobody used prints nothing.
    */
-  const setLineRows = useCallback((index: number, rows: 1 | 2) => {
+  const updateLine = useCallback((index: number, fn: (l: BillLine) => BillLine) => {
     setCart((prev) => {
       const existing = prev[index];
       if (!existing) return prev;
-      const was = existing.inkRows === 2 ? 2 : 1;
-      if (was === rows) return prev;
+      const changed = fn(existing);
+      if (changed === existing) return prev;
       const next = [...prev];
-      const { inkRows: _drop, ...rest } = existing;
-      next[index] = {
-        ...rest,
-        ...(rows === 2 ? { inkRows: 2 } : {}),
-        ...(existing.ink ? { ink: { ...existing.ink, h: (existing.ink.h * rows) / was } } : {}),
-      };
+      next[index] = changed;
       return next;
     });
   }, []);
+
+  const addLineStrip = useCallback((index: number) => {
+    updateLine(index, (l) => {
+      const more = l.moreInk ?? [];
+      if (more.length >= 2) return l;
+      return { ...l, moreInk: [...more, { w: 0, h: 0, strokes: [] }] };
+    });
+  }, [updateLine]);
+
+  const removeLineStrip = useCallback((index: number, strip: number) => {
+    updateLine(index, (l) => {
+      const more = (l.moreInk ?? []).filter((_, i) => i !== strip);
+      const { moreInk: _drop, ...rest } = l;
+      return more.length ? { ...rest, moreInk: more } : rest;
+    });
+  }, [updateLine]);
+
+  const setLineMoreInk = useCallback((index: number, strip: number, ink: Ink | null) => {
+    updateLine(index, (l) => {
+      const more = [...(l.moreInk ?? [])];
+      if (strip >= more.length) return l;
+      more[strip] = ink ?? { w: 0, h: 0, strokes: [] };
+      return { ...l, moreInk: more };
+    });
+  }, [updateLine]);
+
 
   const setLineGiven = useCallback((index: number, given: boolean) => {
     setCart((prev) => {
@@ -547,7 +572,14 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     async (options: CommitOptions = {}) => {
       // The slip always carries one empty line so there is somewhere to write next. It is
       // scaffolding, not something the customer bought, so it never reaches the printer.
-      const lines = cart.filter(lineHasSomething);
+      // An added line of writing nobody wrote on is an empty strip, which the server rightly
+      // refuses as ink -- so it is dropped here, and the bill saves.
+      const lines = cart.filter(lineHasSomething).map((l) => {
+        if (!l.moreInk) return l;
+        const { moreInk, ...rest } = l;
+        const used = moreInk.filter((i) => i.strokes.length > 0);
+        return used.length ? { ...rest, moreInk: used } : rest;
+      });
       if (lines.length === 0) throw new Error(t('bill.nothingYet'));
       const billTo = options.customer !== undefined ? options.customer : customer;
       const bill = await api.createBill({
@@ -604,7 +636,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setLineName, setLineGiven, setLineRows, setAllGiven,
+      setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
       customerDraft, setCustomerDraft,
@@ -615,7 +647,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
-      setLineName, setLineGiven, setLineRows, setAllGiven,
+      setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,
       saveSettings, forgetEverything, dataVersion,

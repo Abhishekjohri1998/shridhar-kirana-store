@@ -287,6 +287,10 @@ const CASES = [
     lines: [{ itemId: 't1', nameKn: '', nameEn: '', ink: { ...SAMPLE_INK, h: SAMPLE_INK.h * 2 }, inkRows: 2, qty: 1, rate: 1000, given: true }],
     total: 1000, paid: 1000,
   }), { paper: '58mm' }],
+  ['an item carried on to two more lines, ticked', bill({
+    lines: [{ itemId: 'c1', nameKn: '', nameEn: '', ink: SAMPLE_INK, moreInk: [SAMPLE_INK, SAMPLE_INK], qty: 1, rate: 1000, given: true }],
+    total: 1000, paid: 1000,
+  }), { paper: '58mm' }],
   ['with a short note', bill({ note: 'Delivery Tuesday' }), { paper: '58mm' }],
   ['with a note long enough to wrap', bill({
     note: 'Delivery Tuesday morning, two empty bags to be returned with the driver',

@@ -78,7 +78,9 @@ export function reviveDraft(raw: Draft): Draft {
  * shopkeeper could cancel a hand-written line but not a typed one.
  */
 export function lineHasSomething(l: BillLine): boolean {
-  return (l.ink != null && l.ink.strokes.length > 0) || l.rate > 0 || l.nameKn.trim() !== '';
+  return (l.ink != null && l.ink.strokes.length > 0)
+    || (l.moreInk ?? []).some((i) => i.strokes.length > 0)
+    || l.rate > 0 || l.nameKn.trim() !== '';
 }
 
 /**

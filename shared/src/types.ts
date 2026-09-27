@@ -65,6 +65,12 @@ export type BillLine = {
    * other line. Absent on every line written before this existed, which reads as 1.
    */
   inkRows?: number;
+  /**
+   * More lines of writing for the same item, written on strips added under the first -- an item
+   * too long for one line, continued on the next, as it would be on paper. At most two. Each
+   * prints on its own row under the first, with no number, tick or price of its own.
+   */
+  moreInk?: Ink[];
   qty: number;
   rate: number;
 };

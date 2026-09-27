@@ -445,15 +445,13 @@ export function BillPage() {
                         and a line that already holds strokes opens as writing. */}
                     {isWriting ? (
                       <>
-                        {/* Where the number, tick and price sit, so writing lands level with them. */}
-                        <span className="slip-guide" aria-hidden="true" />
-                        {/* A long item across two rows, printed as one item at the same size. */}
+                        {/* A new line to write on for this same item, under the one there. */}
                         <button
-                          className={line.inkRows === 2 ? 'slip-rows on' : 'slip-rows'}
-                          aria-label={t('bill.twoLines', { n: index + 1 })}
-                          aria-pressed={line.inkRows === 2}
-                          title={t('bill.twoLines', { n: index + 1 })}
-                          onClick={() => shop.setLineRows(index, line.inkRows === 2 ? 1 : 2)}
+                          className="slip-rows"
+                          disabled={(line.moreInk ?? []).length >= 2}
+                          aria-label={t('bill.addStrip', { n: index + 1 })}
+                          title={t('bill.addStrip', { n: index + 1 })}
+                          onClick={() => shop.addLineStrip(index)}
                         >
                           ↵
                         </button>
@@ -470,6 +468,31 @@ export function BillPage() {
                           hint=""
                           strokeCount={() => ''}
                         />
+                        {/* A long item carried on to the next line, the same height as the first. */}
+                        {(line.moreInk ?? []).map((extra, s) => (
+                          <div key={s} className="slip-more">
+                            <InkPad
+                              variant="line"
+                              height={80}
+                              value={extra.strokes.length ? extra : null}
+                              onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
+                              label={t('bill.writeLine', { n: index + 1 })}
+                              penNotice=""
+                              undoLabel=""
+                              clearLabel=""
+                              hint=""
+                              strokeCount={() => ''}
+                            />
+                            <button
+                              className="slip-remove"
+                              aria-label={t('bill.removeStrip', { n: index + 1 })}
+                              title={t('bill.removeStrip', { n: index + 1 })}
+                              onClick={() => shop.removeLineStrip(index, s)}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
                       </>
                     ) : (
                       <input

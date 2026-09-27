@@ -197,6 +197,8 @@ function billDoc(lines) {
     check('a line with no tick is valid', !oldLine.validateSync());
     check('and reads as one row of writing', oldLine.lines[0].inkRows === 1,
       JSON.stringify(oldLine.lines[0].inkRows));
+    check('with no added lines of writing', !oldLine.lines[0].moreInk || oldLine.lines[0].moreInk.length === 0,
+      JSON.stringify(oldLine.lines[0].moreInk));
     check('and reads as not given', oldLine.lines[0].given === false,
       JSON.stringify(oldLine.lines[0].given));
     check('a bill with no note is valid', !oldLine.validateSync());

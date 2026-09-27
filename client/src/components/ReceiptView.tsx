@@ -147,6 +147,8 @@ export function ReceiptView({
                       the tick used to render above the writing instead of next to it. */}
                   <span className="r-ink-line">
                     {row.given ? <span>{GIVEN_MARK}</span> : null}
+                    {/* A continued line keeps the tick's room, flush with the line above it. */}
+                    {!row.given && row.markSlot ? <span style={{ visibility: 'hidden' }}>{GIVEN_MARK}</span> : null}
                     <InkMark ink={row.ink} scale={row.scale} originY={row.originY} alt={inkAlt} />
                   </span>
                   {row.note ? (

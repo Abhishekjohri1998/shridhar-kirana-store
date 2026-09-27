@@ -279,6 +279,23 @@ async function main() {
       ...BILL, lines: [{ itemId: 'b4', nameKn: '', nameEn: '', qty: 1, rate: 90, ink: SAMPLE_INK }],
     }, SETTINGS);
     check('and a one-line item carries no row count', one.rows.find((r) => r.t === 'ink').rows === undefined);
+
+    // A long item carried on to the next line: strips added under the first, each printing on
+    // its own row with no number, tick or price, flush with the ticked line above.
+    const carried = shared.buildReceipt({
+      ...BILL,
+      lines: [{ itemId: 'c1', nameKn: '', nameEn: '', qty: 1, rate: 1000, given: true,
+        ink: SAMPLE_INK, moreInk: [SAMPLE_INK, { w: 0, h: 0, strokes: [] }, SAMPLE_INK] }],
+    }, SETTINGS);
+    const strips = carried.rows.filter((r) => r.t === 'ink');
+    eq('an item written on three lines prints three rows of writing', strips.length, 3);
+    eq('the first carries its number and price', strips[0].no + '/' + strips[0].amount, '1/1000');
+    eq('and its tick', strips[0].given, true);
+    check('the others carry none of them',
+      strips.slice(1).every((r) => r.no === '' && r.amount === '' && !r.given), JSON.stringify(strips.slice(1)));
+    check('but keep the tick\'s room, so the item stays flush', strips.slice(1).every((r) => r.markSlot === true));
+    check('an added line nobody wrote on prints nothing', strips.length === 3);
+    check('every line of it the same size', strips.every((r) => Math.abs(r.scale - strips[0].scale) < 1e-9));
   }
 
   console.log('\nReceipt document: which script it speaks');
@@ -797,6 +814,15 @@ async function main() {
     });
     eq('a two-line item is saved as two lines', tallBill.body.lines[0].inkRows, 2);
     eq('and survives a reread', (await call('/api/bills/' + tallBill.body.no, { headers: auth })).body.lines[0].inkRows, 2);
+    const longItem = await post('/api/bills', {
+      lines: [{ itemId: 'm1', qty: 1, rate: 50, ink: SAMPLE_INK, moreInk: [SAMPLE_INK] }],
+    });
+    eq('a line continued on another strip is saved with it', (longItem.body.lines[0].moreInk || []).length, 1);
+    eq('and survives a reread',
+      ((await call('/api/bills/' + longItem.body.no, { headers: auth })).body.lines[0].moreInk || []).length, 1);
+    eq('three added lines are refused', (await post('/api/bills', {
+      lines: [{ itemId: 'm2', qty: 1, rate: 50, ink: SAMPLE_INK, moreInk: [SAMPLE_INK, SAMPLE_INK, SAMPLE_INK] }],
+    })).status, 400);
     eq('a third size is refused', (await post('/api/bills', {
       lines: [{ itemId: 'w2', qty: 1, rate: 50, inkRows: 3, ink: SAMPLE_INK }],
     })).status, 400);

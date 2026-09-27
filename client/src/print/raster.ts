@@ -203,7 +203,8 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       // the same order -- rastertest compares the two dot for dot.
       // A fixed slot, not the tick's measured width, so the room left for the writing is known
       // before anything is drawn -- see buildReceipt.
-      const markW = row.given ? INK_MARK_W : 0;
+      // A continued line of a ticked item keeps the tick's slot, so its writing is flush above.
+      const markW = row.given || row.markSlot ? INK_MARK_W : 0;
       if (row.given) {
         ops.push({ op: 'text', text: GIVEN_MARK, x: nameX, y: textY, size: ITEM, bold: false, align: 'left' });
       }

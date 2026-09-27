@@ -530,6 +530,12 @@ check('so does a Kannada name alone', !D.isDraftEmpty({ ...blank, typed: { name:
 // The cross that clears a line is greyed out when the line carries nothing. It used to ask
 // `!ink && rate === 0` -- the rule from before items could be typed -- so a typed item with no
 // price yet counted as empty and could not be cancelled, while a hand-written one could.
+check('writing only on an added line still counts',
+  D.lineHasSomething({ itemId: 'a', nameKn: '', nameEn: '', qty: 1, rate: 0,
+    moreInk: [{ w: 10, h: 10, strokes: [[0, 0, 5, 5]] }] }));
+check('an added line with nothing on it does not',
+  !D.lineHasSomething({ itemId: 'a', nameKn: '', nameEn: '', qty: 1, rate: 0,
+    moreInk: [{ w: 0, h: 0, strokes: [] }] }));
 check('a typed name alone makes a line worth something',
   D.lineHasSomething({ itemId: 'a', nameKn: 'Sugar 2kg', nameEn: '', qty: 1, rate: 0 }));
 check('so does a price on its own',
