@@ -296,6 +296,23 @@ async function main() {
     check('but keep the tick\'s room, so the item stays flush', strips.slice(1).every((r) => r.markSlot === true));
     check('an added line nobody wrote on prints nothing', strips.length === 3);
     check('every line of it the same size', strips.every((r) => Math.abs(r.scale - strips[0].scale) < 1e-9));
+    // As tall as the writing, not a fixed 68 dots: the shop's slip had too much paper between lines.
+    check('a row of writing is as tall as its writing, not a fixed row',
+      strips.every((r) => typeof r.h === 'number' && r.h < shared.INK_ROW_ADVANCE), JSON.stringify(strips.map((r) => r.h)));
+    check('the line with the number and price is never shorter than a line of print',
+      strips[0].h >= shared.INK_MIN_ROW);
+    check('a continued line sits closer than the first', strips[1].h <= strips[0].h);
+    check('rows land on whole dots', strips.every((r) => r.h % 2 === 0));
+
+    // Written and typed on one line: whichever was used last prints.
+    const lastInk = shared.buildReceipt({ ...BILL, lines: [{ itemId: 'd1', nameKn: 'Sugar', nameEn: '', qty: 1, rate: 90,
+      ink: SAMPLE_INK, lastMode: 'ink' }] }, SETTINGS);
+    check('written last, the writing prints alone',
+      lastInk.rows.some((r) => r.t === 'ink') && !lastInk.rows.some((r) => r.t === 'item' && r.name === 'Sugar'));
+    const lastText = shared.buildReceipt({ ...BILL, lines: [{ itemId: 'd2', nameKn: 'Sugar', nameEn: '', qty: 1, rate: 90,
+      ink: SAMPLE_INK, lastMode: 'text' }] }, SETTINGS);
+    check('typed last, the typed words print alone, numbered and priced',
+      !lastText.rows.some((r) => r.t === 'ink') && lastText.rows.some((r) => r.t === 'item' && r.name === 'Sugar' && r.amount === '90'));
   }
 
   console.log('\nReceipt document: which script it speaks');
@@ -820,6 +837,11 @@ async function main() {
     eq('a line continued on another strip is saved with it', (longItem.body.lines[0].moreInk || []).length, 1);
     eq('and survives a reread',
       ((await call('/api/bills/' + longItem.body.no, { headers: auth })).body.lines[0].moreInk || []).length, 1);
+    const typedLast = await post('/api/bills', {
+      lines: [{ itemId: 'lm', nameKn: 'Sugar', qty: 1, rate: 50, ink: SAMPLE_INK, lastMode: 'text' }],
+    });
+    eq('which way a line was last written is kept', typedLast.body.lines[0].lastMode, 'text');
+    eq('and survives a reread', (await call('/api/bills/' + typedLast.body.no, { headers: auth })).body.lines[0].lastMode, 'text');
     eq('three added lines are refused', (await post('/api/bills', {
       lines: [{ itemId: 'm2', qty: 1, rate: 50, ink: SAMPLE_INK, moreInk: [SAMPLE_INK, SAMPLE_INK, SAMPLE_INK] }],
     })).status, 400);

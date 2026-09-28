@@ -3,10 +3,10 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
-  lineHasSomething,
+  lineHasSomething, nextTypingLine,
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
-  type Bill, type Customer,
+  type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
@@ -145,6 +145,13 @@ export function BillScreen() {
    * strokes opens as writing without needing an entry here.
    */
   const [writing, setWriting] = useState<Record<string, boolean>>({});
+  /** The line whose pen is rubbing out rather than writing, if any. */
+  const [erasing, setErasing] = useState<string | null>(null);
+  /*
+   * The strip has the printed item column's shape, so it maps onto the paper one to one: what
+   * fits the strip fits the slip, at the size it was written. See inkStripAspect.
+   */
+  const stripAspect = inkStripAspect(paperProfile(shop.settings.paper).dots, INK_MARK_W, INK_ROW_HEIGHT);
 
   /** Keep one empty line at the foot, always: on paper the next line is simply there. */
   useEffect(() => {
@@ -270,7 +277,10 @@ export function BillScreen() {
    */
   const goToNextName = useCallback((index: number) => {
     const here = shop.cart[index];
-    const next = shop.cart[index + 1];
+    // The next line with nothing written on it -- written lines are stepped over, not turned
+    // into typing lines, which hid the writing.
+    const at = nextTypingLine(shop.cart, index);
+    const next = at >= 0 ? shop.cart[at] : undefined;
     if (next) {
       setWriting((w) => (w[next.itemId] === false ? w : { ...w, [next.itemId]: false }));
       focusRow(next.itemId);
@@ -654,7 +664,7 @@ export function BillScreen() {
                   </Text>
                 </Pressable>
 
-                <View style={styles.slipWrite}>
+                <View style={[styles.slipWrite, { maxWidth: (roomy ? 80 : 72) * stripAspect }]}>
                   {isWriting ? (
                     <>
                       <InkPad
@@ -666,7 +676,11 @@ export function BillScreen() {
                         height={(roomy ? 80 : 72) * (line.inkRows === 2 ? 2 : 1)}
                         value={line.ink ?? null}
                         onChange={(ink) => shop.setLineInk(index, ink)}
-                        onBegin={() => setView('items')}
+                        erasing={erasing === line.itemId}
+                        onBegin={() => {
+                          setView('items');
+                          if (erasing && erasing !== line.itemId) setErasing(null);
+                        }}
                         label={t('bill.writeLine', { n: index + 1 })}
                         undoLabel=""
                         clearLabel=""
@@ -677,13 +691,17 @@ export function BillScreen() {
                           added strip is the same height as the first and part of the same item. */}
                       {(line.moreInk ?? []).map((extra, s) => (
                         <View key={s} style={styles.moreStrip}>
-                          <View style={{ flex: 1 }}>
+                          <View>
                             <InkPad
                               variant="line"
                               height={roomy ? 80 : 72}
                               value={extra.strokes.length ? extra : null}
                               onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
-                              onBegin={() => setView('items')}
+                              erasing={erasing === line.itemId}
+                              onBegin={() => {
+                                setView('items');
+                                if (erasing && erasing !== line.itemId) setErasing(null);
+                              }}
                               label={t('bill.writeLine', { n: index + 1 })}
                               undoLabel=""
                               clearLabel=""
@@ -691,8 +709,9 @@ export function BillScreen() {
                               strokeCount={() => ''}
                             />
                           </View>
+                          {/* In the strip's corner, so every strip keeps the same width. */}
                           <Pressable
-                            style={styles.colIcon}
+                            style={styles.moreRemove}
                             accessibilityLabel={t('bill.removeStrip', { n: index + 1 })}
                             onPress={() => shop.removeLineStrip(index, s)}
                             hitSlop={6}
@@ -774,13 +793,16 @@ export function BillScreen() {
                   onBlur={blurRow}
                 />
 
+                {/* An eraser, in place of undo: the pen rubs out what it touches on this line.
+                    Pressed again, or writing on another line, and it is a pen again. */}
                 <Pressable
-                  style={styles.colIcon}
-                  disabled={!line.ink}
-                  accessibilityLabel={t('bill.undoLine', { n: index + 1 })}
-                  onPress={() => pads.current[line.itemId]?.undo()}
+                  style={[styles.colIcon, erasing === line.itemId && styles.eraserOn]}
+                  disabled={!lineHasInk(line)}
+                  accessibilityLabel={t('bill.eraseLine', { n: index + 1 })}
+                  accessibilityState={{ selected: erasing === line.itemId }}
+                  onPress={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
                 >
-                  <Text style={[styles.slipUndo, !line.ink && styles.slipRemoveOff]}>⟲</Text>
+                  <Text style={[styles.slipUndo, !lineHasInk(line) && styles.slipRemoveOff]}>🧽</Text>
                 </Pressable>
 
                 <Pressable
@@ -1073,7 +1095,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    // Room between one cell and the next, so two strips never read as one.
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: C.line,
   },
@@ -1088,7 +1111,9 @@ const styles = StyleSheet.create({
   slipRowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
-  moreStrip: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  moreStrip: { marginTop: 6 },
+  moreRemove: { position: 'absolute', top: 0, right: 0, paddingHorizontal: 6, paddingVertical: 2 },
+  eraserOn: { backgroundColor: C.accentWash, borderRadius: R.sm },
   slipPrice: {
     minHeight: 46,
     paddingHorizontal: 10,

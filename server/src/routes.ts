@@ -38,6 +38,8 @@ const lineBody = z.object({
   inkRows: z.union([z.literal(1), z.literal(2)]).optional(),
   // Lines of writing continued on strips added under the first. Two at most.
   moreInk: z.array(inkBody).max(2).optional(),
+  // Which way the line was last written, when it is both written and typed.
+  lastMode: z.enum(['ink', 'text']).optional(),
 });
 
 const settingsBody = z.object({
@@ -298,6 +300,7 @@ api.post('/bills', handler(async (req, res) => {
       // Named here like every field -- a copy that forgets one drops it silently.
       ...(l.moreInk && l.moreInk.some((i) => i.strokes.length > 0)
         ? { moreInk: l.moreInk.filter((i) => i.strokes.length > 0) } : {}),
+      ...(l.lastMode ? { lastMode: l.lastMode } : {}),
       qty: l.qty,
       rate: l.rate,
       given: l.given,

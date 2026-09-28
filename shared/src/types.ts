@@ -71,6 +71,11 @@ export type BillLine = {
    * prints on its own row under the first, with no number, tick or price of its own.
    */
   moreInk?: Ink[];
+  /**
+   * Which way the line was last written, when it has been both written and typed: that is the
+   * one that prints. Absent on lines from before this, which print both.
+   */
+  lastMode?: 'ink' | 'text';
   qty: number;
   rate: number;
 };

@@ -314,6 +314,30 @@ check('a two-line strip prints its letters the same size as a one-line strip',
   Math.abs(drawnHeight(TWO, SH.inkRowFit(TWO, WIDTH, ROW * 2, K)) - drawnHeight(SHORT, shortFit)) < 0.001,
   drawnHeight(TWO, SH.inkRowFit(TWO, WIDTH, ROW * 2, K)) + ' vs ' + drawnHeight(SHORT, shortFit));
 
+// The strip has the printed column's shape, so what fits the strip fits the paper at the size
+// it was written, with no enlarging or shrinking per bill.
+{
+  const a58 = SH.inkStripAspect(384, SH.INK_MARK_W, SH.INK_ROW_HEIGHT);
+  const a80 = SH.inkStripAspect(576, SH.INK_MARK_W, SH.INK_ROW_HEIGHT);
+  check('the strip is shaped for the paper: wider on 80mm than on 58mm', a80 > a58 && a58 > 2, a58 + ' / ' + a80);
+  // Writing right across a strip of that shape fills the column exactly, and no more.
+  const stripH = 72;
+  const full = { w: stripH * a58, h: stripH, strokes: [[0, 20, stripH * a58, 50]] };
+  const fit = SH.inkRowFit(full, 384 - 124, SH.INK_ROW_HEIGHT, SH.inkSlipScale([full], 384 - 124, SH.INK_ROW_HEIGHT));
+  const printedW = (SH.inkBounds(full).maxX - SH.inkBounds(full).minX) * fit.scale;
+  check('writing across the whole strip fits the column exactly',
+    Math.abs(printedW - (384 - 124 - SH.INK_GUTTER - 2 * SH.INK_BLEED - SH.INK_MARK_W)) < 1, String(printedW));
+  check('and nothing is enlarged past the size it was written', SH.INK_SIZE_BOOST === 1);
+}
+
+// The eraser rubs out whole strokes the pen passes over, and nothing it does not.
+{
+  const strokes = [[{ x: 0, y: 0 }, { x: 100, y: 0 }], [{ x: 0, y: 50 }, { x: 100, y: 50 }]];
+  check('a touch on a stroke finds it', JSON.stringify(SH.strokesTouching(strokes, 50, 3, 6)) === '[0]');
+  check('between two strokes finds neither', SH.strokesTouching(strokes, 50, 25, 6).length === 0);
+  check('a single dot is found too', SH.strokesTouching([[{ x: 10, y: 10 }]], 12, 11, 6).length === 1);
+}
+
 check('the row is taller than the writing, to hold the pen',
   SH.INK_ROW_ADVANCE === SH.INK_ROW_HEIGHT + 2 * SH.INK_BLEED,
   SH.INK_ROW_ADVANCE + ' vs ' + SH.INK_ROW_HEIGHT);
@@ -536,6 +560,17 @@ check('writing only on an added line still counts',
 check('an added line with nothing on it does not',
   !D.lineHasSomething({ itemId: 'a', nameKn: '', nameEn: '', qty: 1, rate: 0,
     moreInk: [{ w: 0, h: 0, strokes: [] }] }));
+{
+  // The action key on a typed item steps over written lines to the next one with nothing on it.
+  const ink = { w: 10, h: 10, strokes: [[0, 0, 5, 5]] };
+  const L = (x) => ({ itemId: 'x', nameKn: '', nameEn: '', qty: 1, rate: 0, ...x });
+  const lines = [L({ nameKn: 'Rice' }), L({ ink }), L({ ink }), L({}), L({})];
+  check('the next typing line skips the written ones', D.nextTypingLine(lines, 0) === 3,
+    String(D.nextTypingLine(lines, 0)));
+  check('and is none past the end', D.nextTypingLine(lines, 4) === -1);
+  check('a line written only on an added strip is written too',
+    D.nextTypingLine([L({}), L({ moreInk: [ink] }), L({})], 0) === 2);
+}
 check('a typed name alone makes a line worth something',
   D.lineHasSomething({ itemId: 'a', nameKn: 'Sugar 2kg', nameEn: '', qty: 1, rate: 0 }));
 check('so does a price on its own',

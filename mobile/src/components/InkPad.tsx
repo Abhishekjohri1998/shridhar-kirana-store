@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, PointerType } from 'react-native-gesture-handler';
 import Svg, { Line, Path } from 'react-native-svg';
-import { INK_LIMITS, inkToSvgPath, rescaleStrokes, type Ink } from '@shridhar/shared';
+import { INK_LIMITS, inkToSvgPath, rescaleStrokes, strokesTouching, type Ink } from '@shridhar/shared';
 import { Button } from './ui';
 import { C, R } from '../theme';
 
@@ -51,12 +51,20 @@ type InkPadProps = {
    * buttons live under the shopkeeper's palm.
    */
   onBegin?: () => void;
+  /**
+   * The pen rubs out instead of writing: every stroke it touches is removed, whole. Asked for
+   * in place of the old undo button, which could only take back the last stroke.
+   */
+  erasing?: boolean;
 };
 
 export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   onChange, height = 150, label, undoLabel, clearLabel, hint, strokeCount,
-  variant = 'pad', value, onBegin,
+  variant = 'pad', value, onBegin, erasing = false,
 }, ref) {
+  // A ref, so a switch into erasing applies to the very next touch without rebuilding the gesture.
+  const erasingRef = useRef(erasing);
+  erasingRef.current = erasing;
   // Held in a ref so a new callback each render does not rebuild the gesture mid-stroke.
   const onBeginRef = useRef(onBegin);
   onBeginRef.current = onBegin;
@@ -162,6 +170,15 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
     setCurrent([...stroke]);
   }, [clamp]);
 
+  /** How near the pen must pass to a stroke to rub it out, in pad pixels: about a fingertip's edge. */
+  const ERASE_REACH = 12;
+  const eraseAt = useCallback((x: number, y: number) => {
+    const hit = strokesTouching(strokesRef.current, x, y, ERASE_REACH);
+    if (hit.length === 0) return;
+    const gone = new Set(hit);
+    commit(strokesRef.current.filter((_, i) => !gone.has(i)));
+  }, [commit]);
+
   const endStroke = useCallback(() => {
     const stroke = currentRef.current;
     currentRef.current = [];
@@ -192,16 +209,18 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
         .shouldCancelWhenOutside(false)
         .onBegin((e) => {
           if (rejected(e.pointerType)) return;
-          startStroke(e.x, e.y);
           onBeginRef.current?.();
+          if (erasingRef.current) { eraseAt(e.x, e.y); return; }
+          startStroke(e.x, e.y);
         })
         .onUpdate((e) => {
           if (rejected(e.pointerType)) return;
+          if (erasingRef.current) { eraseAt(e.x, e.y); return; }
           extendStroke(e.x, e.y);
         })
         .onEnd(() => endStroke())
         .onFinalize(() => endStroke()),
-    [rejected, startStroke, extendStroke, endStroke],
+    [rejected, startStroke, extendStroke, endStroke, eraseAt],
   );
 
   /**

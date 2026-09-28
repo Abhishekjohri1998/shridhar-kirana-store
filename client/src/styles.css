@@ -520,9 +520,11 @@ button, input, select, textarea {
   grid-template-columns: 34px 26px minmax(0, 1fr) 30px 104px 36px 36px;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  /* Room between one cell and the next, so two strips never read as one. */
+  padding: 12px 10px;
   border-bottom: 1px solid var(--line);
 }
+.slip-undo.on { background: var(--brand-wash); border-radius: var(--r-sm); }
 
 .slip-line:last-child { border-bottom: 0; }
 

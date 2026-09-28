@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  lineHasSomething,
+  lineHasSomething, nextTypingLine,
   buildReceipt,
   checkCustomer,
   customerName,
@@ -18,7 +18,7 @@ import {
   carriedBalance,
   dateStamp,
   type Bill,
-  type Customer,
+  type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
@@ -61,6 +61,10 @@ export function BillPage() {
   const [tail, setTail] = useState(0);
   /** Which lines are being written rather than typed, by line id. See the mobile copy. */
   const [writing, setWriting] = useState<Record<string, boolean>>({});
+  /** The line whose pen is rubbing out rather than writing, if any. */
+  const [erasing, setErasing] = useState<string | null>(null);
+  /** The strip has the printed item column's shape. See inkStripAspect. */
+  const stripAspect = inkStripAspect(paperProfile(shop.settings.paper).dots, INK_MARK_W, INK_ROW_HEIGHT);
 
   /*
    * A page of blank slip under the last line, so the newest row can reach the top.
@@ -130,14 +134,19 @@ export function BillPage() {
   });
 
   const goToNextName = (index: number) => {
-    // Down to the next line there is something to type in: a hand-written line has no box, and
-    // stopping at it left the cursor waiting for a field that would never appear.
-    for (let i = index + 1; i < shop.cart.length; i += 1) {
-      const field = names.current[shop.cart[i]!.itemId];
+    // The next line with nothing written on it, turned to typing -- written lines are stepped
+    // over. Focused once it has re-rendered as a text box.
+    const at = nextTypingLine(shop.cart, index);
+    const next = at >= 0 ? shop.cart[at] : undefined;
+    if (next) {
+      const field = names.current[next.itemId];
       if (field) {
         field.focus();
         return;
       }
+      setWriting((w) => ({ ...w, [next.itemId]: false }));
+      wantName.current = next.itemId;
+      return;
     }
     wantName.current = '';
     wantFlip.current = true;
@@ -440,7 +449,7 @@ export function BillPage() {
                     onChange={(e) => shop.setLineGiven(index, e.target.checked)}
                   />
 
-                  <div className="slip-write">
+                  <div className="slip-write" style={{ maxWidth: 80 * stripAspect }}>
                     {/* Typed by default, written when asked for: handwriting is one click away
                         and a line that already holds strokes opens as writing. */}
                     {isWriting ? (
@@ -461,6 +470,7 @@ export function BillPage() {
                           height={80 * (line.inkRows === 2 ? 2 : 1)}
                           value={line.ink ?? null}
                           onChange={(ink) => shop.setLineInk(index, ink)}
+                          erasing={erasing === line.itemId}
                           label={t('bill.writeLine', { n: index + 1 })}
                           penNotice=""
                           undoLabel=""
@@ -476,6 +486,7 @@ export function BillPage() {
                               height={80}
                               value={extra.strokes.length ? extra : null}
                               onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
+                              erasing={erasing === line.itemId}
                               label={t('bill.writeLine', { n: index + 1 })}
                               penNotice=""
                               undoLabel=""
@@ -547,14 +558,16 @@ export function BillPage() {
                     </span>
                   ) : null}
 
+                  {/* An eraser, in place of undo: the pen rubs out what it touches on this line. */}
                   <button
-                    className="slip-undo"
-                    aria-label={t('bill.undoLine', { n: index + 1 })}
-                    title={t('bill.undoLine', { n: index + 1 })}
-                    disabled={!line.ink}
-                    onClick={() => pads.current[line.itemId]?.undo()}
+                    className={erasing === line.itemId ? 'slip-undo on' : 'slip-undo'}
+                    aria-label={t('bill.eraseLine', { n: index + 1 })}
+                    aria-pressed={erasing === line.itemId}
+                    title={t('bill.eraseLine', { n: index + 1 })}
+                    disabled={!lineHasInk(line)}
+                    onClick={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
                   >
-                    ⟲
+                    🧽
                   </button>
 
                   <button

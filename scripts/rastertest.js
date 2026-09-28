@@ -437,8 +437,10 @@ for (const paper of ['58mm', '80mm']) {
       const oneRow = { width: full.width, rows: [inkRow] };
       const label = paper + ', ' + (given ? 'ticked, ' : '') + 'price ' + amountLabel;
       const priceLeft = full.width - shared.RASTER.pad - [...inkRow.amount].length * shared.RASTER.itemSize * 0.55;
-      const textTop = shared.INK_TEXT_DY;
-      const textBottom = shared.INK_TEXT_DY + shared.RASTER.itemSize;
+      // Rows are as tall as their writing now, so the price's band is centred on the row's height.
+      const rowH = inkRow.h || shared.INK_ROW_ADVANCE;
+      const textTop = Math.floor((rowH - shared.RASTER.itemSize) / 2);
+      const textBottom = textTop + shared.RASTER.itemSize;
       for (const [who, rasterise] of [['web', webRasterize], ['phone', phoneRasterize]]) {
         const img = rasterise(oneRow);
         const bpr = Math.ceil(img.width / 8);
@@ -446,7 +448,7 @@ for (const paper of ['58mm', '80mm']) {
         // Rows above and below the text band hold writing only, so the rightmost black dot there
         // is where the writing ends.
         let right = -1;
-        for (let row = 0; row < Math.min(img.height, shared.INK_ROW_ADVANCE); row += 1) {
+        for (let row = 0; row < Math.min(img.height, rowH); row += 1) {
           if (row >= textTop && row < textBottom) continue;
           for (let col = img.width - 1; col >= 0; col -= 1) {
             if (on(row, col)) { right = Math.max(right, col); break; }
@@ -468,8 +470,8 @@ for (const paper of ['58mm', '80mm']) {
   };
   const full = shared.buildReceipt(bill, { ...baseSettings, paper: '58mm' });
   const inkRow = full.rows.find((r) => r.t === 'ink');
-  const advance = 2 * shared.INK_ROW_HEIGHT + 2 * shared.INK_BLEED;
-  const textTop = (advance - shared.RASTER.itemSize) / 2;
+  const advance = inkRow.h || 2 * shared.INK_ROW_HEIGHT + 2 * shared.INK_BLEED;
+  const textTop = Math.floor((advance - shared.RASTER.itemSize) / 2);
   const priceLeft = full.width - shared.RASTER.pad - [...inkRow.amount].length * shared.RASTER.itemSize * 0.55;
   for (const [who, rasterise] of [['web', webRasterize], ['phone', phoneRasterize]]) {
     const img = rasterise({ width: full.width, rows: [inkRow] });

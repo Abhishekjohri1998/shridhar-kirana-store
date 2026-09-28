@@ -1,6 +1,6 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
 import { lineAmount, money, round2 } from './money';
-import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkRowFit, inkSlipScale } from './ink';
+import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 import { pickLang } from './i18n';
@@ -28,6 +28,9 @@ export const INK_MARK_W = 30;
 
 /** Gap between the end of an item and its price, in dots. The printers keep the same one. */
 export const AMOUNT_GAP = 12;
+
+/** The shortest a hand-written row carrying a number and a price may be: one line of print. */
+export const INK_MIN_ROW = 36; // one 24-dot line at the printers' 1.5 leading
 
 /**
  * A generous width for a price, from its characters. Real digits are nearer 0.57 of the font
@@ -142,6 +145,12 @@ export type Row =
       t: 'ink'; no: string; ink: Ink; amount: string; note?: string; scale: number; originY: number;
       /** Rows tall: 2 for an item written as two lines in one cell. Absent means 1. */
       rows?: number;
+      /**
+       * How far the slip advances for this row, in dots: the writing's own printed height and a
+       * small margin, never less than a line of print. Absent on hand-built rows, which advance
+       * the full INK_ROW_ADVANCE.
+       */
+      h?: number;
       /**
        * A continuation of a ticked item: no tick of its own, but it starts where the ticked
        * line's writing starts, so the item's lines stay flush with each other.
@@ -279,8 +288,15 @@ export function buildReceipt(
       amount: money(lineAmount(line.qty, line.rate)),
       note: settings.showRate ? '@ ' + money(line.rate) : undefined,
     };
-    const typed = line.nameKn || line.nameEn;
-    const strips = inkStrips(line);
+    const typedAll = line.nameKn || line.nameEn;
+    const stripsAll = inkStrips(line);
+    /*
+     * Written and typed both: whichever was used last is what prints, at the shop's asking. A line
+     * from before that was recorded prints both, as it always did.
+     */
+    const both = stripsAll.length > 0 && typedAll.trim() !== '';
+    const strips = both && line.lastMode === 'text' ? [] : stripsAll;
+    const typed = both && line.lastMode === 'ink' ? '' : typedAll;
     if (strips.length > 0) {
       /*
        * The item's first line of writing carries its number, tick and price. Lines continued on
@@ -292,8 +308,22 @@ export function buildReceipt(
       strips.forEach((strip, i) => {
         const fit = inkRowFit(strip.ink, inkRoom, INK_ROW_HEIGHT * strip.rows, inkK);
         const tail = i === last && !typed.trim();
+        /*
+         * As tall as the writing, not a fixed 68 dots. A 35-dot line in a 68-dot row left a band
+         * of empty paper above and below it, worst between the lines of one item -- the shop's
+         * slip read "space between lines is too much". A line carrying the number and price is
+         * never shorter than a line of print; a continued line sits close under the one above.
+         */
+        const box = inkBounds(strip.ink);
+        const drawnH = Math.ceil((box.maxY - box.minY) * fit.scale);
+        const raw = i === 0
+          ? Math.max(INK_MIN_ROW, drawnH + 2 * INK_BLEED + 8)
+          : Math.max(16, drawnH + 2 * INK_BLEED + 4);
+        // Even, so the number and price centred on it land on a whole dot, not between two.
+        const h = raw + (raw % 2);
+        const originY = (box.minY + box.maxY) / 2 - (h - 2 * INK_BLEED) / 2 / fit.scale;
         rows.push({
-          t: 'ink', ink: strip.ink, scale: fit.scale, originY: fit.originY,
+          t: 'ink', ink: strip.ink, scale: fit.scale, originY, h,
           ...(strip.rows > 1 ? { rows: strip.rows } : {}),
           ...(i === 0
             ? { given: line.given === true, no: shared.no, amount: shared.amount }

@@ -192,8 +192,12 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
     // drop to the middle to sit level with the writing rather than above it.
     // A two-line item is twice as tall, and its number, tick and price centre on all of it.
     const inkTall = row.t === 'ink' ? (row.rows ?? 1) : 1;
-    const inkAdvance = inkTall * INK_ROW_HEIGHT + 2 * INK_BLEED;
-    const textY = row.t === 'ink' ? (inkTall === 1 ? y + INK_TEXT_DY : y + (inkAdvance - ITEM) / 2) : y;
+    // The row says how tall it is -- as tall as its writing -- and older hand-built rows fall
+    // back to the fixed height.
+    const inkAdvance = row.t === 'ink' && row.h ? row.h : inkTall * INK_ROW_HEIGHT + 2 * INK_BLEED;
+    const textY = row.t === 'ink'
+      ? (row.h || inkTall > 1 ? y + (inkAdvance - ITEM) / 2 : y + INK_TEXT_DY)
+      : y;
     ops.push({ op: 'text', text: row.no, x: PAD, y: textY, size: ITEM, bold: false, align: 'left' });
     ops.push({ op: 'text', text: row.amount, x: W - PAD, y: textY, size: ITEM, bold: false, align: 'right' });
 
@@ -220,7 +224,7 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       const drawnW = (box.maxX - box.minX) * scale;
       if (room > 0 && drawnW > room) {
         scale = scale * (room / drawnW);
-        originY = (box.minY + box.maxY) / 2 - (inkTall * INK_ROW_HEIGHT) / 2 / scale;
+        originY = (box.minY + box.maxY) / 2 - (inkAdvance - 2 * INK_BLEED) / 2 / scale;
       }
       ops.push({
         op: 'ink', ink: row.ink, x: nameX + markW + INK_BLEED, y: y + INK_BLEED,
@@ -228,7 +232,7 @@ function draw(doc: ReceiptDoc, scale = 1): { canvas: HTMLCanvasElement; raster: 
       });
       // A shared scale means nothing overruns the row, so the advance is simply the row: the
       // writing, plus the room the pen needs above and below it.
-      y += inkTall === 1 ? INK_ROW_ADVANCE : inkAdvance;
+      y += row.h || inkTall > 1 ? inkAdvance : INK_ROW_ADVANCE;
       if (row.note) {
         for (const line of wrap(meas, row.note, 18, false, W - PAD - nameX)) {
           ops.push({ op: 'text', text: line, x: nameX, y, size: 18, bold: false, align: 'left' });

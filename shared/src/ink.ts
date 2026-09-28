@@ -70,7 +70,51 @@ export function inkFit(ink: Ink, maxWidth: number, targetHeight: number): InkFit
  * shopkeeper writes in the middle third of the strip, and a third of the row is about 21 dots
  * against 24 for print. The shop asked for it a little bigger.
  */
-export const INK_SIZE_BOOST = 1.8;
+export const INK_SIZE_BOOST = 1;
+
+/**
+ * How many times wider than tall the writing strip is, for this paper.
+ *
+ * The strip is given the printed item column's shape, so it maps onto the paper one to one:
+ * whatever fits the strip fits the column, and prints at exactly the size it was written. The
+ * old strip was about six times as wide as tall while the 58mm column is under three and a half,
+ * so writing that fitted the strip had to be shrunk to fit the paper -- by however much that
+ * bill's widest line needed, which is why the printed size wandered from bill to bill.
+ *
+ * Measured with a tick in front and a four-digit price after, the busiest ordinary line.
+ */
+export function inkStripAspect(paperDots: number, markW: number, rowHeight: number): number {
+  const column = Math.max(80, paperDots - 124) - INK_GUTTER - 2 * INK_BLEED - markW;
+  return column / rowHeight;
+}
+
+/**
+ * Which strokes a point touches, for the eraser: any stroke passing within `r` of it.
+ *
+ * Whole strokes, as a stroke eraser on the S Pen works -- rubbing out half a letter leaves a
+ * fragment nobody meant to keep. Generic over the point shape, so the tablet's pad and the web's
+ * can both use it.
+ */
+export function strokesTouching<P extends { x: number; y: number }>(
+  strokes: P[][], x: number, y: number, r: number,
+): number[] {
+  const hit: number[] = [];
+  const r2 = r * r;
+  strokes.forEach((s, i) => {
+    for (let j = 0; j < s.length; j += 1) {
+      const a = s[j]!;
+      const b = s[j + 1] ?? a;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len2));
+      const px = a.x + t * dx - x;
+      const py = a.y + t * dy - y;
+      if (px * px + py * py <= r2) { hit.push(i); return; }
+    }
+  });
+  return hit;
+}
 
 /**
  * One enlargement for every hand-written line on a slip.

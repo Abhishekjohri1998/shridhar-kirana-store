@@ -467,7 +467,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       const existing = next[index];
       if (!existing) return prev;
       const { ink: _drop, ...rest } = existing;
-      next[index] = ink && ink.strokes.length > 0 ? { ...rest, ink } : rest;
+      // Writing something makes writing the line's last-used way; clearing it does not.
+      next[index] = ink && ink.strokes.length > 0 ? { ...rest, ink, lastMode: 'ink' } : rest;
       return next;
     });
   }, []);
@@ -478,7 +479,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       const next = [...prev];
       const existing = next[index];
       if (!existing || existing.nameKn === name) return prev;
-      next[index] = { ...existing, nameKn: name };
+      // Typing something makes typing the line's last-used way, so that is what prints.
+      next[index] = name.trim() ? { ...existing, nameKn: name, lastMode: 'text' } : { ...existing, nameKn: name };
       return next;
     });
   }, []);
@@ -522,7 +524,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       const more = [...(l.moreInk ?? [])];
       if (strip >= more.length) return l;
       more[strip] = ink ?? { w: 0, h: 0, strokes: [] };
-      return { ...l, moreInk: more };
+      return { ...l, moreInk: more, ...(ink && ink.strokes.length ? { lastMode: 'ink' as const } : {}) };
     });
   }, [updateLine]);
 

@@ -212,8 +212,11 @@ export const RASTER_SCRIPT = `
         // price drop to the middle to sit level with the writing rather than above it.
         // A two-line item is twice as tall, and its number, tick and price centre on all of it.
         var inkTall = row.t === 'ink' ? (row.rows || 1) : 1;
-        var inkAdvance = inkTall * INK_ROW_HEIGHT + 2 * INK_BLEED;
-        var textY = row.t === 'ink' ? (inkTall === 1 ? y + INK_TEXT_DY : y + (inkAdvance - ITEM) / 2) : y;
+        // The row says how tall it is -- as tall as its writing. Same as the counter PC's copy.
+        var inkAdvance = row.t === 'ink' && row.h ? row.h : inkTall * INK_ROW_HEIGHT + 2 * INK_BLEED;
+        var textY = row.t === 'ink'
+          ? (row.h || inkTall > 1 ? y + (inkAdvance - ITEM) / 2 : y + INK_TEXT_DY)
+          : y;
         ops.push({ op: 'text', text: row.no, x: PAD, y: textY, size: ITEM, bold: false, align: 'left' });
         ops.push({ op: 'text', text: row.amount, x: W - PAD, y: textY, size: ITEM, bold: false, align: 'right' });
 
@@ -238,14 +241,14 @@ export const RASTER_SCRIPT = `
           var idrawn = (ibox.maxX - ibox.minX) * iscale;
           if (iroom > 0 && idrawn > iroom) {
             iscale = iscale * (iroom / idrawn);
-            iorigin = (ibox.minY + ibox.maxY) / 2 - (inkTall * INK_ROW_HEIGHT) / 2 / iscale;
+            iorigin = (ibox.minY + ibox.maxY) / 2 - (inkAdvance - 2 * INK_BLEED) / 2 / iscale;
           }
           ops.push({
             op: 'ink', ink: row.ink, x: nameX + markW + INK_BLEED, y: y + INK_BLEED,
             scale: iscale, originY: iorigin
           });
           // A shared scale means nothing overruns the row.
-          y += inkTall === 1 ? INK_H : inkAdvance;
+          y += row.h || inkTall > 1 ? inkAdvance : INK_H;
           if (row.note) {
             var inl = wrap(row.note, 18, false, W - PAD - nameX);
             for (n = 0; n < inl.length; n++) {

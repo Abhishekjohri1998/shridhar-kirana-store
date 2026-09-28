@@ -77,6 +77,23 @@ export function reviveDraft(raw: Draft): Draft {
  * that clears a line was greyed out for every typed item that had not been priced yet, so the
  * shopkeeper could cancel a hand-written line but not a typed one.
  */
+/** Whether anything is written by hand on a line, on its first strip or an added one. */
+export function lineHasInk(l: BillLine): boolean {
+  return (l.ink != null && l.ink.strokes.length > 0) || (l.moreInk ?? []).some((i) => i.strokes.length > 0);
+}
+
+/**
+ * Where the action key on a typed item goes: the next line with no handwriting on it.
+ *
+ * Written lines in between are stepped over, never turned into typing lines -- which is what
+ * happened, and it hid the writing the shopkeeper had just done. -1 when there is none below,
+ * and the caller goes to the fresh blank line the slip always keeps.
+ */
+export function nextTypingLine(lines: readonly BillLine[], from: number): number {
+  for (let i = from + 1; i < lines.length; i += 1) if (!lineHasInk(lines[i]!)) return i;
+  return -1;
+}
+
 export function lineHasSomething(l: BillLine): boolean {
   return (l.ink != null && l.ink.strokes.length > 0)
     || (l.moreInk ?? []).some((i) => i.strokes.length > 0)

@@ -47,6 +47,7 @@ const lineSchema = new Schema<BillLine>(
     nameEn: { type: String, default: '' },
     ink: { type: inkSchema, required: false },
     moreInk: { type: [inkSchema], required: false, default: undefined },
+    lastMode: { type: String, required: false, enum: ['ink', 'text'], default: undefined },
     qty: { type: Number, required: true },
     rate: { type: Number, required: true },
     // Optional with a plain default, never `required: true` beside one -- that pairing on the

@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { INK_LIMITS, rescaleStrokes, type Ink } from '@shridhar/shared';
+import { INK_LIMITS, rescaleStrokes, type Ink, strokesTouching } from '@shridhar/shared';
 
 /** Ink coordinates are CSS pixels of the pad, so the stored box is whatever the pad measured. */
 const STROKE_WIDTH = 2.8;
@@ -35,6 +35,8 @@ type InkPadProps = {
   variant?: 'pad' | 'line';
   /** Ink to start from, so a line already written can be written on again. */
   value?: Ink | null;
+  /** The pen rubs out whole strokes instead of writing. See the tablet's copy. */
+  erasing?: boolean;
 };
 
 export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
@@ -47,6 +49,7 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   hint,
   strokeCount,
   variant = 'pad',
+  erasing = false,
   value,
 }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -210,12 +213,27 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   const isPalm = (e: React.PointerEvent<HTMLCanvasElement>) =>
     sawPen.current && e.pointerType === 'touch';
 
+  /** Rub out every stroke the pen passes near, whole, in pad pixels. */
+  const eraseAt = (p: Point) => {
+    const hit = strokesTouching(strokesRef.current, p.x, p.y, 12);
+    if (hit.length === 0) return;
+    const gone = new Set(hit);
+    commit(strokesRef.current.filter((_, i) => !gone.has(i)));
+  };
+  const rubbing = useRef(false);
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.pointerType === 'pen' && !sawPen.current) {
       sawPen.current = true;
       setUsingPen(true);
     }
     if (isPalm(e)) return;
+    if (erasing) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine without */ }
+      rubbing.current = true;
+      eraseAt(pointFrom(e));
+      return;
+    }
     if (strokesRef.current.length >= INK_LIMITS.maxStrokes) return;
     try {
       // Throws if the pointer has already gone away, which must not abort the stroke.
@@ -228,6 +246,10 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (rubbing.current && !isPalm(e)) {
+      eraseAt(pointFrom(e));
+      return;
+    }
     if (!current.current || isPalm(e)) return;
     const stroke = current.current;
     if (stroke.length >= INK_LIMITS.maxPointsPerStroke) return;
@@ -245,6 +267,7 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   };
 
   const finishStroke = () => {
+    rubbing.current = false;
     const stroke = current.current;
     current.current = null;
     if (!stroke || stroke.length === 0) return;
