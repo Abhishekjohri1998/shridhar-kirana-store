@@ -63,6 +63,17 @@ export function BillPage() {
   const [writing, setWriting] = useState<Record<string, boolean>>({});
   /** The line whose pen is rubbing out rather than writing, if any. */
   const [erasing, setErasing] = useState<string | null>(null);
+
+  /*
+   * Rubbing out the last stroke of a line puts the pen back to writing. The eraser was left on
+   * with its button greyed out -- nothing left to erase -- so the line could not be written on
+   * again until the bill was cleared.
+   */
+  useEffect(() => {
+    if (!erasing) return;
+    const line = shop.cart.find((l) => l.itemId === erasing);
+    if (!line || !lineHasInk(line)) setErasing(null);
+  }, [erasing, shop.cart]);
   /** The strip has the printed item column's shape. See inkStripAspect. */
   const stripAspect = inkStripAspect(paperProfile(shop.settings.paper).dots, INK_MARK_W, INK_ROW_HEIGHT);
 
@@ -564,7 +575,7 @@ export function BillPage() {
                     aria-label={t('bill.eraseLine', { n: index + 1 })}
                     aria-pressed={erasing === line.itemId}
                     title={t('bill.eraseLine', { n: index + 1 })}
-                    disabled={!lineHasInk(line)}
+                    disabled={!lineHasInk(line) && erasing !== line.itemId}
                     onClick={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
                   >
                     🧽

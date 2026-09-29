@@ -147,6 +147,17 @@ export function BillScreen() {
   const [writing, setWriting] = useState<Record<string, boolean>>({});
   /** The line whose pen is rubbing out rather than writing, if any. */
   const [erasing, setErasing] = useState<string | null>(null);
+
+  /*
+   * Rubbing out the last stroke of a line puts the pen back to writing. The eraser was left on
+   * with its button greyed out -- nothing left to erase -- so the line could not be written on
+   * again until the bill was cleared.
+   */
+  useEffect(() => {
+    if (!erasing) return;
+    const line = shop.cart.find((l) => l.itemId === erasing);
+    if (!line || !lineHasInk(line)) setErasing(null);
+  }, [erasing, shop.cart]);
   /*
    * The strip has the printed item column's shape, so it maps onto the paper one to one: what
    * fits the strip fits the slip, at the size it was written. See inkStripAspect.
@@ -797,12 +808,12 @@ export function BillScreen() {
                     Pressed again, or writing on another line, and it is a pen again. */}
                 <Pressable
                   style={[styles.colIcon, erasing === line.itemId && styles.eraserOn]}
-                  disabled={!lineHasInk(line)}
+                  disabled={!lineHasInk(line) && erasing !== line.itemId}
                   accessibilityLabel={t('bill.eraseLine', { n: index + 1 })}
                   accessibilityState={{ selected: erasing === line.itemId }}
                   onPress={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
                 >
-                  <Text style={[styles.slipUndo, !lineHasInk(line) && styles.slipRemoveOff]}>🧽</Text>
+                  <Text style={[styles.slipUndo, !lineHasInk(line) && erasing !== line.itemId && styles.slipRemoveOff]}>🧽</Text>
                 </Pressable>
 
                 <Pressable

@@ -323,10 +323,10 @@ check('a two-line strip prints its letters the same size as a one-line strip',
   // Writing right across a strip of that shape fills the column exactly, and no more.
   const stripH = 72;
   const full = { w: stripH * a58, h: stripH, strokes: [[0, 20, stripH * a58, 50]] };
-  const fit = SH.inkRowFit(full, 384 - 124, SH.INK_ROW_HEIGHT, SH.inkSlipScale([full], 384 - 124, SH.INK_ROW_HEIGHT));
+  const fit = SH.inkRowFit(full, 384 - 104, SH.INK_ROW_HEIGHT, SH.inkSlipScale([full], 384 - 104, SH.INK_ROW_HEIGHT));
   const printedW = (SH.inkBounds(full).maxX - SH.inkBounds(full).minX) * fit.scale;
   check('writing across the whole strip fits the column exactly',
-    Math.abs(printedW - (384 - 124 - SH.INK_GUTTER - 2 * SH.INK_BLEED - SH.INK_MARK_W)) < 1, String(printedW));
+    Math.abs(printedW - (384 - 104 - SH.INK_GUTTER - 2 * SH.INK_BLEED - SH.INK_MARK_W)) < 1, String(printedW));
   check('and nothing is enlarged past the size it was written', SH.INK_SIZE_BOOST === 1);
 }
 

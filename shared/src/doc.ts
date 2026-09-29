@@ -27,7 +27,7 @@ export const GIVEN_MARK = '✓ ';
 export const INK_MARK_W = 30;
 
 /** Gap between the end of an item and its price, in dots. The printers keep the same one. */
-export const AMOUNT_GAP = 12;
+export const AMOUNT_GAP = 8;
 
 /** The shortest a hand-written row carrying a number and a price may be: one line of print. */
 export const INK_MIN_ROW = 36; // one 24-dot line at the printers' 1.5 leading
@@ -65,7 +65,9 @@ export const RASTER = {
   /** Font size of an item line, in dots. */
   itemSize: 24,
   /** Width of the quantity column, in dots. */
-  qtyCol: 44,
+  // 34, down from 44: it holds a line number, one or two digits, and the ten dots went to the
+  // handwriting, which the shop asked to be wider.
+  qtyCol: 34,
   /** Below this luminance a canvas pixel becomes a black dot. */
   threshold: 170,
 };

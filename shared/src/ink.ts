@@ -84,7 +84,7 @@ export const INK_SIZE_BOOST = 1;
  * Measured with a tick in front and a four-digit price after, the busiest ordinary line.
  */
 export function inkStripAspect(paperDots: number, markW: number, rowHeight: number): number {
-  const column = Math.max(80, paperDots - 124) - INK_GUTTER - 2 * INK_BLEED - markW;
+  const column = Math.max(80, paperDots - 104) - INK_GUTTER - 2 * INK_BLEED - markW;
   return column / rowHeight;
 }
 

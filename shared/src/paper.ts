@@ -32,5 +32,5 @@ export function paperProfile(key: string | undefined): PaperProfile {
 
 /** Widest a handwritten description may print, leaving room for the quantity and the price. */
 export function inkMaxWidth(paperDots: number): number {
-  return Math.max(80, paperDots - 124);
+  return Math.max(80, paperDots - 104);
 }
