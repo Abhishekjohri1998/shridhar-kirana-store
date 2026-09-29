@@ -235,7 +235,7 @@ The repository is local-only — there is no remote — so pick one of these.
 Future updates then become one `git pull`. On **your machine**:
 
 ```bash
-cd "D:/shridhar project"
+cd "D:/Shridhar/billing-app"
 gh repo create shridhar-billing --private --source=. --remote=origin --push
 ```
 
@@ -259,7 +259,7 @@ git clone git@github.com:<YOUR-USER>/shridhar-billing.git /opt/shridhar
 On **your machine**:
 
 ```bash
-cd "D:/shridhar project"
+cd "D:/Shridhar/billing-app"
 git archive --format=tar.gz -o /tmp/shridhar.tar.gz HEAD
 scp -i "C:/path/to/your-key.pem" /tmp/shridhar.tar.gz ubuntu@<ELASTIC-IP>:/tmp/
 ```
