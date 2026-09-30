@@ -40,7 +40,7 @@ import { useShop } from '../lib/useShop';
  */
 /** The writing strip's height. Shorter than the old 80 at the shop's asking; its shape still
  *  follows the paper, so the printed size is unchanged. */
-const STRIP_H = 70;
+const STRIP_H = 56;
 
 /**
  * A strip down the side of the bill for scrolling it with the pen or a finger: every line is a

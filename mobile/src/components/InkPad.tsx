@@ -56,12 +56,29 @@ type InkPadProps = {
    * in place of the old undo button, which could only take back the last stroke.
    */
   erasing?: boolean;
+  /** The pen has lifted: the bill lets its list scroll again. See BillScreen. */
+  onEnd?: () => void;
 };
 
 export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
   onChange, height = 150, label, undoLabel, clearLabel, hint, strokeCount,
-  variant = 'pad', value, onBegin, erasing = false,
+  variant = 'pad', value, onBegin, erasing = false, onEnd,
 }, ref) {
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
+  /*
+   * The S Pen's side button, held: the pen rubs out while it is down, and writes again the moment
+   * it is let go. Android reports the button on the pointer's buttons (2 is the barrel button,
+   * 32 an eraser end) through React Native's pointer events, including while the pen hovers just
+   * above the glass -- so the button is known before the tip even touches. On a tablet or a
+   * build that does not report it this stays false and the eraser button works as before.
+   */
+  const penButtonRef = useRef(false);
+  const readButtons = useCallback((e: { nativeEvent: { buttons?: number } }) => {
+    const b = e.nativeEvent.buttons ?? 0;
+    penButtonRef.current = (b & (2 | 32)) !== 0;
+  }, []);
+  const rubbing = () => erasingRef.current || penButtonRef.current;
   // A ref, so a switch into erasing applies to the very next touch without rebuilding the gesture.
   const erasingRef = useRef(erasing);
   erasingRef.current = erasing;
@@ -210,16 +227,24 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
         .onBegin((e) => {
           if (rejected(e.pointerType)) return;
           onBeginRef.current?.();
-          if (erasingRef.current) { eraseAt(e.x, e.y); return; }
+          if (rubbing()) { eraseAt(e.x, e.y); return; }
           startStroke(e.x, e.y);
         })
         .onUpdate((e) => {
           if (rejected(e.pointerType)) return;
-          if (erasingRef.current) { eraseAt(e.x, e.y); return; }
+          if (rubbing()) {
+            // Pressed mid-stroke: keep what was written so far, and rub out from here on.
+            if (currentRef.current.length > 0) endStroke();
+            eraseAt(e.x, e.y);
+            return;
+          }
           extendStroke(e.x, e.y);
         })
         .onEnd(() => endStroke())
-        .onFinalize(() => endStroke()),
+        .onFinalize(() => {
+          endStroke();
+          onEndRef.current?.();
+        }),
     [rejected, startStroke, extendStroke, endStroke, eraseAt],
   );
 
@@ -284,6 +309,10 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
       <View
         style={[variant === 'line' ? styles.line : styles.pad, { height }]}
         onLayout={onLayout}
+        onPointerDown={readButtons}
+        onPointerMove={readButtons}
+        onPointerUp={() => { penButtonRef.current = false; }}
+        onPointerLeave={() => { penButtonRef.current = false; }}
         accessibilityLabel={label}
       >
         <Svg style={StyleSheet.absoluteFill}>

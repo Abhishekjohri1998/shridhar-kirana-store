@@ -228,7 +228,8 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
       setUsingPen(true);
     }
     if (isPalm(e)) return;
-    if (erasing) {
+    // The S Pen side button (2) or an eraser end (32) held down rubs out, like the 🧽.
+    if (erasing || (e.buttons & 34) !== 0) {
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine without */ }
       rubbing.current = true;
       eraseAt(pointFrom(e));

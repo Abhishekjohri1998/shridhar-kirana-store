@@ -363,9 +363,11 @@ export function BillScreen() {
   // A typed name counts as much as a written one now that most lines are typed: a line with a
   // description and no price yet is still a line the shopkeeper has started.
   const written = shop.cart.filter(lineHasSomething);
-  /* The strip's height on screen. Shorter than it was (80/72) at the shop's asking for a
+  /* The strip's height on screen. Shorter than it was (80/72, then 70/64) at the shop's asking for a
      shorter bill; its shape still follows the paper, so the printed size is unchanged. */
-  const stripH = roomy ? 70 : 64;
+  const stripH = roomy ? 56 : 52;
+  /* While the pen is on a strip the list holds still: the pen's drag was also scrolling it. */
+  const [penDown, setPenDown] = useState(false);
   const contentH = useRef(0);
   const padScroll = useCallback((y: number) => sheet.current?.scrollTo({ y, animated: false }), []);
   const padOffset = useCallback(() => offset.current, []);
@@ -655,6 +657,7 @@ export function BillScreen() {
               { paddingBottom: 8 + slipTailPadding(viewport, rowH.current) },
             ]}
             keyboardShouldPersistTaps="handled"
+            scrollEnabled={!penDown}
             onLayout={(e) => setViewport(Math.round(e.nativeEvent.layout.height))}
             onContentSizeChange={(_, h) => { contentH.current = h; }}
             onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y; }}
@@ -701,9 +704,11 @@ export function BillScreen() {
                   </Text>
                 </Pressable>
 
-                <View style={[styles.slipWrite, { maxWidth: stripH * stripAspect }]}>
+                <View style={[styles.slipWrite, { maxWidth: stripH * stripAspect + MORE_SLOT }]}>
                   {isWriting ? (
                     <>
+                      <View style={styles.stripRow}>
+                      <View style={{ width: stripH * stripAspect }}>
                       <InkPad
                         ref={(handle) => { pads.current[line.itemId] = handle; }}
                         variant="line"
@@ -715,20 +720,25 @@ export function BillScreen() {
                         onChange={(ink) => shop.setLineInk(index, ink)}
                         erasing={erasing === line.itemId}
                         onBegin={() => {
+                          setPenDown(true);
                           setView('items');
                           if (erasing && erasing !== line.itemId) setErasing(null);
                         }}
+                        onEnd={() => setPenDown(false)}
                         label={t('bill.writeLine', { n: index + 1 })}
                         undoLabel=""
                         clearLabel=""
                         hint=""
                         strokeCount={() => ''}
                       />
+                      </View>
+                      <View style={styles.moreSlot} />
+                      </View>
                       {/* A long item carried on to the next line, as it would be on paper: each
                           added strip is the same height as the first and part of the same item. */}
                       {(line.moreInk ?? []).map((extra, s) => (
-                        <View key={s} style={styles.moreStrip}>
-                          <View>
+                        <View key={s} style={[styles.moreStrip, styles.stripRow]}>
+                          <View style={{ width: stripH * stripAspect }}>
                             <InkPad
                               variant="line"
                               height={stripH}
@@ -736,9 +746,11 @@ export function BillScreen() {
                               onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
                               erasing={erasing === line.itemId}
                               onBegin={() => {
+                                setPenDown(true);
                                 setView('items');
                                 if (erasing && erasing !== line.itemId) setErasing(null);
                               }}
+                              onEnd={() => setPenDown(false)}
                               label={t('bill.writeLine', { n: index + 1 })}
                               undoLabel=""
                               clearLabel=""
@@ -746,9 +758,10 @@ export function BillScreen() {
                               strokeCount={() => ''}
                             />
                           </View>
-                          {/* In the strip's corner, so every strip keeps the same width. */}
+                          {/* Beside the strip, not on it: in the corner the pen kept hitting it. The
+                              first strip has the same empty slot, so every strip is one width. */}
                           <Pressable
-                            style={styles.moreRemove}
+                            style={styles.moreSlot}
                             accessibilityLabel={t('bill.removeStrip', { n: index + 1 })}
                             onPress={() => shop.removeLineStrip(index, s)}
                             hitSlop={6}
@@ -1020,6 +1033,9 @@ export function BillScreen() {
   );
 }
 
+/** The slot beside each writing strip for an added strip's × -- outside the writing. */
+const MORE_SLOT = 26;
+
 const styles = StyleSheet.create({
   wrap: { flex: 1, minHeight: 0, backgroundColor: C.bg },
   /* Padding lives here rather than on the wrap, so the totals strip below keeps its full-width
@@ -1116,13 +1132,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 10,
-    // Enough that two strips never read as one; the bill's length is the shop's other ask.
-    paddingVertical: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    // Room between cells, so two strips never read as one; the smaller strip keeps it short.
+    paddingVertical: 9,
+    borderBottomWidth: 1,
     borderColor: C.line,
   },
   /* Two stacked halves instead of one line, so the writing can have the full width. */
-  slipLineCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 2, paddingVertical: 4 },
+  slipLineCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 2, paddingVertical: 9 },
   /* On a wide row the two halves behave as the old single row did: the left one takes the
      slack so the writing keeps it, the right one is only as wide as its buttons. Giving both
      flex: 1 would split the row down the middle and halve the strip. */
@@ -1133,7 +1149,8 @@ const styles = StyleSheet.create({
   slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
   moreStrip: { marginTop: 3 },
-  moreRemove: { position: 'absolute', top: 0, right: 0, paddingHorizontal: 6, paddingVertical: 2 },
+  stripRow: { flexDirection: 'row', alignItems: 'center' },
+  moreSlot: { width: MORE_SLOT, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
   eraserOn: { backgroundColor: C.accentWash, borderRadius: R.sm },
   slipPrice: {
     minHeight: 46,
