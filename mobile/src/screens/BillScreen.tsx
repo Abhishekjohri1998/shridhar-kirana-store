@@ -10,6 +10,7 @@ import {
 } from '@shridhar/shared';
 import { CustomerBar } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
+import { ScrollPad } from '../components/ScrollPad';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
 import { Button, ErrorText } from '../components/ui';
@@ -362,6 +363,13 @@ export function BillScreen() {
   // A typed name counts as much as a written one now that most lines are typed: a line with a
   // description and no price yet is still a line the shopkeeper has started.
   const written = shop.cart.filter(lineHasSomething);
+  /* The strip's height on screen. Shorter than it was (80/72) at the shop's asking for a
+     shorter bill; its shape still follows the paper, so the printed size is unchanged. */
+  const stripH = roomy ? 70 : 64;
+  const contentH = useRef(0);
+  const padScroll = useCallback((y: number) => sheet.current?.scrollTo({ y, animated: false }), []);
+  const padOffset = useCallback(() => offset.current, []);
+  const padMax = useCallback(() => Math.max(0, contentH.current - viewport), [viewport]);
   const hasSomething = written.length > 0;
   /** Every line that has anything on it is ticked, so the button offers to undo rather than redo. */
   const allGiven = written.length > 0 && written.every((l) => l.given === true);
@@ -604,12 +612,27 @@ export function BillScreen() {
             {/* The row spends this much on the given tick before the description starts. Without
                 it here every heading after NO. sat 36px left of its own column, putting ITEM on
                 top of the checkbox. */}
-            <View style={styles.colTick} />
+            {/* Select all, in the tick column's own header: the shop's sketch has no row for it,
+                and a row of its own under the list was one more line of screen gone. */}
+            {written.length > 0 ? (
+              <Pressable
+                style={[styles.tick, allGiven && styles.tickOn]}
+                onPress={() => shop.setAllGiven(!allGiven)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: allGiven }}
+                accessibilityLabel={allGiven ? t('bill.selectNone') : t('bill.selectAll')}
+              >
+                <Text style={[styles.tickText, allGiven && styles.tickTextOn]}>{allGiven ? '✓' : ''}</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.colTick} />
+            )}
             <Text style={[styles.slipHeadText, { flex: 1, textAlign: 'center' }]}>{t('bill.item')}</Text>
             {compact ? null : (
               <>
-                {/* Pen, price, undo, remove -- the same four the row lays out, so PRICE sits
-                    over the figures rather than 42px to their left. */}
+                {/* Eraser and new line beside the writing, then price, type, remove -- the row's
+                    own order, so PRICE sits over the figures. */}
+                <View style={styles.colIcon} />
                 <View style={styles.colIcon} />
                 <Text style={[styles.slipHeadText, styles.colPrice, { textAlign: 'right' }]}>
                   {t('bill.price')}
@@ -620,6 +643,8 @@ export function BillScreen() {
             )}
           </View>
 
+          <View style={styles.sheetRow}>
+          <ScrollPad scrollTo={padScroll} offset={padOffset} max={padMax} />
           <ScrollView
             ref={sheet}
             style={styles.sheet}
@@ -631,6 +656,7 @@ export function BillScreen() {
             ]}
             keyboardShouldPersistTaps="handled"
             onLayout={(e) => setViewport(Math.round(e.nativeEvent.layout.height))}
+            onContentSizeChange={(_, h) => { contentH.current = h; }}
             onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y; }}
             scrollEventThrottle={16}
           >
@@ -675,7 +701,7 @@ export function BillScreen() {
                   </Text>
                 </Pressable>
 
-                <View style={[styles.slipWrite, { maxWidth: (roomy ? 80 : 72) * stripAspect }]}>
+                <View style={[styles.slipWrite, { maxWidth: stripH * stripAspect }]}>
                   {isWriting ? (
                     <>
                       <InkPad
@@ -684,7 +710,7 @@ export function BillScreen() {
                         // Shorter than it was: nobody wrote in the top half of the old strip,
                         // which is what left the writing sitting below the tick and the price.
                         // Printed size is unaffected -- writing is scaled by its own strip.
-                        height={(roomy ? 80 : 72) * (line.inkRows === 2 ? 2 : 1)}
+                        height={stripH * (line.inkRows === 2 ? 2 : 1)}
                         value={line.ink ?? null}
                         onChange={(ink) => shop.setLineInk(index, ink)}
                         erasing={erasing === line.itemId}
@@ -705,7 +731,7 @@ export function BillScreen() {
                           <View>
                             <InkPad
                               variant="line"
-                              height={roomy ? 80 : 72}
+                              height={stripH}
                               value={extra.strokes.length ? extra : null}
                               onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
                               erasing={erasing === line.itemId}
@@ -753,17 +779,20 @@ export function BillScreen() {
                   )}
                 </View>
 
-                {/* Swaps this one line between the two, and says which way it will go. */}
-                <Pressable
-                  style={styles.colIcon}
-                  accessibilityLabel={
-                    isWriting ? t('bill.typeLine', { n: index + 1 })
-                      : t('bill.handwriteLine', { n: index + 1 })
-                  }
-                  onPress={() => setWriting((w) => ({ ...w, [line.itemId]: !isWriting }))}
-                >
-                  <Text style={styles.slipUndo}>{isWriting ? '⌨' : '✎'}</Text>
-                </Pressable>
+                {/* The eraser, right beside the writing it rubs out: the pen goes from the strip to
+                    it and back without crossing the price. Pressed again, or writing on another
+                    line, and it is a pen again; it lets go by itself once the line is empty. */}
+                {isWriting ? (
+                  <Pressable
+                    style={[styles.colIcon, erasing === line.itemId && styles.eraserOn]}
+                    disabled={!lineHasInk(line) && erasing !== line.itemId}
+                    accessibilityLabel={t('bill.eraseLine', { n: index + 1 })}
+                    accessibilityState={{ selected: erasing === line.itemId }}
+                    onPress={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
+                  >
+                    <Text style={[styles.slipUndo, !lineHasInk(line) && erasing !== line.itemId && styles.slipRemoveOff]}>🧽</Text>
+                  </Pressable>
+                ) : null}
                 {/* A new line to write on for this same item, under the one there. Up to two. */}
                 {isWriting ? (
                   <Pressable
@@ -804,16 +833,16 @@ export function BillScreen() {
                   onBlur={blurRow}
                 />
 
-                {/* An eraser, in place of undo: the pen rubs out what it touches on this line.
-                    Pressed again, or writing on another line, and it is a pen again. */}
+                {/* Swaps this one line between writing and typing, and says which way it will go. */}
                 <Pressable
-                  style={[styles.colIcon, erasing === line.itemId && styles.eraserOn]}
-                  disabled={!lineHasInk(line) && erasing !== line.itemId}
-                  accessibilityLabel={t('bill.eraseLine', { n: index + 1 })}
-                  accessibilityState={{ selected: erasing === line.itemId }}
-                  onPress={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
+                  style={styles.colIcon}
+                  accessibilityLabel={
+                    isWriting ? t('bill.typeLine', { n: index + 1 })
+                      : t('bill.handwriteLine', { n: index + 1 })
+                  }
+                  onPress={() => setWriting((w) => ({ ...w, [line.itemId]: !isWriting }))}
                 >
-                  <Text style={[styles.slipUndo, !lineHasInk(line) && erasing !== line.itemId && styles.slipRemoveOff]}>🧽</Text>
+                  <Text style={styles.slipUndo}>{isWriting ? '⌨' : '✎'}</Text>
                 </Pressable>
 
                 <Pressable
@@ -829,29 +858,9 @@ export function BillScreen() {
             );
           })}
           </ScrollView>
+          <ScrollPad scrollTo={padScroll} offset={padOffset} max={padMax} />
+          </View>
 
-          {/* Under the last line, because it is about all of them. The same button undoes
-              itself, and says which way it will go rather than leaving it to be guessed. */}
-          {/* Part of the list, so it stays put whatever has focus. Hiding it while a field
-              was active was left over from the one-line view, and made "tick every item"
-              disappear at the moment the shopkeeper reached for it. */}
-          {written.length > 0 ? (
-            <Pressable
-              style={styles.selectAll}
-              onPress={() => shop.setAllGiven(!allGiven)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: allGiven }}
-            >
-              <View style={[styles.tick, allGiven && styles.tickOn]}>
-                <Text style={[styles.tickText, allGiven && styles.tickTextOn]}>
-                  {allGiven ? '✓' : ''}
-                </Text>
-              </View>
-              <Text style={styles.selectAllText}>
-                {allGiven ? t('bill.selectNone') : t('bill.selectAll')}
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
 
       <View style={styles.foot}>
@@ -1060,6 +1069,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderColor: C.line,
   },
   sheet: { flex: 1, minHeight: 0 },
+  sheetRow: { flex: 1, minHeight: 0, flexDirection: 'row', gap: 4, paddingHorizontal: 4 },
   /* flexGrow so the sheet fills its half even when the slip is one line long -- without it the
      whole screen collapsed to the height of its contents and the footer rode up under the
      header. */
@@ -1106,13 +1116,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 10,
-    // Room between one cell and the next, so two strips never read as one.
-    paddingVertical: 10,
+    // Enough that two strips never read as one; the bill's length is the shop's other ask.
+    paddingVertical: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: C.line,
   },
   /* Two stacked halves instead of one line, so the writing can have the full width. */
-  slipLineCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 2, paddingVertical: 7 },
+  slipLineCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 2, paddingVertical: 4 },
   /* On a wide row the two halves behave as the old single row did: the left one takes the
      slack so the writing keeps it, the right one is only as wide as its buttons. Giving both
      flex: 1 would split the row down the middle and halve the strip. */
@@ -1122,7 +1132,7 @@ const styles = StyleSheet.create({
   slipRowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
-  moreStrip: { marginTop: 6 },
+  moreStrip: { marginTop: 3 },
   moreRemove: { position: 'absolute', top: 0, right: 0, paddingHorizontal: 6, paddingVertical: 2 },
   eraserOn: { backgroundColor: C.accentWash, borderRadius: R.sm },
   slipPrice: {
@@ -1149,8 +1159,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: C.line,
     paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingTop: 6,
+    paddingBottom: 8,
     ...shadow(2),
   },
   footHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },

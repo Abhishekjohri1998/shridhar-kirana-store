@@ -230,7 +230,7 @@ export function buildReceipt(
   }
 
   rows.push(
-    { t: 'space', h: 6 },
+    { t: 'space', h: 2 },
     { t: 'kv', left: labels.bill + bill.no, right: stamp(bill.at), size: 20 },
   );
 
@@ -238,10 +238,18 @@ export function buildReceipt(
   const customerName = bill.customer
     ? pickLang(bill.customer.name, bill.customer.nameKn, lang)
     : '';
-  if (bill.customer && (customerName || bill.customer.phone)) {
-    rows.push({ t: 'sep' });
-    if (customerName) rows.push({ t: 'kv', left: labels.name, right: customerName, size: 20 });
-    if (bill.customer.phone) rows.push({ t: 'kv', left: labels.phone, right: bill.customer.phone, size: 20 });
+  /*
+   * Name and phone on one line, directly under the bill number: the shop asked for a shorter
+   * slip, and "Name" / "Phone" labels on two rows of their own were most of a centimetre of paper
+   * saying what the text beside them already makes plain. With only one of the two, it keeps its
+   * label so a lone number is not mistaken for anything else.
+   */
+  if (bill.customer && customerName && bill.customer.phone) {
+    rows.push({ t: 'kv', left: customerName, right: bill.customer.phone, size: 20 });
+  } else if (bill.customer && customerName) {
+    rows.push({ t: 'kv', left: labels.name, right: customerName, size: 20 });
+  } else if (bill.customer && bill.customer.phone) {
+    rows.push({ t: 'kv', left: labels.phone, right: bill.customer.phone, size: 20 });
   }
 
   rows.push(
@@ -319,7 +327,7 @@ export function buildReceipt(
         const box = inkBounds(strip.ink);
         const drawnH = Math.ceil((box.maxY - box.minY) * fit.scale);
         const raw = i === 0
-          ? Math.max(INK_MIN_ROW, drawnH + 2 * INK_BLEED + 8)
+          ? Math.max(INK_MIN_ROW, drawnH + 2 * INK_BLEED + 4)
           : Math.max(16, drawnH + 2 * INK_BLEED + 4);
         // Even, so the number and price centred on it land on a whole dot, not between two.
         const h = raw + (raw % 2);
@@ -375,11 +383,15 @@ export function buildReceipt(
     { t: 'kv', left: labels.total, right: money(round2(bill.total + carried)), size: 30, bold: true },
   );
 
+  // Paid and what is left, on one line: the second half of the shop's "shorter slip".
   if (bill.showBalance) {
-    rows.push(
-      { t: 'kv', left: labels.paid, right: money(bill.paid), size: 22 },
-      { t: 'kv', left: labels.balance, right: money(bill.balance), size: 24, bold: true },
-    );
+    rows.push({
+      t: 'kv',
+      left: labels.paid + ' ' + money(bill.paid),
+      right: labels.balance + ' ' + money(bill.balance),
+      size: 22,
+      bold: true,
+    });
   }
 
   /**
@@ -393,16 +405,16 @@ export function buildReceipt(
   const note = (bill.note ?? '').trim();
   if (note !== '') {
     rows.push(
-      { t: 'space', h: 6 },
+      { t: 'space', h: 2 },
       { t: 'center', text: labels.note + ': ' + note, size: 22 },
     );
   }
 
   rows.push(
     { t: 'sep' },
-    { t: 'space', h: 8 },
+    { t: 'space', h: 3 },
     { t: 'center', text: pickLang(settings.footer, settings.footerKn, lang), size: 22 },
-    { t: 'space', h: 10 },
+    { t: 'space', h: 4 },
   );
 
   return { width: paperProfile(settings.paper).dots, rows };

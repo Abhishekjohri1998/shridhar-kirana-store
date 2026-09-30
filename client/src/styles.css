@@ -479,8 +479,8 @@ button, input, select, textarea {
 
 .slip-head {
   display: grid;
-  /* number, given tick, description, pen, price, undo, remove */
-  grid-template-columns: 34px 26px minmax(0, 1fr) 30px 104px 36px 36px;
+  /* number, given tick, description, eraser, new line, price, type, remove */
+  grid-template-columns: 34px 26px minmax(0, 1fr) 34px 34px 104px 34px 34px;
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
@@ -498,7 +498,8 @@ button, input, select, textarea {
 .slip-price-tag { display: none; }
 /* Centred over the column it names, at the shop's asking. */
 .slip-head-desc { grid-column: 3; text-align: center; }
-.slip-head-price { grid-column: 5; text-align: right; }
+.slip-head-price { grid-column: 6; text-align: right; }
+.slip-head-given { grid-column: 2; width: 22px; height: 22px; margin: 0; accent-color: var(--accent); }
 
 .slip-lines {
   /* Positioned so it is the offset parent of its own rows: `pageFlip` needs each row's top
@@ -516,12 +517,12 @@ button, input, select, textarea {
 
 .slip-line {
   display: grid;
-  /* number, given tick, description, pen, price, undo, remove */
-  grid-template-columns: 34px 26px minmax(0, 1fr) 30px 104px 36px 36px;
+  /* number, given tick, description, eraser, new line, price, type, remove */
+  grid-template-columns: 34px 26px minmax(0, 1fr) 34px 34px 104px 34px 34px;
   align-items: center;
   gap: 8px;
-  /* Room between one cell and the next, so two strips never read as one. */
-  padding: 12px 10px;
+  /* Enough that two strips never read as one; the bill's length is the shop's other ask. */
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
 }
 .slip-undo.on { background: var(--brand-wash); border-radius: var(--r-sm); }
@@ -535,10 +536,13 @@ button, input, select, textarea {
 @media (max-width: 600px) {
   .slip-line {
     /* Wide enough in the first column for the price heading that drops down into it. */
-    grid-template-columns: 44px 26px minmax(0, 1fr) 36px 36px;
+    /* The price box takes the room under the number and tick, so four icons and two scroll
+       pads still leave it wide enough to type a price into. */
+    grid-template-columns: 28px 26px minmax(0, 1fr) 32px 32px 32px 32px;
     grid-template-areas:
-      'no    given write write write'
-      'blank blank price undo  remove';
+      'no    given write write write write  write'
+      'price price price erase rows  undo   remove';
+    column-gap: 6px;
     row-gap: 4px;
   }
 
@@ -547,6 +551,8 @@ button, input, select, textarea {
   .slip-write { grid-area: write; }
   .slip-price { grid-area: price; }
   .slip-undo { grid-area: undo; }
+  .slip-erase { grid-area: erase; }
+  .slip-rows { grid-area: rows; }
   .slip-remove { grid-area: remove; }
 
   /* The price box has moved to a row of its own, so a heading up in the header would point at
@@ -592,15 +598,11 @@ button, input, select, textarea {
 .inkline:hover { background: rgba(17, 127, 87, 0.04); }
 
 /* An added line of writing for the same item, with its own remove button. */
-.slip-more { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.slip-more { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .slip-more > :first-child { flex: 1; min-width: 0; }
 /* A new line of writing for a long item, tucked in the strip's corner so the row keeps its
    seven columns. */
-.slip-rows {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  z-index: 1;
+.slip-rows, .slip-erase {
   border: 0;
   background: transparent;
   color: var(--ink-400);
@@ -1800,3 +1802,37 @@ select.input {
   cursor: pointer;
 }
 .select-all input { width: 22px; height: 22px; accent-color: var(--accent); }
+
+/* The eraser and new-line buttons, sized like the row's other icons. */
+.slip-rows, .slip-erase { width: 34px; height: 34px; border-radius: var(--r-sm); font-size: 1.05rem; color: var(--ink-500); }
+.slip-erase.on { background: var(--brand-wash); color: var(--brand-700); }
+.slip-rows:disabled, .slip-erase:disabled { opacity: 0.25; cursor: default; }
+
+/* The list between two scroll pads, as the shop drew it. */
+.slip-body { display: flex; gap: 4px; flex: 1; min-height: 0; padding: 0 4px; }
+.slip-body .slip-lines { flex: 1; min-width: 0; }
+.scroll-pad {
+  flex: none;
+  width: 22px;
+  margin: 4px 0;
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.scroll-pad span { width: 8px; height: 3px; border-radius: 2px; background: var(--line-strong); }
+.scroll-pad:active { background: var(--brand-wash); }
+
+@media (max-width: 600px) {
+  /* The box says "Price" itself here, so the separate tag is not needed. */
+  .slip-line .slip-price-tag { display: none; }
+  .scroll-pad { width: 16px; }
+  .slip-body { gap: 2px; padding: 0 2px; }
+  .slip-rows, .slip-erase { width: 32px; height: 32px; }
+}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { checkCustomer, customerName, money, type Customer } from '@shridhar/shared';
 import { Button, ErrorText } from './ui';
 import { api } from '../lib/api';
@@ -14,6 +14,8 @@ import { C } from '../theme';
  * between the copies.
  */
 export function CustomerBar() {
+  // On a tablet the three boxes and the button share one row, as in the shop's sketch; a phone wraps.
+  const wide = useWindowDimensions().width >= 600;
   const shop = useShop();
   const t = shop.t;
   // Held in the shared draft, not here: the bill needs to read it at print time, and switching
@@ -166,7 +168,7 @@ export function CustomerBar() {
             label={searching ? t('cust.looking') : t('cust.addToBill')}
             tone="plain"
             onPress={() => void saveNew()}
-            style={styles.slim}
+            style={wide ? styles.slimInline : styles.slim}
           />
         ) : null}
       </View>
@@ -201,4 +203,5 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderColor: C.line,
   },
   slim: { flexBasis: '100%', minHeight: 46, paddingVertical: 8, paddingHorizontal: 14 },
+  slimInline: { minHeight: 46, paddingVertical: 8, paddingHorizontal: 12, flexShrink: 0 },
 });

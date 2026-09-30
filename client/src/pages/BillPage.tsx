@@ -38,6 +38,39 @@ import { useShop } from '../lib/useShop';
  * There is no product catalogue and no search. The shop does not keep one, and asking it to
  * maintain one was the software's idea rather than the shop's.
  */
+/** The writing strip's height. Shorter than the old 80 at the shop's asking; its shape still
+ *  follows the paper, so the printed size is unchanged. */
+const STRIP_H = 70;
+
+/**
+ * A strip down the side of the bill for scrolling it with the pen or a finger: every line is a
+ * writing strip, so dragging on one writes. Moves the list as far as the pen moves.
+ */
+function ScrollPad({ target }: { target: React.RefObject<HTMLOListElement | null> }) {
+  const start = useRef<{ y: number; top: number } | null>(null);
+  return (
+    <div
+      className="scroll-pad"
+      role="scrollbar"
+      aria-orientation="vertical"
+      aria-valuenow={0}
+      aria-label="Scroll the bill"
+      onPointerDown={(e) => {
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine */ }
+        start.current = { y: e.clientY, top: target.current?.scrollTop ?? 0 };
+      }}
+      onPointerMove={(e) => {
+        if (!start.current || !target.current) return;
+        target.current.scrollTop = start.current.top - (e.clientY - start.current.y);
+      }}
+      onPointerUp={() => { start.current = null; }}
+      onPointerCancel={() => { start.current = null; }}
+    >
+      <span /><span /><span /><span /><span />
+    </div>
+  );
+}
+
 export function BillPage() {
   const shop = useShop();
   const printer = usePrint();
@@ -433,10 +466,23 @@ export function BillPage() {
         <div className="slip">
           <div className="slip-head">
             <span className="slip-head-no">{t('bill.no')}</span>
+            {/* Select all, in the tick column's header: no row of its own under the list. */}
+            {written.length > 0 ? (
+              <input
+                type="checkbox"
+                className="slip-head-given"
+                checked={allGiven}
+                aria-label={allGiven ? t('bill.selectNone') : t('bill.selectAll')}
+                title={allGiven ? t('bill.selectNone') : t('bill.selectAll')}
+                onChange={() => shop.setAllGiven(!allGiven)}
+              />
+            ) : null}
             <span className="slip-head-desc">{t('bill.item')}</span>
             <span className="slip-head-price">{t('bill.price')}</span>
           </div>
 
+          <div className="slip-body">
+          <ScrollPad target={sheet} />
           <ol className="slip-lines" ref={sheet} style={{ paddingBottom: tail }}>
             {shop.cart.map((line, index) => {
               const blank = !lineHasSomething(line);
@@ -460,25 +506,15 @@ export function BillPage() {
                     onChange={(e) => shop.setLineGiven(index, e.target.checked)}
                   />
 
-                  <div className="slip-write" style={{ maxWidth: 80 * stripAspect }}>
+                  <div className="slip-write" style={{ maxWidth: STRIP_H * stripAspect }}>
                     {/* Typed by default, written when asked for: handwriting is one click away
                         and a line that already holds strokes opens as writing. */}
                     {isWriting ? (
                       <>
-                        {/* A new line to write on for this same item, under the one there. */}
-                        <button
-                          className="slip-rows"
-                          disabled={(line.moreInk ?? []).length >= 2}
-                          aria-label={t('bill.addStrip', { n: index + 1 })}
-                          title={t('bill.addStrip', { n: index + 1 })}
-                          onClick={() => shop.addLineStrip(index)}
-                        >
-                          ↵
-                        </button>
                         <InkPad
                           ref={(handle) => { pads.current[line.itemId] = handle; }}
                           variant="line"
-                          height={80 * (line.inkRows === 2 ? 2 : 1)}
+                          height={STRIP_H * (line.inkRows === 2 ? 2 : 1)}
                           value={line.ink ?? null}
                           onChange={(ink) => shop.setLineInk(index, ink)}
                           erasing={erasing === line.itemId}
@@ -494,7 +530,7 @@ export function BillPage() {
                           <div key={s} className="slip-more">
                             <InkPad
                               variant="line"
-                              height={80}
+                              height={STRIP_H}
                               value={extra.strokes.length ? extra : null}
                               onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
                               erasing={erasing === line.itemId}
@@ -536,16 +572,26 @@ export function BillPage() {
 
                   {/* Names the column in the stacked layout, where the price box has dropped
                       below the writing strip and the header above cannot point at it. */}
-                  {/* Swaps this one line between the two. */}
+                  {/* The eraser, right beside the writing it rubs out. */}
                   <button
-                    className="slip-undo"
-                    aria-label={isWriting ? t('bill.typeLine', { n: index + 1 })
-                      : t('bill.handwriteLine', { n: index + 1 })}
-                    title={isWriting ? t('bill.typeLine', { n: index + 1 })
-                      : t('bill.handwriteLine', { n: index + 1 })}
-                    onClick={() => setWriting((w) => ({ ...w, [line.itemId]: !isWriting }))}
+                    className={'slip-erase' + (erasing === line.itemId ? ' on' : '')}
+                    aria-label={t('bill.eraseLine', { n: index + 1 })}
+                    aria-pressed={erasing === line.itemId}
+                    title={t('bill.eraseLine', { n: index + 1 })}
+                    disabled={!isWriting || (!lineHasInk(line) && erasing !== line.itemId)}
+                    onClick={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
                   >
-                    {isWriting ? '⌨' : '✎'}
+                    🧽
+                  </button>
+                  {/* A new line to write on for this same item, under the one there. Up to two. */}
+                  <button
+                    className="slip-rows"
+                    disabled={!isWriting || (line.moreInk ?? []).length >= 2}
+                    aria-label={t('bill.addStrip', { n: index + 1 })}
+                    title={t('bill.addStrip', { n: index + 1 })}
+                    onClick={() => shop.addLineStrip(index)}
+                  >
+                    ↵
                   </button>
 
                   <span className="slip-price-tag" aria-hidden="true">{t('bill.price')}</span>
@@ -553,7 +599,7 @@ export function BillPage() {
                     className="slip-price"
                     inputMode="decimal"
                     aria-label={t('bill.priceOfLine', { n: index + 1 })}
-                    placeholder="—"
+                    placeholder={t('bill.price')}
                     value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
                     onBlur={() => { wantFlip.current = true; }}
@@ -569,16 +615,16 @@ export function BillPage() {
                     </span>
                   ) : null}
 
-                  {/* An eraser, in place of undo: the pen rubs out what it touches on this line. */}
+                  {/* Swaps this one line between writing and typing. */}
                   <button
-                    className={erasing === line.itemId ? 'slip-undo on' : 'slip-undo'}
-                    aria-label={t('bill.eraseLine', { n: index + 1 })}
-                    aria-pressed={erasing === line.itemId}
-                    title={t('bill.eraseLine', { n: index + 1 })}
-                    disabled={!lineHasInk(line) && erasing !== line.itemId}
-                    onClick={() => setErasing((e) => (e === line.itemId ? null : line.itemId))}
+                    className="slip-undo"
+                    aria-label={isWriting ? t('bill.typeLine', { n: index + 1 })
+                      : t('bill.handwriteLine', { n: index + 1 })}
+                    title={isWriting ? t('bill.typeLine', { n: index + 1 })
+                      : t('bill.handwriteLine', { n: index + 1 })}
+                    onClick={() => setWriting((w) => ({ ...w, [line.itemId]: !isWriting }))}
                   >
-                    🧽
+                    {isWriting ? '⌨' : '✎'}
                   </button>
 
                   <button
@@ -593,19 +639,8 @@ export function BillPage() {
               );
             })}
           </ol>
-
-          {/* Under the last line, because it is about all of them. The same control undoes
-              itself and says which way it will go. */}
-          {written.length > 0 ? (
-            <label className="select-all">
-              <input
-                type="checkbox"
-                checked={allGiven}
-                onChange={() => shop.setAllGiven(!allGiven)}
-              />
-              <span>{allGiven ? t('bill.selectNone') : t('bill.selectAll')}</span>
-            </label>
-          ) : null}
+          <ScrollPad target={sheet} />
+          </div>
         </div>
       </div>
 

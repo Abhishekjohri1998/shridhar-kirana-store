@@ -214,7 +214,7 @@ async function main() {
   eq('midnight prints as 12 am', shared.stamp('2026-09-03T00:05:00'), '03/09/26 12:05 am');
   eq('showRate adds the per-unit note',
     shared.buildReceipt(BILL, { ...SETTINGS, showRate: true }).rows.filter((r) => r.t === 'item')[1].note, '@ 110');
-  check('no balance lines unless asked', !receipt.rows.some((r) => r.t === 'kv' && r.left === 'Balance'));
+  check('no balance lines unless asked', !receipt.rows.some((r) => r.t === 'kv' && String(r.left).startsWith('Paid')));
   check('no customer lines without a customer', !receipt.rows.some((r) => r.t === 'kv' && r.left === 'Name'));
 
   console.log('\nReceipt document: customer, balance, handwriting');
@@ -234,10 +234,13 @@ async function main() {
     },
     SETTINGS,
   );
-  const nameRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Name');
-  const phoneRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Phone');
-  eq('customer name prints at the top', nameRow && nameRow.right, 'Ramesh');
-  eq('customer contact number prints', phoneRow && phoneRow.right, '9886012345');
+  // Name and phone share one line now, at the shop's asking for a shorter slip.
+  const nameRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Ramesh');
+  eq('customer name prints at the top', nameRow && nameRow.left, 'Ramesh');
+  eq('and the contact number on the same line', nameRow && nameRow.right, '9886012345');
+  const billRowAt = rich.rows.findIndex((r) => r.t === 'kv' && String(r.left).startsWith('Bill'));
+  eq('straight under the bill number, with no line between', rich.rows.indexOf(nameRow), billRowAt + 1);
+  check('no separate Name or Phone rows any more', !rich.rows.some((r) => r.t === 'kv' && (r.left === 'Name' || r.left === 'Phone')));
   check('the customer block sits above the items',
     rich.rows.indexOf(nameRow) < rich.rows.findIndex((r) => r.t === 'item'));
   eq('a handwritten line becomes an ink row', rich.rows.filter((r) => r.t === 'ink').length, 1);
@@ -245,10 +248,10 @@ async function main() {
   eq('the ink row carries the price', inkRow && inkRow.amount, '40');
   eq('a line with no description still prints its price',
     rich.rows.filter((r) => r.t === 'item' && r.name === '').length, 1);
-  const paidRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Paid');
-  const balanceRow = rich.rows.find((r) => r.t === 'kv' && r.left === 'Balance');
-  eq('paid prints when the balance is shown', paidRow && paidRow.right, '1000');
-  eq('balance prints when the balance is shown', balanceRow && balanceRow.right, '422');
+  // Paid and Balance on one line.
+  const paidRow = rich.rows.find((r) => r.t === 'kv' && String(r.left).startsWith('Paid'));
+  eq('paid prints when the balance is shown', paidRow && paidRow.left, 'Paid 1000');
+  eq('balance prints on the same line', paidRow && paidRow.right, 'Balance 422');
 
   console.log('\nReceipt document: written and typed on one line, and two-line items');
   {
@@ -331,8 +334,8 @@ async function main() {
   const inKn = shared.buildReceipt(knBill, { ...KN_SET, language: 'kn' }, shared.receiptLabelsFor('kn'));
   const knHead = inKn.rows.find((r) => r.t === 'center');
   eq('a Kannada slip carries the Kannada shop name', knHead && knHead.text, KN_SET.shopNameKn);
-  const knName = inKn.rows.find((r) => r.t === 'kv' && r.left === 'ಹೆಸರು');
-  eq('and the customer in Kannada', knName && knName.right, knBill.customer.nameKn);
+  const knName = inKn.rows.find((r) => r.t === 'kv' && r.left === knBill.customer.nameKn);
+  eq('and the customer in Kannada', knName && knName.left, knBill.customer.nameKn);
   check('and the Kannada footer',
     inKn.rows.some((r) => r.t === 'center' && r.text === KN_SET.footerKn));
 
@@ -340,8 +343,8 @@ async function main() {
   const inEn = shared.buildReceipt(knBill, { ...KN_SET, language: 'en' });
   const enHead = inEn.rows.find((r) => r.t === 'center');
   eq('an English slip carries the English shop name', enHead && enHead.text, SETTINGS.shopName);
-  const enName = inEn.rows.find((r) => r.t === 'kv' && r.left === 'Name');
-  eq('and the customer in English', enName && enName.right, 'Ramesh');
+  const enName = inEn.rows.find((r) => r.t === 'kv' && r.left === 'Ramesh');
+  eq('and the customer in English', enName && enName.left, 'Ramesh');
 
   // A shop that has not typed the Kannada names yet must not get blank lines.
   const noKn = shared.buildReceipt(
@@ -351,16 +354,21 @@ async function main() {
   );
   const fellBack = noKn.rows.find((r) => r.t === 'center');
   eq('with no Kannada shop name the English one stands', fellBack && fellBack.text, SETTINGS.shopName);
-  const fellBackName = noKn.rows.find((r) => r.t === 'kv' && r.left === 'ಹೆಸರು');
-  eq('and so does the English customer name', fellBackName && fellBackName.right, 'Ramesh');
+  const fellBackName = noKn.rows.find((r) => r.t === 'kv' && r.left === 'Ramesh');
+  eq('and so does the English customer name', fellBackName && fellBackName.left, 'Ramesh');
 
   // And a customer who only ever had the Kannada box shows in English mode too.
   const knOnly = shared.buildReceipt(
     { ...BILL, customer: { id: 'p1', name: '', nameKn: 'ರಮೇಶ್', phone: '9886012345' } },
     SETTINGS,
   );
-  const knOnlyRow = knOnly.rows.find((r) => r.t === 'kv' && r.left === 'Name');
-  eq('a Kannada-only customer is never blank', knOnlyRow && knOnlyRow.right, 'ರಮೇಶ್');
+  const knOnlyRow = knOnly.rows.find((r) => r.t === 'kv' && r.left === 'ರಮೇಶ್');
+  eq('a Kannada-only customer is never blank', knOnlyRow && knOnlyRow.left, 'ರಮೇಶ್');
+  // Only a name, or only a phone: it keeps its label.
+  const nameOnly = shared.buildReceipt({ ...BILL, customer: { id: 'p1', name: 'Ramesh', phone: '' } }, SETTINGS);
+  check('a name with no phone keeps its label', nameOnly.rows.some((r) => r.t === 'kv' && r.left === 'Name' && r.right === 'Ramesh'));
+  const phoneOnly = shared.buildReceipt({ ...BILL, customer: { id: 'p1', name: '', phone: '9886012345' } }, SETTINGS);
+  check('a phone with no name keeps its label', phoneOnly.rows.some((r) => r.t === 'kv' && r.left === 'Phone' && r.right === '9886012345'));
 
   console.log('\nReceipt document: the GST number');
   const withGst = shared.buildReceipt(BILL, { ...SETTINGS, gstin: '29ABCDE1234F1Z5' });
@@ -440,8 +448,9 @@ async function main() {
   eq('the printed total counts it', cTotal && cTotal.right, '1870');
   // The whole point of the change. Before it, a slip could read TOTAL 1370, Paid 1000,
   // Balance 870 -- three numbers a customer had no way to reconcile on the page.
-  const cPaid = carried.rows.find((r) => r.t === 'kv' && r.left === 'Paid');
-  const cBal = carried.rows.find((r) => r.t === 'kv' && r.left === 'Balance');
+  const cPB = carried.rows.find((r) => r.t === 'kv' && String(r.left).startsWith('Paid'));
+  const cPaid = { right: String(cPB.left).replace(/^Paid /, '') };
+  const cBal = { right: String(cPB.right).replace(/^Balance /, '') };
   check('total less paid is the balance, on the paper',
     Number(cTotal.right) - Number(cPaid.right) === Number(cBal.right),
     cTotal.right + ' - ' + cPaid.right + ' != ' + cBal.right);
@@ -453,7 +462,7 @@ async function main() {
   check('the note prints', noteRow && noteRow.text === 'Note: Delivery Tuesday',
     noteRow && noteRow.text);
   const noteAt = noted.rows.indexOf(noteRow);
-  const balanceAt = noted.rows.findIndex((r) => r.t === 'kv' && r.left === 'Balance');
+  const balanceAt = noted.rows.findIndex((r) => r.t === 'kv' && String(r.left).startsWith('Paid'));
   const footerAt = noted.rows.findIndex(
     (r) => r.t === 'center' && r.text === SETTINGS.footer,
   );
