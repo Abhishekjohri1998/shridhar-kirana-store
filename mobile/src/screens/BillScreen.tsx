@@ -366,8 +366,6 @@ export function BillScreen() {
   /* The strip's height on screen. Shorter than it was (80/72, then 70/64) at the shop's asking for a
      shorter bill; its shape still follows the paper, so the printed size is unchanged. */
   const stripH = roomy ? 56 : 52;
-  /* While the pen is on a strip the list holds still: the pen's drag was also scrolling it. */
-  const [penDown, setPenDown] = useState(false);
   const contentH = useRef(0);
   const padScroll = useCallback((y: number) => sheet.current?.scrollTo({ y, animated: false }), []);
   const padOffset = useCallback(() => offset.current, []);
@@ -618,13 +616,14 @@ export function BillScreen() {
                 and a row of its own under the list was one more line of screen gone. */}
             {written.length > 0 ? (
               <Pressable
-                style={[styles.tick, allGiven && styles.tickOn]}
+                style={[styles.tick, styles.tickHead, allGiven && styles.tickOn]}
                 onPress={() => shop.setAllGiven(!allGiven)}
+                hitSlop={8}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: allGiven }}
                 accessibilityLabel={allGiven ? t('bill.selectNone') : t('bill.selectAll')}
               >
-                <Text style={[styles.tickText, allGiven && styles.tickTextOn]}>{allGiven ? '✓' : ''}</Text>
+                <Text style={[styles.tickText, styles.tickHeadText, allGiven && styles.tickTextOn]}>{allGiven ? '✓' : ''}</Text>
               </Pressable>
             ) : (
               <View style={styles.colTick} />
@@ -657,7 +656,9 @@ export function BillScreen() {
               { paddingBottom: 8 + slipTailPadding(viewport, rowH.current) },
             ]}
             keyboardShouldPersistTaps="handled"
-            scrollEnabled={!penDown}
+            // Never by dragging the list: every row is a writing strip, and the scroll took the
+            // pen's drag before anything could stop it. The scroll pads either side move it.
+            scrollEnabled={false}
             onLayout={(e) => setViewport(Math.round(e.nativeEvent.layout.height))}
             onContentSizeChange={(_, h) => { contentH.current = h; }}
             onScroll={(e) => { offset.current = e.nativeEvent.contentOffset.y; }}
@@ -682,7 +683,9 @@ export function BillScreen() {
                 onLayout={(e) => {
                   const { y, height } = e.nativeEvent.layout;
                   rowY.current[line.itemId] = y;
-                  rowH.current = Math.round(height);
+                  // The smallest row, so a row with an added strip never shrinks the tail.
+                  const h = Math.round(height);
+                  if (rowH.current <= 0 || h < rowH.current) rowH.current = h;
                 }}
               >
                 {/* Narrow screens split the row in two so the writing takes the whole width;
@@ -720,11 +723,9 @@ export function BillScreen() {
                         onChange={(ink) => shop.setLineInk(index, ink)}
                         erasing={erasing === line.itemId}
                         onBegin={() => {
-                          setPenDown(true);
                           setView('items');
                           if (erasing && erasing !== line.itemId) setErasing(null);
                         }}
-                        onEnd={() => setPenDown(false)}
                         label={t('bill.writeLine', { n: index + 1 })}
                         undoLabel=""
                         clearLabel=""
@@ -746,12 +747,10 @@ export function BillScreen() {
                               onChange={(ink) => shop.setLineMoreInk(index, s, ink)}
                               erasing={erasing === line.itemId}
                               onBegin={() => {
-                                setPenDown(true);
-                                setView('items');
+                                      setView('items');
                                 if (erasing && erasing !== line.itemId) setErasing(null);
                               }}
-                              onEnd={() => setPenDown(false)}
-                              label={t('bill.writeLine', { n: index + 1 })}
+                                    label={t('bill.writeLine', { n: index + 1 })}
                               undoLabel=""
                               clearLabel=""
                               hint=""
@@ -1076,6 +1075,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', backgroundColor: C.card, marginRight: 6,
   },
   tickOn: { borderColor: C.accentEdge, backgroundColor: C.accentWash },
+  // In the header: as tall as its words, so the header row stays the height it was.
+  // The outer width matches the row's tick (30 + 6), so it stays over that column.
+  tickHead: { width: 16, height: 16, marginLeft: 7, marginRight: 13 },
+  tickHeadText: { fontSize: 11, lineHeight: 13 },
   tickText: { fontSize: 17, color: C.faint },
   tickTextOn: { color: C.accentDeep, fontWeight: '700' },
   /* The typed description. Same height as the writing strip's baseline so a mixed bill does not
