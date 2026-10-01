@@ -513,7 +513,7 @@ async function main() {
 
   console.log('\nHandwriting geometry');
   const bounds = shared.inkBounds(SAMPLE_INK);
-  eq('bounds trim to what was written', bounds.minX + ',' + bounds.minY, '10,20');
+  eq('bounds keep the gap before the writing, trim above it', bounds.minX + ',' + bounds.minY, '0,20');
   eq('bounds find the far corner', bounds.maxX + ',' + bounds.maxY, '140,80');
   const fit = shared.inkFit(SAMPLE_INK, shared.inkMaxWidth(384), shared.INK_ROW_HEIGHT);
   check('handwriting is scaled to the row height', Math.abs(fit.h - shared.INK_ROW_HEIGHT) < 0.001, 'h ' + fit.h);

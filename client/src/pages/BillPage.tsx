@@ -41,6 +41,8 @@ import { useShop } from '../lib/useShop';
 /** The writing strip's height. Shorter than the old 80 at the shop's asking; its shape still
  *  follows the paper, so the printed size is unchanged. */
 const STRIP_H = 56;
+/** Longer than the paper's shape, for more room to write; the tablet uses the same. */
+const STRIP_LONG = 1.3;
 
 /**
  * A strip down the side of the bill for scrolling it with the pen or a finger: every line is a
@@ -506,7 +508,7 @@ export function BillPage() {
                     onChange={(e) => shop.setLineGiven(index, e.target.checked)}
                   />
 
-                  <div className="slip-write" style={{ maxWidth: STRIP_H * stripAspect }}>
+                  <div className="slip-write" style={{ maxWidth: STRIP_H * stripAspect * STRIP_LONG }}>
                     {/* Typed by default, written when asked for: handwriting is one click away
                         and a line that already holds strokes opens as writing. */}
                     {isWriting ? (

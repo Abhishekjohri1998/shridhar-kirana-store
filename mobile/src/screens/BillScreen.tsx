@@ -707,11 +707,11 @@ export function BillScreen() {
                   </Text>
                 </Pressable>
 
-                <View style={[styles.slipWrite, { maxWidth: stripH * stripAspect + MORE_SLOT }]}>
+                <View style={[styles.slipWrite, { maxWidth: stripH * stripAspect * STRIP_LONG + MORE_SLOT }]}>
                   {isWriting ? (
                     <>
                       <View style={styles.stripRow}>
-                      <View style={{ width: stripH * stripAspect }}>
+                      <View style={{ flex: 1, maxWidth: stripH * stripAspect * STRIP_LONG }}>
                       <InkPad
                         ref={(handle) => { pads.current[line.itemId] = handle; }}
                         variant="line"
@@ -739,7 +739,7 @@ export function BillScreen() {
                           added strip is the same height as the first and part of the same item. */}
                       {(line.moreInk ?? []).map((extra, s) => (
                         <View key={s} style={[styles.moreStrip, styles.stripRow]}>
-                          <View style={{ width: stripH * stripAspect }}>
+                          <View style={{ flex: 1, maxWidth: stripH * stripAspect * STRIP_LONG }}>
                             <InkPad
                               variant="line"
                               height={stripH}
@@ -1034,6 +1034,12 @@ export function BillScreen() {
 
 /** The slot beside each writing strip for an added strip's × -- outside the writing. */
 const MORE_SLOT = 26;
+/**
+ * How much longer the strip is than the paper's own shape, at the shop's asking for more room
+ * to write. A line written right to its end prints this much smaller to fit the column; a
+ * usual line does not reach that far and prints as written.
+ */
+const STRIP_LONG = 1.3;
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, minHeight: 0, backgroundColor: C.bg },

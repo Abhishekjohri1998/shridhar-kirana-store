@@ -21,7 +21,14 @@ export const INK_GUTTER = 8;
 
 export type InkBox = { minX: number; minY: number; maxX: number; maxY: number };
 
-/** The box the strokes actually occupy, which is usually smaller than the box drawn in. */
+/**
+ * The box the strokes occupy, measured from the strip's left edge.
+ *
+ * Top and bottom trim to the writing; the left does not. A gap left at the start of a line --
+ * the shop indents an item's second line as on paper -- is part of what was written, and
+ * trimming it printed "Biryani" flush under "1 Shahi". Every renderer reads this box, so the
+ * screen, the slip and the printer keep the indent alike.
+ */
 export function inkBounds(ink: Ink): InkBox {
   let minX = Infinity;
   let minY = Infinity;
@@ -38,7 +45,7 @@ export function inkBounds(ink: Ink): InkBox {
     }
   }
   if (!Number.isFinite(minX)) return { minX: 0, minY: 0, maxX: ink.w, maxY: ink.h };
-  return { minX, minY, maxX, maxY };
+  return { minX: Math.min(0, minX), minY, maxX, maxY };
 }
 
 export type InkFit = {

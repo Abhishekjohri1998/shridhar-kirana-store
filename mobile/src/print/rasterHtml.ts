@@ -100,7 +100,7 @@ export const RASTER_SCRIPT = `
       }
     }
     if (!isFinite(minX)) return { minX: 0, minY: 0, maxX: ink.w, maxY: ink.h };
-    return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+    return { minX: Math.min(0, minX), minY: minY, maxX: maxX, maxY: maxY };
   }
 
   // scale and originY arrive on the row, worked out across every line on the slip at once, so
