@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, round2,
+  DEFAULT_SETTINGS, billTotal, customerMatches, round2, roundToStep,
   type Bill, type BillLine, type Customer, type Ink, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -54,6 +54,10 @@ const lineSchema = new Schema<BillLine>(
     // names above is what made every print return 500 and the reason schematest exists.
     given: { type: Boolean, required: false, default: false },
     inkRows: { type: Number, required: false, default: 1 },
+    // Picked from the stock app's suggestions. Optional with no default: absent means a line
+    // typed freely or written by hand, and that must stay distinguishable from an empty unit.
+    unit: { type: String, required: false },
+    stockItemId: { type: String, required: false },
   },
   { _id: false, versionKey: false },
 );
@@ -87,6 +91,9 @@ const billSchema = new Schema<Bill>(
     cancelledAt: { type: String, required: false, default: null },
     showBalance: { type: Boolean, required: true, default: false },
     note: { type: String, required: false, default: '' },
+    // The stock link's two fields. Optional, never `required` beside a default -- see above.
+    draftId: { type: String, required: false },
+    roundOff: { type: Number, required: false },
   },
   { versionKey: false },
 );
@@ -215,8 +222,11 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return doc ? strip(doc as unknown as Bill) : null;
     },
 
-    async createBill({ lines, customerId, paid, showBalance, note }) {
-      const total = billTotal(lines);
+    async createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId }) {
+      const exact = billTotal(lines);
+      // Rounded before anything moves, so the customer's figures move by the printed total.
+      const total = roundToStep(exact, roundTo ?? 0);
+      const roundOff = round2(total - exact);
       const takings = round2(paid ?? total);
 
       /*
@@ -297,6 +307,8 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
         showBalance: showBalance ?? false,
         note: note ?? '',
+        ...(roundOff !== 0 ? { roundOff } : {}),
+        ...(draftId ? { draftId } : {}),
       };
 
       try {
@@ -381,6 +393,20 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       await repo.cancelBill(no);
       const forced = await Bills.findOneAndDelete({ no, cancelled: true }).lean();
       return forced ? 'deleted' : 'missing';
+    },
+
+    async setLineGiven(no, index, given) {
+      const doc = await Bills.findOne({ no }, { cancelled: 1, lines: 1 }).lean();
+      const bill = doc as unknown as Bill | null;
+      if (!bill || !bill.lines[index]) return 'missing';
+      if (bill.cancelled) return 'cancelled';
+      // One field of one line, by position. The cancelled guard is repeated in the filter so a
+      // cancel landing between the read and this write cannot be ticked over.
+      await Bills.updateOne(
+        { no, cancelled: { $ne: true } },
+        { $set: { ['lines.' + index + '.given']: given } },
+      );
+      return 'ok';
     },
 
     async eraseAll(keepCustomers) {

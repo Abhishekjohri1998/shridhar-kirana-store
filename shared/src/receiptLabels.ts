@@ -21,6 +21,8 @@ export type ReceiptLabels = {
    * line on a 58mm roll.
    */
   oldBalance: string;
+  /** What the total was moved by to land on the shop's rounding step. */
+  roundOff: string;
   total: string;
   paid: string;
   balance: string;
@@ -37,6 +39,7 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   item: 'Item',
   price: 'Price',
   oldBalance: 'Old bal.',
+  roundOff: 'Round off',
   total: 'TOTAL',
   paid: 'Paid',
   balance: 'Balance',

@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, round2,
+  DEFAULT_SETTINGS, billTotal, customerMatches, round2, roundToStep,
   type Bill, type Customer, type Item, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -95,9 +95,11 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return db.bills.find((b) => b.no === no) ?? null;
     },
 
-    createBill({ lines, customerId, paid, showBalance, note }: NewBill) {
+    createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId }: NewBill) {
       return serial(async () => {
-        const total = billTotal(lines);
+        const exact = billTotal(lines);
+        const total = roundToStep(exact, roundTo ?? 0);
+        const roundOff = round2(total - exact);
         const takings = round2(paid ?? total);
 
         let row: CustomerRow | undefined;
@@ -143,6 +145,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
           showBalance: showBalance ?? false,
           note: note ?? '',
+          ...(roundOff !== 0 ? { roundOff } : {}),
+          ...(draftId ? { draftId } : {}),
         };
         db.bills.push(bill);
         await flush();
@@ -199,6 +203,20 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         // db.billNo is left where it is: the number is spent, not returned to the pile.
         await flush();
         return 'deleted' as const;
+      });
+    },
+
+    setLineGiven(no, index, given) {
+      return serial(async () => {
+        const bill = db.bills.find((b) => b.no === no);
+        const line = bill?.lines[index];
+        if (!bill || !line) return 'missing' as const;
+        if (bill.cancelled) return 'cancelled' as const;
+        if ((line.given ?? false) !== given) {
+          line.given = given;
+          await flush();
+        }
+        return 'ok' as const;
       });
     },
 

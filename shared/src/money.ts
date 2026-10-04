@@ -4,6 +4,16 @@ export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * A total moved to the nearest multiple of `step` rupees, half up: 152.50 to 155 on a step of
+ * five, 152.49 to 150. A step of 0 leaves it alone. Which step the shop uses is the stock app's
+ * setting; this is only the arithmetic, so both stores and the tests agree on it.
+ */
+export function roundToStep(total: number, step: number): number {
+  if (!(step > 0)) return round2(total);
+  return round2(Math.floor(total / step + 0.5 + 1e-9) * step);
+}
+
 export function lineAmount(qty: number, rate: number): number {
   return round2(qty * rate);
 }

@@ -5,6 +5,7 @@ import { issueToken, pinMatches, requireAuth, secretMatches } from './auth';
 import { env } from './env';
 import { HttpError, handler } from './http';
 import { getRepo } from './store';
+import { stockDraft, stockItems, stockLinkOn, stockQuote, stockRoundTo } from './stockLink';
 
 
 /** Handwriting arrives as pen paths. Capped so one bill cannot carry a megabyte of scribble. */
@@ -40,6 +41,35 @@ const lineBody = z.object({
   moreInk: z.array(inkBody).max(2).optional(),
   // Which way the line was last written, when it is both written and typed.
   lastMode: z.enum(['ink', 'text']).optional(),
+  // Picked from the stock app's suggestions: the unit prints beside the quantity, and the id
+  // lets stock match the line exactly. Short and bounded, like every other field here.
+  unit: z.string().trim().max(24).optional(),
+  stockItemId: z.string().trim().max(80).optional(),
+});
+
+/**
+ * The bill being written, as the worker screen in the stock app sees it.
+ *
+ * Validated here although billing only passes it on: this is still billing's API, and an
+ * unbounded body would be a way to fill stock's memory through billing's door. No handwriting
+ * travels -- the workers need to know a line is written by hand, not what it says.
+ */
+const draftBody = z.object({
+  draftId: z.string().trim().min(1).max(80),
+  customerName: z.string().trim().max(80).optional(),
+  closed: z.boolean().optional(),
+  lines: z.array(z.object({
+    key: z.string().trim().min(1).max(80),
+    nameEn: z.string().trim().max(120).default(''),
+    nameKn: z.string().trim().max(120).default(''),
+    qty: z.coerce.number().finite().nonnegative().max(100_000),
+    unit: z.string().trim().max(24).optional(),
+    rate: z.coerce.number().finite().nonnegative().max(1_000_000),
+    stockItemId: z.string().trim().max(80).optional(),
+    given: z.boolean().default(false),
+    givenAt: z.coerce.number().finite().nonnegative().optional(),
+    ink: z.boolean().default(false),
+  })).max(200),
 });
 
 const settingsBody = z.object({
@@ -199,6 +229,20 @@ api.get('/bills/:no', handler(async (req, res) => {
   res.json(bill);
 }));
 
+/*
+ * One line of a saved bill handed over, or taken back. The stock app calls this when a worker
+ * ticks an item fetched after the bill was printed; nothing else moves, money least of all.
+ */
+api.patch('/bills/:no/lines/:i/given', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const index = z.coerce.number().int().nonnegative().max(1000).parse(req.params.i);
+  const { given } = z.object({ given: z.boolean() }).parse(req.body);
+  const outcome = await getRepo().setLineGiven(no, index, given);
+  if (outcome === 'missing') throw new HttpError(404, 'No such bill or line');
+  if (outcome === 'cancelled') throw new HttpError(400, 'That bill is cancelled');
+  res.json({ ok: true });
+}));
+
 /* Cancelled, not deleted: see Repo.cancelBill. A POST rather than a DELETE because the bill is
    still there afterwards -- it is a state change, not a removal. */
 api.post('/bills/:no/cancel', handler(async (req, res) => {
@@ -279,6 +323,8 @@ api.post('/bills', handler(async (req, res) => {
       // Capped because a note is a line or two. Unbounded, it is a way to fill the database and
       // a way to print a hundred lines of paper by one leaning tablet.
       note: z.string().trim().max(200).optional(),
+      // The id the stock app knew this bill by while it was being written.
+      draftId: z.string().trim().min(1).max(80).optional(),
     })
     .parse(req.body);
 
@@ -307,14 +353,56 @@ api.post('/bills', handler(async (req, res) => {
       // Copied field by field, so every new field has to be named here -- `given` was once lost
       // exactly this way.
       ...(l.inkRows === 2 ? { inkRows: 2 } : {}),
+      ...(l.unit ? { unit: l.unit } : {}),
+      ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
     })),
     ...(body.customerId ? { customerId: body.customerId } : {}),
     ...(body.paid == null ? {} : { paid: body.paid }),
     showBalance: body.showBalance ?? false,
     ...(body.note ? { note: body.note } : {}),
+    ...(body.draftId ? { draftId: body.draftId } : {}),
+    // Stock's rounding step, asked for at the moment of saving. 0 when the link is off or stock
+    // does not answer in time, so a bill is never held up -- it is simply not rounded.
+    roundTo: await stockRoundTo(),
   });
 
   res.status(201).json(bill);
+}));
+
+// ---------------------------------------------------------------------------- stock link
+/*
+ * The stock app, asked on the device's behalf. The tablet and the website only ever talk to this
+ * server; this server talks to stock on the same box. Every answer is stock's, passed through --
+ * see stockLink.ts -- and every failure is a quiet empty answer, never an error on the bill.
+ */
+
+api.get('/stock/status', handler(async (_req, res) => {
+  res.json({ on: stockLinkOn() });
+}));
+
+api.get('/stock/items', handler(async (req, res) => {
+  const q = z.string().trim().max(80).default('').parse(req.query.q ?? '');
+  const limit = z.coerce.number().int().min(1).max(20).default(8).parse(req.query.limit ?? 8);
+  res.json({ items: q ? await stockItems(q, limit) : [] });
+}));
+
+api.get('/stock/quote', handler(async (req, res) => {
+  const item = z.string().trim().min(1).max(80).parse(req.query.item);
+  const unit = z.string().trim().min(1).max(24).parse(req.query.unit);
+  const qty = z.coerce.number().finite().positive().max(100_000).parse(req.query.qty);
+  const quote = await stockQuote(item, unit, qty);
+  if (!quote) {
+    // 503 rather than 404: the device keeps the rate it has, whether stock is off, down or
+    // simply does not know the item.
+    res.status(503).json({ off: true, error: 'Stock has no rate for that just now' });
+    return;
+  }
+  res.json(quote);
+}));
+
+api.post('/stock/draft', handler(async (req, res) => {
+  const body = draftBody.parse(req.body);
+  res.json({ ticks: await stockDraft(body) });
 }));
 
 api.get('/summary/today', handler(async (_req, res) => {

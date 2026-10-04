@@ -1,11 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
-  nextLineId, receiptLabelsFor, reviveDraft, round2,
+  nextLineId, receiptLabelsFor, reviveDraft, round2, draftForStock, mergeStockTicks,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
+
+/** What a stock suggestion fills a line with. */
+export type StockPick = { nameEn: string; nameKn: string; unit: string; stockItemId: string; rate: number };
 import { ApiError, api, getToken, setToken } from './api';
 
 const CACHE_KEY = 'shridhar.cache';
@@ -144,6 +147,10 @@ type Shop = {
   setLineMoreInk: (index: number, strip: number, ink: Ink | null) => void;
   /** Ticks or unticks every line at once. */
   setAllGiven: (given: boolean) => void;
+  /** Whether the server's link to the stock app is on. Everything stock-shaped hides when not. */
+  stockOn: boolean;
+  /** Fill a line from a stock suggestion: names, unit, stock's id and price. */
+  pickStockItem: (index: number, pick: StockPick) => void;
   removeLine: (index: number) => void;
   clearCart: () => void;
   /** Records the bill on the server, which assigns its number, total and balance. */
@@ -312,6 +319,83 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Declared before the callbacks below, which need it for the messages they throw.
+  /*
+   * The link to the stock app, when the server has one.
+   *
+   * Asked once per sign-in. Off, or a server that predates the link, reads as false and every
+   * piece of this -- suggestions, re-quoting, live drafts -- stays out of the way entirely.
+   */
+  const [stockOn, setStockOn] = useState(false);
+  useEffect(() => {
+    if (!signedIn) {
+      setStockOn(false);
+      return;
+    }
+    let alive = true;
+    void api.stockStatus()
+      .then((s) => { if (alive) setStockOn(s.on === true); })
+      .catch(() => { if (alive) setStockOn(false); });
+    return () => { alive = false; };
+  }, [signedIn]);
+
+  /*
+   * The bill being written, sent to the stock app's worker screen so the racks can start picking
+   * before the bill is printed.
+   *
+   * A beat after each change, and a heartbeat while it is open so stock's ticks come back even
+   * when nobody is touching the counter. Only the bill showing is sent; a parked one goes quiet
+   * and stock lets it lapse. `stockSent` remembers what stock has been shown, so a bill that is
+   * cleared or closed can be taken off the worker screen at once; `stockSaved` remembers what was
+   * printed, so a heartbeat already in flight cannot put a saved bill back up as a draft.
+   */
+  const stockSent = useRef(new Set<string>());
+  const stockSaved = useRef(new Set<string>());
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  const pushDraft = useCallback(async (d: Draft) => {
+    if (stockSaved.current.has(d.draftId)) return;
+    stockSent.current.add(d.draftId);
+    try {
+      const { ticks } = await api.stockDraft(draftForStock(d));
+      if (!stockSent.current.has(d.draftId) || !ticks) return;
+      // Folded into whichever bill this was, by its draft id: the shopkeeper may have switched
+      // to another bill while the answer was on its way.
+      setParked((prev) => {
+        const list = prev.list.map((x) => (x.draftId === d.draftId ? mergeStockTicks(x, ticks) : x));
+        return list.every((x, i) => x === prev.list[i]) ? prev : { ...prev, list };
+      });
+    } catch {
+      // Stock is down or the wifi blinked. The next beat tries again; billing carries on.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!stockOn || !signedIn || !active.lines.some(lineHasSomething)) return;
+    const timer = setTimeout(() => void pushDraft(active), 1800);
+    return () => clearTimeout(timer);
+  }, [stockOn, signedIn, active, pushDraft]);
+
+  useEffect(() => {
+    if (!stockOn || !signedIn) return;
+    const timer = setInterval(() => {
+      const d = activeRef.current;
+      if (d.lines.some(lineHasSomething)) void pushDraft(d);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [stockOn, signedIn, pushDraft]);
+
+  // A bill that was shown to stock and is no longer anywhere here was cleared or closed.
+  useEffect(() => {
+    if (!stockOn) return;
+    const live = new Set(parked.list.map((d) => d.draftId));
+    for (const id of [...stockSent.current]) {
+      if (live.has(id)) continue;
+      stockSent.current.delete(id);
+      void api.stockDraft({ draftId: id, closed: true, lines: [] }).catch(() => undefined);
+    }
+  }, [stockOn, parked]);
+
   const lang: Lang = settings.language === 'kn' ? 'kn' : 'en';
   const t = useMemo(() => makeT(lang), [lang]);
   const receiptLabels = useMemo(() => receiptLabelsFor(lang), [lang]);
@@ -479,8 +563,15 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       const next = [...prev];
       const existing = next[index];
       if (!existing || existing.nameKn === name) return prev;
+      /*
+       * Typing over an item picked from stock lets go of it: the unit and stock's id named that
+       * item, and what is in the box now is something else. The rate stays -- it is the
+       * shopkeeper's to change, and clearing it would be a surprise.
+       */
+      const { unit: _unit, stockItemId: _stock, ...plain } = existing;
+      const base = existing.stockItemId ? { ...plain, nameEn: '' } : existing;
       // Typing something makes typing the line's last-used way, so that is what prints.
-      next[index] = name.trim() ? { ...existing, nameKn: name, lastMode: 'text' } : { ...existing, nameKn: name };
+      next[index] = name.trim() ? { ...base, nameKn: name, lastMode: 'text' } : { ...base, nameKn: name };
       return next;
     });
   }, []);
@@ -529,22 +620,46 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   }, [updateLine]);
 
 
+  /*
+   * The tick, and when it moved. Stock's workers tick the same lines from the racks, and when
+   * the two disagree the later change wins -- so every change here is stamped.
+   */
   const setLineGiven = useCallback((index: number, given: boolean) => {
-    setCart((prev) => {
-      const next = [...prev];
-      const existing = next[index];
-      if (!existing || (existing.given ?? false) === given) return prev;
-      next[index] = { ...existing, given };
-      return next;
+    patchActive((d) => {
+      const existing = d.lines[index];
+      if (!existing || (existing.given ?? false) === given) return d;
+      const lines = [...d.lines];
+      lines[index] = { ...existing, given };
+      return { ...d, lines, givenAt: { ...d.givenAt, [existing.itemId]: Date.now() } };
     });
-  }, []);
+  }, [patchActive]);
 
   /** Every line at once, for the common case where the whole bag went over the counter. */
   const setAllGiven = useCallback((given: boolean) => {
-    setCart((prev) => (prev.every((l) => (l.given ?? false) === given)
-      ? prev
-      : prev.map((l) => ({ ...l, given }))));
-  }, []);
+    patchActive((d) => {
+      if (d.lines.every((l) => (l.given ?? false) === given)) return d;
+      const now = Date.now();
+      const givenAt = { ...d.givenAt };
+      for (const l of d.lines) if ((l.given ?? false) !== given) givenAt[l.itemId] = now;
+      return { ...d, lines: d.lines.map((l) => ({ ...l, given })), givenAt };
+    });
+  }, [patchActive]);
+
+  /**
+   * An item picked from the stock app's suggestions: both names, the unit and stock's price.
+   * Typing over the name afterwards lets go of the pick -- see setLineName.
+   */
+  const pickStockItem = useCallback((index: number, pick: StockPick) => {
+    updateLine(index, (l) => ({
+      ...l,
+      nameEn: pick.nameEn,
+      nameKn: pick.nameKn || pick.nameEn,
+      unit: pick.unit,
+      stockItemId: pick.stockItemId,
+      rate: pick.rate,
+      lastMode: 'text',
+    }));
+  }, [updateLine]);
 
   /** An empty line at the foot of the slip, so there is always somewhere to write next. */
   const addBlankLine = useCallback(() => {
@@ -590,7 +705,11 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...(options.paid == null ? {} : { paid: options.paid }),
         showBalance: Boolean(options.showBalance && billTo),
         ...(note.trim() ? { note: note.trim() } : {}),
+        // So stock can swap the live draft on its worker screen for this bill, ticks and all.
+        ...(stockOn ? { draftId: active.draftId } : {}),
       });
+      stockSaved.current.add(active.draftId);
+      stockSent.current.delete(active.draftId);
       /*
        * A printed bill leaves the stack. When it was the only one, the slip is simply cleared --
        * there has to be something to write on. With others parked, closing takes the shopkeeper
@@ -610,7 +729,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       if (bill.customer) setInactive((prev) => prev.filter((c) => c.id !== bill.customer?.id));
       return bill;
     },
-    [cart, customer, note, resetDraft, t],
+    [cart, customer, note, resetDraft, t, stockOn, active.draftId],
   );
 
   const saveCustomer = useCallback(async (input: {
@@ -639,6 +758,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
+      stockOn, pickStockItem,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
       customerDraft, setCustomerDraft,
@@ -650,6 +770,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
+      stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,
       saveSettings, forgetEverything, dataVersion,

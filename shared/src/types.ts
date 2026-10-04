@@ -78,6 +78,15 @@ export type BillLine = {
   lastMode?: 'ink' | 'text';
   qty: number;
   rate: number;
+  /**
+   * The unit the quantity is counted in -- "pack", "pc", "kg" -- when the item was picked from
+   * the stock app's suggestions. It prints beside the quantity ("2 pack"), and stock reads it
+   * back to know which of an item's units was sold. Absent on every line typed freely or
+   * written by hand, which prints exactly as before.
+   */
+  unit?: string;
+  /** The stock app's id for the item picked, so stock can match the line exactly. */
+  stockItemId?: string;
 };
 
 export type BillCustomer = {
@@ -130,6 +139,18 @@ export type Bill = {
    */
   cancelled?: boolean;
   cancelledAt?: string | null;
+  /**
+   * The id the bill carried while it was being written, which the stock app used to show it
+   * live on the worker screen. Stock swaps that draft for this bill on its next read, keeping
+   * whatever the workers ticked. Absent when the link to stock is off.
+   */
+  draftId?: string;
+  /**
+   * What the total was moved by to land on the shop's rounding step, signed: -1 when 151 became
+   * 150. `total` is already the rounded figure, and it is what the customer's balance moves by.
+   * Absent or 0 when nothing was rounded, which prints no line.
+   */
+  roundOff?: number;
 };
 
 /** A customer, plus the running figures the shop asked to see for each of them. */
@@ -193,3 +214,36 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export type TodaySummary = { count: number; total: number };
+
+/*
+ * The stock app's answers, as the billing server passes them through.
+ *
+ * Billing only shows these. Which items match, what each unit costs and what a quantity slab does
+ * to the rate are all stock's to decide -- the shop asked for the two codebases to stay apart, so
+ * none of that logic lives here.
+ */
+
+/** One way an item is sold: by the piece, the pack, the box. */
+export type StockUnit = {
+  code: string;
+  label: string;
+  labelKn?: string;
+  /** The base rate for this unit, before any quantity slab. */
+  price: number;
+  /** The range stock considers sensible, for a gentle warning -- never a block. */
+  min?: number;
+  max?: number;
+};
+
+export type StockItem = { id: string; nameEn: string; nameKn: string; units: StockUnit[] };
+
+export type StockQuote = {
+  rate: number;
+  amount: number;
+  unit: string;
+  slab: boolean;
+  warn: null | 'below' | 'above';
+};
+
+/** Stock's fetched state for each draft line, keyed by the billing line's itemId. */
+export type StockTicks = Record<string, { fetched: boolean; at: number }>;

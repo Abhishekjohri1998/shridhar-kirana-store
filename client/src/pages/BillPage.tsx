@@ -26,6 +26,7 @@ import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
+import { useStockSuggest } from '../lib/useStockSuggest';
 
 /**
  * The slip.
@@ -86,6 +87,10 @@ export function BillPage() {
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
+  /** The same for the quantity of a line picked from stock, the only lines that show one. */
+  const [qtyText, setQtyText] = useState<Record<string, string>>({});
+  /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
+  const stock = useStockSuggest();
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
   /** The scrolling slip and its rows, for turning the page -- see `pageFlip`. */
@@ -256,6 +261,8 @@ export function BillPage() {
 
   const onPrice = (index: number, key: string, text: string) => {
     setPriceText((prev) => ({ ...prev, [key]: text }));
+    const line = shop.cart[index];
+    if (line) stock.onRateTyped(line);
     if (text.trim() === '') {
       shop.setLineRate(index, 0);
       return;
@@ -555,20 +562,102 @@ export function BillPage() {
                         ))}
                       </>
                     ) : (
+                      <>
+                      <div className="stock-row">
                       <input
                         ref={(el) => { names.current[line.itemId] = el; }}
                         className="slip-name"
                         value={line.nameKn}
                         placeholder={t('bill.typeHint')}
                         aria-label={t('bill.writeLine', { n: index + 1 })}
-                        onChange={(e) => shop.setLineName(index, e.target.value)}
+                        onChange={(e) => {
+                          shop.setLineName(index, e.target.value);
+                          stock.onNameTyped(line.itemId, e.target.value);
+                        }}
+                        // A beat late, so a click on a unit below lands before the list goes.
+                        onBlur={() => { window.setTimeout(stock.close, 300); }}
                         onKeyDown={(e) => {
+                          if (e.key === 'Escape') stock.close();
                           if (e.key !== 'Enter') return;
                           // Or the form around the slip takes it as "print this bill".
                           e.preventDefault();
+                          stock.close();
                           goToNextName(index);
                         }}
                       />
+                      {/* A line picked from stock counts in its unit, so its quantity shows --
+                          changing it asks stock for the rate again, slabs and all. */}
+                      {stock.on && line.unit ? (
+                        <>
+                          <input
+                            className="slip-price stock-qty"
+                            inputMode="decimal"
+                            aria-label={t('stock.qtyOf', { n: index + 1 })}
+                            value={qtyText[line.itemId] ?? String(line.qty)}
+                            onChange={(e) => {
+                              const text = e.target.value;
+                              setQtyText((prev) => ({ ...prev, [line.itemId]: text }));
+                              const qty = Number(text.replace(',', '.'));
+                              if (text.trim() !== '' && Number.isFinite(qty)) stock.onQty(index, line, qty);
+                            }}
+                            onBlur={() => setQtyText((prev) => {
+                              const { [line.itemId]: _d, ...rest } = prev;
+                              return rest;
+                            })}
+                          />
+                          <span className="stock-unit">{line.unit}</span>
+                        </>
+                      ) : null}
+                      </div>
+                      {stock.openFor === line.itemId ? (
+                        <ul className="stock-list" aria-label={t('stock.matches')}>
+                          {stock.items.map((item) => (
+                            <li key={item.id} className="stock-item">
+                              <span className="stock-name">
+                                {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
+                                  ? item.nameKn + ' · ' + item.nameEn
+                                  : item.nameKn || item.nameEn}
+                              </span>
+                              <span className="stock-chips">
+                                {item.units.map((u) => {
+                                  const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
+                                  return (
+                                    <button
+                                      key={u.code}
+                                      type="button"
+                                      className="pay-all stock-chip"
+                                      aria-label={t('stock.pick', {
+                                        name: item.nameKn || item.nameEn, unit: label, price: money(u.price),
+                                      })}
+                                      // Before the name box loses focus, so the list is still there.
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setPriceText((prev) => {
+                                          const { [line.itemId]: _d, ...rest } = prev;
+                                          return rest;
+                                        });
+                                        setQtyText((prev) => {
+                                          const { [line.itemId]: _d, ...rest } = prev;
+                                          return rest;
+                                        });
+                                        stock.pick(index, line, item, u);
+                                      }}
+                                    >
+                                      {label + ' ₹' + money(u.price)}
+                                    </button>
+                                  );
+                                })}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {stock.warnFor(line) ? (
+                        <span className="stock-warn">
+                          {stock.warnFor(line) === 'below' ? t('stock.warnBelow') : t('stock.warnAbove')}
+                        </span>
+                      ) : null}
+                      </>
                     )}
                   </div>
 

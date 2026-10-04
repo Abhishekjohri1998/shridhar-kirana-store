@@ -16,6 +16,7 @@ import { ReceiptView } from '../components/ReceiptView';
 import { Button, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
+import { useStockSuggest } from '../lib/useStockSuggest';
 import { C, R, TYPE, shadow } from '../theme';
 
 /**
@@ -121,6 +122,10 @@ export function BillScreen() {
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
+  /** The same for the quantity of a line picked from stock, the only lines that show one. */
+  const [qtyText, setQtyText] = useState<Record<string, string>>({});
+  /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
+  const stock = useStockSuggest();
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
   /** The same, for the price boxes, so one line's price can hand on to the next one's. */
@@ -376,6 +381,8 @@ export function BillScreen() {
 
   const onPrice = (index: number, key: string, text: string) => {
     setPriceText((prev) => ({ ...prev, [key]: text }));
+    const line = shop.cart[index];
+    if (line) stock.onRateTyped(line);
     if (text.trim() === '') {
       shop.setLineRate(index, 0);
       return;
@@ -771,11 +778,16 @@ export function BillScreen() {
                       ))}
                     </>
                   ) : (
+                    <View>
+                    <View style={styles.stripRow}>
                     <TextInput
                       ref={(el) => { names.current[line.itemId] = el; }}
                       style={styles.slipName}
                       value={line.nameKn}
-                      onChangeText={(text) => shop.setLineName(index, text)}
+                      onChangeText={(text) => {
+                        shop.setLineName(index, text);
+                        stock.onNameTyped(line.itemId, text);
+                      }}
                       placeholder={t('bill.typeHint')}
                       placeholderTextColor={C.faint}
                       accessibilityLabel={t('bill.writeLine', { n: index + 1 })}
@@ -784,10 +796,75 @@ export function BillScreen() {
                       // can take it, and it comes back up with a flicker.
                       returnKeyType="next"
                       blurOnSubmit={false}
-                      onSubmitEditing={() => goToNextName(index)}
+                      onSubmitEditing={() => { stock.close(); goToNextName(index); }}
                       onFocus={() => { focusRow(line.itemId); setView('items'); }}
-                      onBlur={blurRow}
+                      // A beat late, so a tap on a unit below lands before the list goes.
+                      onBlur={() => { blurRow(); setTimeout(stock.close, 300); }}
                     />
+                    {/* A line picked from stock counts in its unit, so its quantity shows --
+                        changing it asks stock for the rate again, slabs and all. */}
+                    {stock.on && line.unit ? (
+                      <>
+                        <TextInput
+                          style={[styles.slipPrice, styles.stockQty]}
+                          keyboardType="decimal-pad"
+                          accessibilityLabel={t('stock.qtyOf', { n: index + 1 })}
+                          value={qtyText[line.itemId] ?? String(line.qty)}
+                          onChangeText={(text) => {
+                            setQtyText((prev) => ({ ...prev, [line.itemId]: text }));
+                            const qty = Number(text.replace(',', '.'));
+                            if (text.trim() !== '' && Number.isFinite(qty)) stock.onQty(index, line, qty);
+                          }}
+                          onFocus={() => { focusRow(line.itemId); setView('items'); }}
+                          onBlur={() => {
+                            blurRow();
+                            setQtyText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
+                          }}
+                        />
+                        <Text style={styles.stockUnit}>{line.unit}</Text>
+                      </>
+                    ) : null}
+                    </View>
+                    {stock.openFor === line.itemId ? (
+                      <View style={styles.stockList} accessibilityLabel={t('stock.matches')}>
+                        {stock.items.map((item) => (
+                          <View key={item.id} style={styles.stockItem}>
+                            <Text style={styles.stockName} numberOfLines={1}>
+                              {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
+                                ? item.nameKn + ' · ' + item.nameEn
+                                : item.nameKn || item.nameEn}
+                            </Text>
+                            <View style={styles.stockChips}>
+                              {item.units.map((u) => {
+                                const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
+                                return (
+                                  <Pressable
+                                    key={u.code}
+                                    style={styles.stockChip}
+                                    accessibilityLabel={t('stock.pick', {
+                                      name: item.nameKn || item.nameEn, unit: label, price: money(u.price),
+                                    })}
+                                    onPress={() => {
+                                      setPriceText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
+                                      setQtyText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
+                                      stock.pick(index, line, item, u);
+                                    }}
+                                  >
+                                    <Text style={styles.stockChipText}>{label + ' ₹' + money(u.price)}</Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    {stock.warnFor(line) ? (
+                      <Text style={styles.stockWarn}>
+                        {stock.warnFor(line) === 'below' ? t('stock.warnBelow') : t('stock.warnAbove')}
+                      </Text>
+                    ) : null}
+                    </View>
                   )}
                 </View>
 
@@ -1179,6 +1256,24 @@ const styles = StyleSheet.create({
   slipUndo: { fontSize: 19, color: C.accent },
   slipRemove: { fontSize: 20, color: C.faint },
   slipRemoveOff: { opacity: 0.25 },
+
+  /* The stock app's suggestions under a typed name, and the quantity of a picked line. Quiet on
+     purpose: they help the typing and must not compete with the slip. */
+  stockQty: { width: 64, minHeight: 40, paddingVertical: 6, marginLeft: 6 },
+  stockUnit: { fontSize: 13, color: C.soft, marginLeft: 6, minWidth: 28 },
+  stockList: {
+    marginTop: 4, backgroundColor: C.card, borderWidth: 1, borderColor: C.line,
+    borderRadius: R.md, ...shadow(2),
+  },
+  stockItem: { paddingHorizontal: 10, paddingVertical: 7, borderBottomWidth: 1, borderColor: C.line },
+  stockName: { fontSize: 15, color: C.ink, marginBottom: 5 },
+  stockChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  stockChip: {
+    borderWidth: 1, borderColor: C.accentEdge, backgroundColor: C.accentWash,
+    borderRadius: R.pill, paddingHorizontal: 12, paddingVertical: 7,
+  },
+  stockChipText: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
+  stockWarn: { ...TYPE.hint, color: C.gold, marginTop: 2 },
 
   foot: {
     backgroundColor: C.card,

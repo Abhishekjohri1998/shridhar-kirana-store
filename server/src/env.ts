@@ -23,6 +23,15 @@ export const env = {
   dataDir: str('DATA_DIR', ''),
   corsOrigins: str('CORS_ORIGIN', 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
   isProduction: str('NODE_ENV', 'development') === 'production',
+  /**
+   * Where the stock app listens, and the secret both servers share for the link between them.
+   *
+   * The link is on only when both are set. Either one empty and billing behaves exactly as it
+   * did before stock existed -- no item suggestions, no round-off, no live drafts -- which is the
+   * switch the shop asked for: billing must never depend on stock being there.
+   */
+  stockUrl: str('STOCK_URL', '').replace(/\/+$/, ''),
+  linkKey: str('LINK_KEY', ''),
 };
 
 /** Shout about the settings that are fine on a laptop and dangerous on the internet. */

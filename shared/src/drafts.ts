@@ -1,5 +1,5 @@
 import { billTotal } from './doc';
-import type { BillLine, Customer } from './types';
+import type { BillLine, Customer, StockTicks } from './types';
 
 /**
  * A bill being written, whole enough to put down and pick up again.
@@ -26,6 +26,21 @@ export type Draft = {
   printBalanceTouched: boolean;
   /** The bill's own note, which prints under the totals. Travels with the bill like the payment. */
   note: string;
+  /**
+   * What the stock app knows this bill by while it is being written.
+   *
+   * Not `id`: that names the tab, and a tab that is cleared or printed keeps its id and starts a
+   * new bill. Stock has to see a new bill then, or the next customer's lines would land under
+   * the last one's draft on the worker screen. So every emptyDraft draws a fresh one, and the
+   * saved bill carries it so stock can swap the draft for the bill.
+   */
+  draftId: string;
+  /**
+   * When each line's given tick last changed on this device, by the line's itemId, in epoch
+   * milliseconds. Stock's workers tick lines too; when the two disagree the later one wins, and
+   * this is billing's half of that comparison.
+   */
+  givenAt: Record<string, number>;
 };
 
 /**
@@ -49,7 +64,14 @@ export function emptyDraft(id: string): Draft {
     printBalance: false,
     printBalanceTouched: false,
     note: '',
+    draftId: newDraftId(),
+    givenAt: {},
   };
+}
+
+/** A draft id no other device will draw: the clock, and randomness after it. */
+export function newDraftId(): string {
+  return 'd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
 /**
@@ -62,7 +84,63 @@ export function emptyDraft(id: string): Draft {
  * bill inside. Everything added after the first release belongs in here.
  */
 export function reviveDraft(raw: Draft): Draft {
-  return { ...raw, note: typeof raw.note === 'string' ? raw.note : '' };
+  return {
+    ...raw,
+    note: typeof raw.note === 'string' ? raw.note : '',
+    draftId: typeof raw.draftId === 'string' && raw.draftId ? raw.draftId : newDraftId(),
+    givenAt: raw.givenAt && typeof raw.givenAt === 'object' ? raw.givenAt : {},
+  };
+}
+
+/**
+ * The bill being written, as the stock app's worker screen is sent it.
+ *
+ * Names, quantities, units and ticks -- no handwriting. The workers need to know a line is
+ * written by hand so they can look at the counter; the strokes themselves are kilobytes they
+ * could not read on a rack screen anyway. Blank scaffolding lines are left out like on paper.
+ */
+export function draftForStock(d: Draft, closed = false) {
+  const lines = closed ? [] : d.lines.filter(lineHasSomething).map((l) => ({
+    key: l.itemId,
+    nameEn: l.nameEn,
+    nameKn: l.nameKn,
+    qty: l.qty,
+    ...(l.unit ? { unit: l.unit } : {}),
+    rate: l.rate,
+    ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
+    given: l.given === true,
+    ...(d.givenAt[l.itemId] ? { givenAt: d.givenAt[l.itemId] } : {}),
+    ink: lineHasInk(l),
+  }));
+  const customerName = (d.customer?.name || d.customer?.nameKn || d.typed.name || d.typed.nameKn).trim();
+  return {
+    draftId: d.draftId,
+    ...(customerName ? { customerName: customerName.slice(0, 80) } : {}),
+    ...(closed ? { closed: true } : {}),
+    lines,
+  };
+}
+
+/**
+ * Stock's ticks folded into a draft: per line, whichever side changed it last wins.
+ *
+ * A worker ticking an item fetched turns on `given` here, unless the counter changed that line's
+ * tick after the worker did. Returns the draft untouched when nothing moved, so React can bail
+ * out the way patchActive needs it to.
+ */
+export function mergeStockTicks(d: Draft, ticks: StockTicks): Draft {
+  let lines = d.lines;
+  let givenAt = d.givenAt;
+  d.lines.forEach((l, i) => {
+    const tick = ticks[l.itemId];
+    if (!tick || typeof tick.at !== 'number') return;
+    if (tick.at <= (givenAt[l.itemId] ?? 0)) return;
+    if ((l.given === true) === (tick.fetched === true)) return;
+    if (lines === d.lines) lines = [...d.lines];
+    lines[i] = { ...l, given: tick.fetched === true };
+    givenAt = { ...givenAt, [l.itemId]: tick.at };
+  });
+  return lines === d.lines ? d : { ...d, lines, givenAt };
 }
 
 /**

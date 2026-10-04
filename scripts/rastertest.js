@@ -291,6 +291,19 @@ const CASES = [
     lines: [{ itemId: 'c1', nameKn: '', nameEn: '', ink: SAMPLE_INK, moreInk: [SAMPLE_INK, SAMPLE_INK], qty: 1, rate: 1000, given: true }],
     total: 1000, paid: 1000,
   }), { paper: '58mm' }],
+  // Picked from the stock app: the unit prints with the quantity, and a rounded total prints
+  // its Round off line above TOTAL. Both are ordinary rows, so both rasterisers must agree.
+  ['with units from stock and a round-off', bill({
+    lines: [
+      { itemId: 's1', nameKn: 'ಪಾರ್ಲೆ-ಜಿ', nameEn: 'Parle-G', qty: 2, rate: 110, unit: 'pack', stockItemId: 'it_1', given: true },
+      { itemId: 's2', nameKn: 'Sugar', nameEn: 'Sugar', qty: 1.5, rate: 47, unit: 'kg', stockItemId: 'it_2' },
+    ],
+    total: 290, paid: 290, roundOff: -0.5,
+  }), { paper: '58mm' }],
+  ['a round-off up, in Kannada, on 80mm', bill({
+    lines: [{ itemId: 's3', nameKn: 'ಉಪ್ಪು', nameEn: 'Salt', qty: 3, rate: 18, unit: 'pc', stockItemId: 'it_3' }],
+    total: 55, paid: 55, roundOff: 1,
+  }), { paper: '80mm', language: 'kn' }],
   ['with a short note', bill({ note: 'Delivery Tuesday' }), { paper: '58mm' }],
   ['with a note long enough to wrap', bill({
     note: 'Delivery Tuesday morning, two empty bags to be returned with the driver',

@@ -1,5 +1,5 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
-import { lineAmount, money, round2 } from './money';
+import { lineAmount, money, qtyText, round2 } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
@@ -298,7 +298,15 @@ export function buildReceipt(
       amount: money(lineAmount(line.qty, line.rate)),
       note: settings.showRate ? '@ ' + money(line.rate) : undefined,
     };
-    const typedAll = line.nameKn || line.nameEn;
+    /*
+     * A line picked from the stock app's suggestions carries its unit, and prints its quantity
+     * with it -- "2 pack Parle-G" -- the way the shop writes "2 kg rice" by hand. Composed into
+     * the name like the given tick, so all four renderers draw it without knowing it is there.
+     */
+    const unit = (line.unit ?? '').trim();
+    const nameOf = (text: string) =>
+      unit && text.trim() ? qtyText(line.qty) + ' ' + unit + ' ' + text : text;
+    const typedAll = nameOf(line.nameKn || line.nameEn);
     const stripsAll = inkStrips(line);
     /*
      * Written and typed both: whichever was used last is what prints, at the shop's asking. A line
@@ -346,7 +354,7 @@ export function buildReceipt(
       }
     }
     else {
-      const name = line.nameKn || line.nameEn;
+      const name = typedAll;
       rows.push({ t: 'item', name: line.given ? GIVEN_MARK + name : name, ...shared });
     }
   });
@@ -377,8 +385,19 @@ export function buildReceipt(
     });
   }
 
+  rows.push({ t: 'sep' });
+  /*
+   * What the total was moved by to land on the shop's rounding step, so the lines above still
+   * add up to what TOTAL says. Only when something was rounded: a "Round off 0" line on every
+   * slip would be paper spent saying nothing.
+   */
+  const roundOff = round2(bill.roundOff ?? 0);
+  if (roundOff !== 0) {
+    rows.push({
+      t: 'kv', left: labels.roundOff, right: (roundOff > 0 ? '+' : '') + money(roundOff), size: 22,
+    });
+  }
   rows.push(
-    { t: 'sep' },
     // bill.total is the shop's own figure and is left alone; only what the paper says changes.
     { t: 'kv', left: labels.total, right: money(round2(bill.total + carried)), size: 30, bold: true },
   );

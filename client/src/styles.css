@@ -1836,3 +1836,28 @@ select.input {
   .slip-body { gap: 2px; padding: 0 2px; }
   .slip-rows, .slip-erase { width: 32px; height: 32px; }
 }
+
+/* ---- the stock app's help while typing ----
+   Suggestions under a typed name, and the quantity of a line picked from stock. Quiet on purpose:
+   they help the typing and must not compete with the slip. Hidden entirely when the link is off,
+   because then nothing renders them. */
+.stock-row { display: flex; align-items: center; gap: 6px; }
+.stock-row .slip-name { flex: 1; min-width: 0; }
+.stock-qty { width: 64px; flex: none; min-height: 40px; padding: 6px 8px; font-size: 1rem; }
+.stock-unit { flex: none; min-width: 28px; font-size: 0.82rem; color: var(--ink-500); }
+.stock-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
+  animation: rise var(--t-fast) var(--ease) both;
+}
+.stock-item { display: flex; flex-direction: column; gap: 5px; padding: 7px 10px; }
+.stock-item + .stock-item { border-top: 1px solid var(--line); }
+.stock-name { color: var(--ink-900); }
+.stock-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.stock-chip { align-self: auto; padding: 7px 12px; }
+.stock-warn { display: block; margin-top: 2px; font-size: 0.78rem; color: var(--gold-600); }

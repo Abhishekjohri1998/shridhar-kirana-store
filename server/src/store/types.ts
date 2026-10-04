@@ -11,6 +11,13 @@ export type NewBill = {
   showBalance?: boolean;
   /** Extra information about this sale, printed under the totals. */
   note?: string;
+  /**
+   * The rounding step to land the total on, in rupees: 0 or absent for none. The store rounds,
+   * not the route, so the figure the customer's balance moves by is the very one on the bill.
+   */
+  roundTo?: number;
+  /** The id the bill had while being written, for the stock app to swap its draft for this. */
+  draftId?: string;
 };
 
 export type CustomerInput = {
@@ -65,6 +72,15 @@ export type Repo = {
    * The number is not freed. A numbered book with a gap at 14 is honest; a second bill 14 is not.
    */
   deleteBill(no: number, force?: boolean): Promise<'deleted' | 'live' | 'missing'>;
+  /**
+   * Marks one line of a saved bill handed over, or not. The stock app calls this when a worker
+   * ticks an item fetched after the bill was printed.
+   *
+   * Only `given` moves -- no money does, so the customer's figures are not touched. Cancelled
+   * bills are refused: a cancelled bill is a record of what was, and ticking it changes nothing
+   * anyone needs. Three answers for the same reason deleteBill has three.
+   */
+  setLineGiven(no: number, index: number, given: boolean): Promise<'ok' | 'missing' | 'cancelled'>;
   /**
    * Empties the book: every bill, the numbering back to the start, and the customers too unless
    * they are spared.

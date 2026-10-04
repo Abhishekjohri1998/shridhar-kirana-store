@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { normaliseServerUrl, pinDigest, type Bill, type BillLine, type Customer, type Item, type Settings, type TodaySummary } from '@shridhar/shared';
+import type { StockItem, StockQuote, StockTicks, draftForStock } from '@shridhar/shared';
 
 const TOKEN_KEY = 'shridhar.token';
 /*
@@ -194,6 +195,7 @@ export const api = {
   createBill: (
     payload: {
       lines: BillLine[]; customerId?: string; paid?: number; showBalance?: boolean; note?: string;
+      draftId?: string;
     },
   ) =>
     request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }),
@@ -235,4 +237,17 @@ export const api = {
       : request<Customer>('/customers', { method: 'POST', body: JSON.stringify(input) }),
   deleteCustomer: (id: string) => request<void>('/customers/' + encodeURIComponent(id), { method: 'DELETE' }),
   inactiveCustomers: () => request<{ days: number; customers: Customer[] }>('/customers/inactive'),
+
+  /*
+   * The stock app, through this server. Billing only shows what comes back; see the server's
+   * stockLink.ts. Every one of these may fail, and every caller carries on when it does.
+   */
+  stockStatus: () => request<{ on: boolean }>('/stock/status'),
+  stockItems: (q: string) => request<{ items: StockItem[] }>('/stock/items?q=' + encodeURIComponent(q)),
+  stockQuote: (item: string, unit: string, qty: number) =>
+    request<StockQuote>(
+      '/stock/quote?item=' + encodeURIComponent(item) + '&unit=' + encodeURIComponent(unit) + '&qty=' + qty,
+    ),
+  stockDraft: (body: ReturnType<typeof draftForStock>) =>
+    request<{ ticks: StockTicks }>('/stock/draft', { method: 'POST', body: JSON.stringify(body) }),
 };

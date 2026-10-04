@@ -318,6 +318,39 @@ async function main() {
       !lastText.rows.some((r) => r.t === 'ink') && lastText.rows.some((r) => r.t === 'item' && r.name === 'Sugar' && r.amount === '90'));
   }
 
+  console.log('\nReceipt document: units and round-off from the stock app');
+  {
+    const picked = shared.buildReceipt({
+      ...BILL,
+      lines: [
+        { itemId: 'u1', nameKn: 'Parle-G', nameEn: 'Parle-G', qty: 2, rate: 110, unit: 'pack', stockItemId: 'it_1' },
+        { itemId: 'u2', nameKn: 'Rice', nameEn: 'Rice', qty: 1, rate: 60 },
+      ],
+      total: 280, roundOff: 0,
+    }, SETTINGS);
+    const items = picked.rows.filter((r) => r.t === 'item');
+    eq('a picked line prints its quantity with its unit', items[1].name, '2 pack Parle-G');
+    eq('a line with no unit prints as it always did', items[2].name, 'Rice');
+    check('no round-off, no Round off line', !picked.rows.some((r) => r.t === 'kv' && r.left === 'Round off'));
+
+    const rounded = shared.buildReceipt({ ...BILL, total: 1370, roundOff: -0.5 }, SETTINGS);
+    const kvs = rounded.rows.filter((r) => r.t === 'kv');
+    const at = kvs.findIndex((r) => r.left === 'Round off');
+    check('a rounded bill prints a Round off line', at >= 0);
+    eq('signed, as it moved the total', kvs[at] && kvs[at].right, '-0.50');
+    eq('directly above TOTAL', kvs[at + 1] && kvs[at + 1].left, 'TOTAL');
+    const up = shared.buildReceipt({ ...BILL, total: 1371, roundOff: 1 }, SETTINGS);
+    eq('a round-off up carries a plus', up.rows.find((r) => r.t === 'kv' && r.left === 'Round off').right, '+1');
+    const kn = shared.buildReceipt({ ...BILL, roundOff: 1 }, { ...SETTINGS, language: 'kn' }, shared.receiptLabelsFor('kn'));
+    check('and in Kannada under its Kannada label', kn.rows.some((r) => r.t === 'kv' && r.left === shared.receiptLabelsFor('kn').roundOff));
+
+    eq('rounding to 5 goes half up', shared.roundToStep(152.5, 5), 155);
+    eq('and down below the half', shared.roundToStep(152.49, 5), 150);
+    eq('rounding to 1 rupee', shared.roundToStep(10.5, 1), 11);
+    eq('rounding to 10', shared.roundToStep(1364, 10), 1360);
+    eq('a step of 0 leaves it alone', shared.roundToStep(10.25, 0), 10.25);
+  }
+
   console.log('\nReceipt document: which script it speaks');
   const KN_SET = {
     ...SETTINGS,
@@ -639,6 +672,8 @@ async function main() {
         ...process.env,
         PORT: String(PORT), DATA_DIR: DATA, AUTH_PIN: PIN,
         MONGO_URI: '', JWT_SECRET: 'selftest-secret', NODE_ENV: 'test',
+        // The stock link off, whatever the developer's own .env says: these servers bill alone.
+        STOCK_URL: '', LINK_KEY: '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -1224,6 +1259,8 @@ async function main() {
         PORT: String(RESET_PORT), DATA_DIR: RESET_DATA, AUTH_PIN: PIN,
         RESET_PASSWORD: RESET_PW,
         MONGO_URI: '', JWT_SECRET: 'selftest-secret', NODE_ENV: 'test',
+        // The stock link off, whatever the developer's own .env says: these servers bill alone.
+        STOCK_URL: '', LINK_KEY: '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
