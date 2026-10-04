@@ -20,6 +20,7 @@ import { HistoryScreen } from './src/screens/HistoryScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { ServerScreen } from './src/screens/ServerScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { StockScreen } from './src/screens/StockScreen';
 import { C, R, T, TYPE, handFont, shadow } from './src/theme';
 
 const TABS = [
@@ -110,6 +111,11 @@ function reportSafeFrame(height: number): void {
 function Shell() {
   const shop = useShop();
   const [tab, setTab] = useState<TabKey>('bill');
+  /* Which program is on screen. Stock is the stock website in a window (see StockScreen): opened
+     the first time it is asked for, then kept, and billing stays mounted underneath it so a bill
+     half written is still there on the way back. */
+  const [app, setApp] = useState<'billing' | 'stock'>('billing');
+  const [stockOpened, setStockOpened] = useState(false);
   // Held until the face is ready, so no heading is drawn once in the wrong font and again in
   // the right one.
   const [fontsReady] = useFonts({ Caveat_700Bold });
@@ -169,13 +175,39 @@ function Shell() {
           <Text style={[styles.headerText, handFont(shopName, 19)]} numberOfLines={1}>
             {shopName}
           </Text>
-          <Text style={styles.badge}>{shop.t('app.today', { amount: money(shop.today.total) })}</Text>
+          {app === 'billing' ? (
+            <Text style={styles.badge}>{shop.t('app.today', { amount: money(shop.today.total) })}</Text>
+          ) : null}
+          <View style={styles.switch}>
+            {(['billing', 'stock'] as const).map((key) => (
+              <Pressable
+                key={key}
+                style={[styles.switchItem, app === key && styles.switchOn]}
+                onPress={() => {
+                  setApp(key);
+                  if (key === 'stock') setStockOpened(true);
+                }}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: app === key }}
+              >
+                <Text style={[styles.switchText, app === key && styles.switchTextOn]}>
+                  {key === 'billing' ? shop.t('nav.billing') : shop.t('nav.stock')}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
+
+        {stockOpened ? (
+          <View style={app === 'stock' ? styles.visible : styles.hidden}>
+            <StockScreen />
+          </View>
+        ) : null}
 
 
         {/* All five stay mounted. Keeping the cart alive while the shopkeeper checks a rate on
             another tab matters more here than saving a few megabytes. */}
-        <View style={styles.body}>
+        <View style={[styles.body, app !== 'billing' && styles.hidden]}>
           <View style={tab === 'bill' ? styles.visible : styles.hidden}>
             <BillScreen />
           </View>
@@ -191,7 +223,7 @@ function Shell() {
         </View>
 
         <View
-          style={[styles.tabBar, { paddingBottom: insets.bottom }]}
+          style={[styles.tabBar, { paddingBottom: insets.bottom }, app !== 'billing' && styles.hidden]}
           onLayout={(e) => {
             barWidth.current = e.nativeEvent.layout.width;
             slide.setValue(index);
@@ -319,6 +351,18 @@ const styles = StyleSheet.create({
   body: { flex: 1, minHeight: 0 },
   visible: { flex: 1, minHeight: 0 },
   hidden: { display: 'none' },
+
+  /* Billing | Stock, at the top right: two programs, one app. */
+  switch: {
+    flexDirection: 'row',
+    backgroundColor: C.well,
+    borderRadius: R.pill,
+    padding: 3,
+  },
+  switchItem: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: R.pill },
+  switchOn: { backgroundColor: C.card, ...shadow(1) },
+  switchText: { fontSize: 13, fontWeight: '600', color: C.soft },
+  switchTextOn: { color: C.accentDeep, fontWeight: '800' },
 
   tabBar: {
     flexDirection: 'row',

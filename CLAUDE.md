@@ -12,16 +12,19 @@ only place billing APKs and over-the-air updates are built from.
 ## Not this folder
 
 The stock / inventory system is a **separate project** in `D:\Shridhar\stock-app`, with its own
-repo, server, website and APK (`com.shridhar.stock`). It only *reads* bills from this server.
+repo (`Abhishekjohri1998/shridhar-stock`), server and website (no APK of its own). It only
+*reads* bills from this server.
 
-**Never add inventory, stock or catalogue code here**, and never edit this folder from the stock
-project. The client asked for them to stay apart.
+The tablet app has a **Billing | Stock** switch in its header (build 50). The Stock side is
+`mobile/src/screens/StockScreen.tsx`: a WebView of the stock *website* (`extra.stockUrl` in
+`app.json`), nothing more. **Never add inventory, stock or catalogue code here**, and never edit
+this folder from the stock project. The client asked for the two codebases to stay apart.
 
 ## Rules that have cost real time before
 
 - **Never write test data to the live Atlas database.** The shop bills on it. Test against a
   scratch server on the JSON file store, then delete `server/.data`:
-  `cd server && MONGO_URI= PORT=4100 AUTH_PIN=104528 JWT_SECRET=scratch node dist/index.js`.
+  `cd server && MONGO_URI= PORT=4100 AUTH_PIN=246810 JWT_SECRET=scratch node dist/index.js`.
   Read-only GETs against the live server are fine.
 - **The APK is built locally, in the foreground:** `bash mobile/build-apk.sh`, with a 10-minute
   tool timeout. A backgrounded build gets killed.

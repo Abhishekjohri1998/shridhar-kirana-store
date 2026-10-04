@@ -216,14 +216,14 @@ check('one that crosses a block boundary',
 check('Kannada goes through as UTF-8', SH.sha256('ಅಕ್ಕಿ').length === 64);
 
 check('the same PIN and salt give the same digest',
-  SH.pinDigest('104528', 'abc') === SH.pinDigest('104528', 'abc'));
-check('a different PIN does not', SH.pinDigest('104528', 'abc') !== SH.pinDigest('104529', 'abc'));
+  SH.pinDigest('246810', 'abc') === SH.pinDigest('246810', 'abc'));
+check('a different PIN does not', SH.pinDigest('246810', 'abc') !== SH.pinDigest('246811', 'abc'));
 check('and neither does the same PIN on another device',
-  SH.pinDigest('104528', 'abc') !== SH.pinDigest('104528', 'xyz'));
+  SH.pinDigest('246810', 'abc') !== SH.pinDigest('246810', 'xyz'));
 check('surrounding spaces are not part of the PIN',
-  SH.pinDigest(' 104528 ', 'abc') === SH.pinDigest('104528', 'abc'));
+  SH.pinDigest(' 246810 ', 'abc') === SH.pinDigest('246810', 'abc'));
 check('the stored value does not contain the PIN',
-  !SH.pinDigest('104528', 'abc').includes('104528'));
+  !SH.pinDigest('246810', 'abc').includes('246810'));
 
 console.log('');
 console.log('Handwriting prints at the size it was written');
