@@ -499,13 +499,20 @@ export function SettingsScreen() {
         {erased ? <Notice>{erased === 'bills' ? t('set.erasedBills') : t('set.erased')}</Notice> : null}
 
         <View style={{ height: 10 }} />
-        <Field
-          label={t('set.erasePassword')}
-          value={resetPw}
-          secureTextEntry
-          autoCapitalize="none"
-          onChangeText={setResetPw}
-        />
+        {/*
+          * Only there once the backup is taken, which erasing needs anyway. A password box on
+          * the screen -- even this one, on a tab kept mounted out of sight -- makes Android 15
+          * black out the whole app while the screen is shared in a video call.
+          */}
+        {backedUp ? (
+          <Field
+            label={t('set.erasePassword')}
+            value={resetPw}
+            secureTextEntry
+            autoCapitalize="none"
+            onChangeText={setResetPw}
+          />
+        ) : null}
         <Field
           label={t('set.eraseConfirmLabel')}
           value={resetWord}
