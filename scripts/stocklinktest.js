@@ -242,6 +242,14 @@ async function main() {
     eq('stock received the draft id', got && got.draftId, 'd_live');
     eq('and the line, keyed', got && got.lines[0].key, 'l1');
     eq('with its unit', got && got.lines[0].unit, 'pack');
+    const long = await on.post('/stock/draft', {
+      draftId: 'd_long', customerName: 'C'.repeat(300),
+      lines: [{ key: 'l9', nameEn: 'N'.repeat(300), nameKn: 'ಕ'.repeat(300), qty: 1, rate: 5 }],
+    });
+    eq('a draft with a 300-character name still goes through', long.status, 200);
+    const longGot = fake.drafts[fake.drafts.length - 1];
+    eq('the customer name cut to 80', longGot && longGot.customerName.length, 80);
+    eq('the line names cut to 120', longGot && longGot.lines[0].nameEn.length + '/' + longGot.lines[0].nameKn.length, '120/120');
     eq('a draft with no id is refused', (await on.post('/stock/draft', { lines: [] })).status, 400);
     eq('as is one with a thousand lines',
       (await on.post('/stock/draft', { draftId: 'd_big', lines: Array.from({ length: 201 }, (_, i) => ({ key: 'k' + i, qty: 1, rate: 1 })) })).status, 400);

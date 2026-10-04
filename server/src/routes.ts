@@ -56,12 +56,14 @@ const lineBody = z.object({
  */
 const draftBody = z.object({
   draftId: z.string().trim().min(1).max(80),
-  customerName: z.string().trim().max(80).optional(),
+  // Cut to length rather than refused: a long typed name must never stop the draft reaching
+  // the worker screen, and a shortened name on a rack screen loses nothing that matters.
+  customerName: z.string().max(10_000).transform((v) => v.trim().slice(0, 80)).optional(),
   closed: z.boolean().optional(),
   lines: z.array(z.object({
     key: z.string().trim().min(1).max(80),
-    nameEn: z.string().trim().max(120).default(''),
-    nameKn: z.string().trim().max(120).default(''),
+    nameEn: z.string().max(10_000).default('').transform((v) => v.trim().slice(0, 120)),
+    nameKn: z.string().max(10_000).default('').transform((v) => v.trim().slice(0, 120)),
     qty: z.coerce.number().finite().nonnegative().max(100_000),
     unit: z.string().trim().max(24).optional(),
     rate: z.coerce.number().finite().nonnegative().max(1_000_000),
