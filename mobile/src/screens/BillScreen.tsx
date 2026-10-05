@@ -682,7 +682,9 @@ export function BillScreen() {
              * the pen within a week of typing becoming the default. Typing stays one tap away,
              * per line, so a bill can still be half written and half typed.
              */
-            const isWriting = writing[line.itemId] ?? true;
+            // A line last typed reopens typed: after the app was closed it came back as an empty
+            // writing strip, the typed name hidden behind it.
+            const isWriting = writing[line.itemId] ?? line.lastMode !== 'text';
             return (
               <View
                 style={[styles.slipLine, compact && styles.slipLineCompact]}

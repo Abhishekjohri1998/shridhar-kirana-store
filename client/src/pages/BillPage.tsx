@@ -496,7 +496,7 @@ export function BillPage() {
             {shop.cart.map((line, index) => {
               const blank = !lineHasSomething(line);
               // Written by default, typed when asked for -- see the mobile copy.
-              const isWriting = writing[line.itemId] ?? true;
+              const isWriting = writing[line.itemId] ?? line.lastMode !== 'text';
               return (
                 <li
                   className="slip-line"
