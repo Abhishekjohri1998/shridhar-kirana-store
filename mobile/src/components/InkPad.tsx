@@ -4,6 +4,7 @@ import { Gesture, GestureDetector, PointerType } from 'react-native-gesture-hand
 import Svg, { Line, Path } from 'react-native-svg';
 import { INK_LIMITS, inkToSvgPath, rescaleStrokes, strokesTouching, type Ink } from '@shridhar/shared';
 import { Button } from './ui';
+import { penButtonHeld } from '../lib/native';
 import { C, R } from '../theme';
 
 /** Points closer together than this are dropped: a finger reports far more than a line needs. */
@@ -78,7 +79,9 @@ export const InkPad = forwardRef<InkPadHandle, InkPadProps>(function InkPad({
     const b = e.nativeEvent.buttons ?? 0;
     penButtonRef.current = (b & (2 | 32)) !== 0;
   }, []);
-  const rubbing = () => erasingRef.current || penButtonRef.current;
+  // The native path (see plugins/withStylus.js) is what actually reports the button on this
+  // React Native; the pointer-event path above is kept, harmless, for anything that does.
+  const rubbing = () => erasingRef.current || penButtonRef.current || penButtonHeld();
   // A ref, so a switch into erasing applies to the very next touch without rebuilding the gesture.
   const erasingRef = useRef(erasing);
   erasingRef.current = erasing;
