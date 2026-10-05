@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
-  checkCustomer, customerMatches, customerName, money, stamp, type Bill, type Customer,
+  checkCustomer, customerMatches, customerName, customerPhones, localInput, money, parseLocalInput,
+  stamp, type Bill, type Customer, type Payment,
 } from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
@@ -24,11 +25,16 @@ export function CustomersScreen() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<{ customer: Customer; bills: Bill[] } | null>(null);
+  const [open, setOpen] = useState<{ customer: Customer; bills: Bill[]; payments?: Payment[] } | null>(null);
   const [draft, setDraft] =
     useState<{
       id?: string; name: string; nameKn: string; phone: string; address: string; notes: string;
+      /** Numbers after the first, and the WhatsApp one. */
+      more: string[]; whatsapp: string;
     } | null>(null);
+  /** The "Receive payment" form, open for the customer being looked at. */
+  const [pay, setPay] = useState<{ amount: string; when: string; note: string; error: string | null } | null>(null);
+  const [paying, setPaying] = useState(false);
   /** The one bill being looked at, from this customer's list. */
   const [bill, setBill] = useState<Bill | null>(null);
 
@@ -85,6 +91,8 @@ export function CustomersScreen() {
         name: fields.name,
         nameKn: fields.nameKn,
         phone: fields.phone,
+        phones: [fields.phone, ...draft.more.map((p) => p.trim())].filter(Boolean),
+        whatsapp: draft.whatsapp.trim(),
         address: draft.address.trim(),
         notes: draft.notes.trim(),
       });
@@ -109,6 +117,53 @@ export function CustomersScreen() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  };
+
+  const receive = async () => {
+    if (!open || !pay) return;
+    const amount = Number(pay.amount.replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setPay({ ...pay, error: t('pay.enterAmount') });
+      return;
+    }
+    const at = parseLocalInput(pay.when);
+    if (!at) {
+      setPay({ ...pay, error: t('pay.badWhen') });
+      return;
+    }
+    setPaying(true);
+    try {
+      await api.receivePayment(open.customer.id, { amount, at, note: pay.note.trim() });
+      setPay(null);
+      setOpen(await api.getCustomer(open.customer.id));
+      await load();
+    } catch (e) {
+      setPay({ ...pay, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const askCancelPayment = (p: Payment) => {
+    if (p.cancelled || !open) return;
+    Alert.alert(t('pay.cancel'), t('pay.cancelAsk', { amount: money(p.amount) }), [
+      { text: t('common.close'), style: 'cancel' },
+      {
+        text: t('pay.cancel'),
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await api.cancelPayment(p.id);
+              setOpen(await api.getCustomer(open.customer.id));
+              await load();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          })();
+        },
+      },
+    ]);
   };
 
   const openCustomer = async (c: Customer) => {
@@ -157,7 +212,7 @@ export function CustomersScreen() {
             placeholder={t('cs.searchPlaceholder')}
             placeholderTextColor={C.soft}
           />
-          <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '' })} style={styles.slim} />
+          <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '' })} style={styles.slim} />
         </View>
 
         {loading ? (
@@ -234,6 +289,8 @@ export function CustomersScreen() {
                     address: open.customer.address ?? '',
                     notes: open.customer.notes ?? '',
                     phone: open.customer.phone,
+                    more: customerPhones(open.customer).slice(1),
+                    whatsapp: open.customer.whatsapp ?? '',
                   })
               }
               style={{ flex: 1 }}
@@ -259,7 +316,7 @@ export function CustomersScreen() {
               </View>
             </View>
             <Text style={styles.small}>
-              {(open.customer.phone ? open.customer.phone + ' · ' : '') +
+              {(customerPhones(open.customer).length ? customerPhones(open.customer).join(', ') + ' · ' : '') +
                 t('cs.since', { date: stamp(open.customer.since) }) +
                 (open.customer.lastVisit ? t('cs.lastVisit', { date: stamp(open.customer.lastVisit) }) : '')}
             </Text>
@@ -271,6 +328,36 @@ export function CustomersScreen() {
             {open.customer.notes ? (
               <Text style={styles.small}>{t('cs.notes')}: {open.customer.notes}</Text>
             ) : null}
+            {open.customer.whatsapp ? (
+              <Text style={styles.small}>{t('cust.whatsapp')}: {open.customer.whatsapp}</Text>
+            ) : null}
+
+            <View style={{ height: 10 }} />
+            <Button
+              label={t('pay.receive')}
+              tone="plain"
+              onPress={() => setPay({ amount: '', when: localInput(), note: '', error: null })}
+            />
+            <View style={{ height: 6 }} />
+
+            {/* Money received with no bill, newest first, each with its time and remarks. */}
+            {(open.payments ?? []).map((p) => (
+              <Pressable key={p.id} style={styles.row} onPress={() => askCancelPayment(p)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: C.ink }}>{t('pay.row')}</Text>
+                  <Text style={styles.small}>
+                    {stamp(p.at)}
+                    {p.note ? ' · ' + p.note : ''}
+                    {p.cancelled ? ' · ' + t('pay.cancelled') : ''}
+                  </Text>
+                </View>
+                <View style={styles.right}>
+                  <Text style={[styles.name, p.cancelled ? { color: C.soft, textDecorationLine: 'line-through' } : null]}>
+                    {money(p.amount)}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
 
             {open.bills.length === 0 ? (
               <Text style={styles.empty}>{t('cs.noBills')}</Text>
@@ -315,6 +402,46 @@ export function CustomersScreen() {
         }}
       />
 
+      {/* A sibling, never nested, like the bill above. */}
+      <Dialog
+        visible={pay != null}
+        title={t('pay.receive')}
+        onClose={() => setPay(null)}
+        footer={
+          <>
+            <Button label={t('common.cancel')} tone="plain" onPress={() => setPay(null)} style={{ flex: 1 }} />
+            <Button
+              label={t('pay.save')}
+              disabled={paying}
+              onPress={() => void receive()}
+              style={{ flex: 1 }}
+            />
+          </>
+        }
+      >
+        {pay ? (
+          <View>
+            {pay.error ? <ErrorText>{pay.error}</ErrorText> : null}
+            <Field
+              label={t('pay.amount')}
+              value={pay.amount}
+              keyboardType="decimal-pad"
+              onChangeText={(amount) => setPay((p) => (p ? { ...p, amount } : p))}
+            />
+            <Field
+              label={t('pay.when')}
+              value={pay.when}
+              onChangeText={(when) => setPay((p) => (p ? { ...p, when } : p))}
+            />
+            <Field
+              label={t('pay.note')}
+              value={pay.note}
+              onChangeText={(note) => setPay((p) => (p ? { ...p, note } : p))}
+            />
+          </View>
+        ) : null}
+      </Dialog>
+
       <Dialog
         visible={draft != null}
         title={draft?.id ? t('cs.editTitle') : t('cs.newTitle')}
@@ -351,6 +478,42 @@ export function CustomersScreen() {
               value={draft.phone}
               keyboardType="phone-pad"
               onChangeText={(phone) => setDraft((d) => (d ? { ...d, phone } : d))}
+            />
+            {/* More numbers, the first one above staying the main one. */}
+            {draft.more.map((num, i) => (
+              <View key={i} style={styles.moreRow}>
+                <View style={{ flex: 1 }}>
+                  <Field
+                    label={t('cust.phones') + ' ' + (i + 2)}
+                    value={num}
+                    keyboardType="phone-pad"
+                    onChangeText={(v) => setDraft((d) => (d ? { ...d, more: d.more.map((m, j) => (j === i ? v : m)) } : d))}
+                  />
+                </View>
+                <Pressable
+                  onPress={() => setDraft((d) => (d ? { ...d, more: d.more.filter((_, j) => j !== i) } : d))}
+                  accessibilityLabel={t('cust.removePhone')}
+                  hitSlop={8}
+                  style={styles.moreRemove}
+                >
+                  <Text style={styles.moreRemoveText}>×</Text>
+                </Pressable>
+              </View>
+            ))}
+            {draft.more.length < 7 ? (
+              <Button
+                label={t('cust.addPhone')}
+                tone="plain"
+                onPress={() => setDraft((d) => (d ? { ...d, more: [...d.more, ''] } : d))}
+              />
+            ) : null}
+            <View style={{ height: 10 }} />
+            <Field
+              label={t('cust.whatsapp')}
+              value={draft.whatsapp}
+              keyboardType="phone-pad"
+              hint={t('cust.whatsappHint')}
+              onChangeText={(whatsapp) => setDraft((d) => (d ? { ...d, whatsapp } : d))}
             />
             {/* Both kept in the app only: a 58mm roll has no room for an address. */}
             <Field
@@ -409,4 +572,7 @@ const styles = StyleSheet.create({
   small: { fontSize: 12, color: C.soft, marginTop: 2, lineHeight: 18 },
   needName: { fontSize: 12, color: C.soft, marginTop: -4, marginBottom: 10, lineHeight: 17 },
   empty: { color: C.soft, textAlign: 'center', paddingVertical: 18 },
+  moreRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  moreRemove: { paddingHorizontal: 8, paddingVertical: 6 },
+  moreRemoveText: { fontSize: 22, color: C.soft },
 });

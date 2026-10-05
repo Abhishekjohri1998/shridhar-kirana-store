@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { checkCustomer, customerName, money, type Customer } from '@shridhar/shared';
+import { checkCustomer, customerName, customerPhones, money, type Customer } from '@shridhar/shared';
 import { Button, ErrorText } from './ui';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
@@ -88,7 +88,7 @@ export function CustomerBar() {
             instead, since that is the number the shopkeeper is actually looking for. */}
         <Text style={styles.chipName} numberOfLines={1}>
           {customerName(c, shop.lang) || t('cust.unnamed')}
-          {c.phone ? <Text style={styles.small}> · {c.phone}</Text> : null}
+          {c.phone ? <Text style={styles.small}> · {customerPhones(c).join(', ')}</Text> : null}
         </Text>
         <Text style={styles.chipFigure} numberOfLines={1}>
           {c.balance !== 0
@@ -124,7 +124,7 @@ export function CustomerBar() {
               <Pressable key={m.id} style={styles.suggestion} onPress={() => attach(m)}>
                 <Text style={{ flex: 1, color: C.ink }} numberOfLines={1}>
                   {customerName(m, shop.lang) || t('cust.unnamed')}
-                  {m.phone ? <Text style={styles.small}> · {m.phone}</Text> : null}
+                  {m.phone ? <Text style={styles.small}> · {customerPhones(m).join(', ')}</Text> : null}
                 </Text>
                 <Text style={styles.small}>
                   {m.balance !== 0

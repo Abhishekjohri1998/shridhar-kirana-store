@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { money, stamp, type Bill } from '@shridhar/shared';
+import { money, stamp, type Bill, type Payment } from '@shridhar/shared';
+import { api } from '../lib/api';
 import { BillDialog } from '../components/BillDialog';
 import { Empty } from '../components/ui';
 import { useShop } from '../lib/useShop';
@@ -11,6 +12,22 @@ export function HistoryScreen() {
   const shop = useShop();
   const t = shop.t;
   const [open, setOpen] = useState<Bill | null>(null);
+  /* Money received with no bill, shown among the bills at the time it was received. Fetched
+     again whenever the bills move, which is also when a payment is likely to have been taken. */
+  const [payments, setPayments] = useState<Payment[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void api.listPayments(100)
+      .then((list) => { if (alive) setPayments(list); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [shop.bills, shop.dataVersion]);
+
+  type Row = { kind: 'bill'; at: string; bill: Bill } | { kind: 'pay'; at: string; pay: Payment };
+  const rows: Row[] = [
+    ...shop.bills.map((bill): Row => ({ kind: 'bill', at: bill.at, bill })),
+    ...payments.map((pay): Row => ({ kind: 'pay', at: pay.at, pay })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content}>
@@ -27,7 +44,19 @@ export function HistoryScreen() {
       {shop.bills.length === 0 ? (
         <Empty icon={<HistoryIcon size={26} color={C.faint} />}>{t('hist.noBills')}</Empty>
       ) : (
-        shop.bills.map((bill) => (
+        rows.map((row) => row.kind === 'pay' ? (
+          <View key={row.pay.id} style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.no}>{t('pay.row')}</Text>
+              <Text style={styles.when}>
+                {stamp(row.pay.at)}
+                {row.pay.note ? ' · ' + row.pay.note : ''}
+                {row.pay.cancelled ? ' · ' + t('pay.cancelled') : ''}
+              </Text>
+            </View>
+            <Text style={styles.total}>{row.pay.cancelled ? '—' : money(row.pay.amount)}</Text>
+          </View>
+        ) : (({ bill }) => (
           <Pressable key={bill.no} style={styles.row} onPress={() => setOpen(bill)}>
             <View style={{ flex: 1 }}>
               <Text style={styles.no}>{t('hist.billNo', { no: bill.no })}</Text>
@@ -40,7 +69,7 @@ export function HistoryScreen() {
             {/* A cancelled bill shows no amount: it is not money the shop took. */}
             <Text style={styles.total}>{bill.cancelled ? '—' : money(bill.total)}</Text>
           </Pressable>
-        ))
+        ))(row))
       )}
 
       <BillDialog bill={open} onClose={() => setOpen(null)} />
