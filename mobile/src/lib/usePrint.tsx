@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { buildReceipt, type Bill, type Settings } from '@shridhar/shared';
+import { buildReceipt, money, pickLang, whatsappNumber, type Bill, type Settings } from '@shridhar/shared';
+import { api } from './api';
+import { shareToWhatsApp } from './native';
 import { RasterBridge, type RasterHandle } from '../print/RasterBridge';
 import { rasterToEscPos } from '../print/escpos';
 import {
@@ -19,6 +21,11 @@ type PrintApi = {
   printBill: (bill: Bill, settings: Settings) => Promise<void>;
   /** Hands a picture of the slip to whatever the phone can share with. */
   shareBill: (bill: Bill, settings: Settings) => Promise<void>;
+  /**
+   * The slip's picture straight into the customer's WhatsApp chat; the shopkeeper taps Send.
+   * Falls back to the share sheet when WhatsApp is not installed or the build lacks the module.
+   */
+  whatsappBill: (bill: Bill, settings: Settings) => Promise<void>;
 };
 
 const Ctx = createContext<PrintApi | null>(null);
@@ -101,6 +108,48 @@ export function PrintProvider({ children }: { children: ReactNode }) {
     [busy, shop],
   );
 
+  const whatsappBill = useCallback(
+    async (bill: Bill, settings: Settings) => {
+      if (busy) throw new PrinterError(shop.t('bill.printing'));
+      // The customer's WhatsApp number lives on their record, not on the bill's frozen copy.
+      let number = bill.customer ? whatsappNumber(bill.customer) : '';
+      if (bill.customer) {
+        try {
+          const detail = await api.getCustomer(bill.customer.id);
+          number = whatsappNumber(detail.customer) || number;
+        } catch { /* the bill's own copy of the phone will do */ }
+      }
+      setBusy(true);
+      let file = '';
+      try {
+        const doc = buildReceipt(bill, settings, shop.receiptLabels);
+        const picture = await raster.current?.imageOf(doc);
+        if (!picture) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
+        file = FileSystem.cacheDirectory + 'bill-' + bill.no + '.png';
+        await FileSystem.writeAsStringAsync(file, picture.image.replace(/^data:image\/png;base64,/, ''), {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const text = pickLang(settings.shopName, settings.shopNameKn, shop.lang) + ' · '
+          + shop.t('hist.billNo', { no: bill.no }) + ' · ' + money(bill.total);
+        try {
+          await shareToWhatsApp(number, file, text);
+          return;
+        } catch {
+          // No WhatsApp, or a build without the module: the ordinary share sheet below.
+        }
+        if (!(await Sharing.isAvailableAsync())) throw new PrinterError(shop.t('wa.failed'));
+        await Sharing.shareAsync(file, {
+          mimeType: 'image/png',
+          dialogTitle: number ? shop.t('wa.send') : shop.t('wa.noNumber'),
+          UTI: 'public.png',
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, shop],
+  );
+
   const value = useMemo<PrintApi>(
     () => ({
       available: isPrintingAvailable(),
@@ -110,8 +159,9 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       listPrinters: listPairedPrinters,
       printBill,
       shareBill,
+      whatsappBill,
     }),
-    [busy, printer, choosePrinter, printBill, shareBill],
+    [busy, printer, choosePrinter, printBill, shareBill, whatsappBill],
   );
 
   return (

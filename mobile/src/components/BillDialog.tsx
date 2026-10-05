@@ -56,6 +56,16 @@ export function BillDialog({
     }
   };
 
+  const whatsapp = async () => {
+    if (!bill) return;
+    setError(null);
+    try {
+      await printer.whatsappBill(bill, shop.settings);
+    } catch (e) {
+      setError(t('wa.failed') + ': ' + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+
   const reprint = async () => {
     if (!bill) return;
     setError(null);
@@ -171,6 +181,13 @@ export function BillDialog({
           label={printer.busy ? t('hist.sharing') : t('hist.share')}
           tone="plain"
           onPress={() => void share()}
+          disabled={printer.busy}
+          style={{ flex: 1 }}
+        />
+        <Button
+          label={t('wa.send')}
+          tone="plain"
+          onPress={() => void whatsapp()}
           disabled={printer.busy}
           style={{ flex: 1 }}
         />

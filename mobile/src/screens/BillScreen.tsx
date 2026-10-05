@@ -603,6 +603,17 @@ export function BillScreen() {
               }}
               style={styles.savedButton}
             />
+            <Button
+              label={t('wa.send')}
+              tone="plain"
+              disabled={printer.busy}
+              onPress={() => {
+                void printer.whatsappBill(justSaved, shop.settings).catch((e: unknown) => {
+                  setError(t('wa.failed') + ': ' + (e instanceof Error ? e.message : String(e)));
+                });
+              }}
+              style={styles.savedButton}
+            />
             <Pressable onPress={() => showSaved(null)} accessibilityLabel={t('common.close')}>
               <Text style={styles.savedDismiss}>×</Text>
             </Pressable>
@@ -1220,13 +1231,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 10,
-    // Room between cells, so two strips never read as one; the smaller strip keeps it short.
-    paddingVertical: 9,
+    // Room between cells, so two strips never read as one: 14 rather than 9, which the shop
+    // still found cramped, and the stronger rule below so the boundary is plain at a glance.
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderColor: C.line,
+    borderColor: C.lineStrong,
   },
   /* Two stacked halves instead of one line, so the writing can have the full width. */
-  slipLineCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 2, paddingVertical: 9 },
+  slipLineCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 2, paddingVertical: 14 },
   /* On a wide row the two halves behave as the old single row did: the left one takes the
      slack so the writing keeps it, the right one is only as wide as its buttons. Giving both
      flex: 1 would split the row down the middle and halve the strip. */
