@@ -45,3 +45,28 @@ export function whatsappNumber(c: { phone?: string; phones?: string[]; whatsapp?
   if (!d) return '';
   return d.length === 10 ? '91' + d : d;
 }
+
+/**
+ * A bill as plain text, for a wa.me link from the website (the tablet sends the picture).
+ * Handwritten lines have no typed name and read as a dash.
+ */
+export function billAsText(
+  bill: {
+    no: number; at: string; total: number; paid: number; balance: number; showBalance: boolean;
+    lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string }[];
+  },
+  shopName: string,
+  labels: { bill: string; total: string; paid: string; balance: string },
+): string {
+  const rupees = (n: number) => '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
+  const out = [shopName, labels.bill + bill.no + ' · ' + new Date(bill.at).toLocaleString('en-IN'), ''];
+  for (const l of bill.lines) {
+    const name = (l.nameKn || l.nameEn || '—').trim();
+    out.push(name + ' ' + l.qty + (l.unit ? ' ' + l.unit : '') + ' × ' + rupees(l.rate) + ' = ' + rupees(l.qty * l.rate));
+  }
+  out.push('', labels.total + ': ' + rupees(bill.total));
+  if (bill.showBalance) {
+    out.push(labels.paid + ': ' + rupees(bill.paid), labels.balance + ': ' + rupees(bill.balance));
+  }
+  return out.join('\n');
+}

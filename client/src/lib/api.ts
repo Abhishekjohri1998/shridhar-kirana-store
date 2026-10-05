@@ -1,4 +1,4 @@
-import type { Bill, BillLine, Customer, Item, Settings, TodaySummary } from '@shridhar/shared';
+import type { Bill, BillLine, Customer, Item, Payment, Settings, TodaySummary } from '@shridhar/shared';
 import type { StockItem, StockQuote, StockTicks, draftForStock } from '@shridhar/shared';
 
 const TOKEN_KEY = 'shridhar.token';
@@ -101,11 +101,21 @@ export const api = {
   listCustomers: () => request<Customer[]>('/customers'),
   searchCustomers: (q: string) => request<Customer[]>('/customers/search?q=' + encodeURIComponent(q)),
   getCustomer: (id: string) =>
-    request<{ customer: Customer; bills: Bill[]; balanceAt: string | null }>(
+    request<{ customer: Customer; bills: Bill[]; payments?: Payment[]; balanceAt: string | null }>(
       '/customers/' + encodeURIComponent(id),
     ),
+  /** Money received with no bill. */
+  receivePayment: (customerId: string, input: { amount: number; at?: string; note?: string }) =>
+    request<{ payment: Payment; customer: Customer }>(
+      '/customers/' + encodeURIComponent(customerId) + '/payments',
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  cancelPayment: (id: string) =>
+    request<Payment>('/payments/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }),
+  listPayments: (limit = 100) => request<Payment[]>('/payments?limit=' + limit),
   saveCustomer: (input: {
     id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+    phones?: string[]; whatsapp?: string;
   }) =>
     input.id
       ? request<Customer>('/customers/' + encodeURIComponent(input.id), {

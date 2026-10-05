@@ -585,7 +585,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLocked(false);
       return;
     }
-    if (known === false) throw new Error(t(person ? 'login.wrongPersonPin' : 'login.wrongPin'));
+    if (known === false) throw new Error(person ? t('login.wrongPersonPin') : t('login.wrongPin'));
     if (person) {
       // Nothing stored to check against: ask stock again, by the phone they signed in with.
       const got = await api.person(person.phone, pin);

@@ -3,10 +3,14 @@ import {
   checkCustomer,
   customerMatches,
   customerName,
+  customerPhones,
+  localInput,
   money,
+  parseLocalInput,
   stamp,
   type Bill,
   type Customer,
+  type Payment,
 } from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
@@ -28,13 +32,43 @@ export function CustomersPage() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<{ customer: Customer; bills: Bill[] } | null>(null);
+  const [open, setOpen] = useState<{ customer: Customer; bills: Bill[]; payments?: Payment[] } | null>(null);
+  const [pay, setPay] = useState<{ amount: string; when: string; note: string; error: string | null } | null>(null);
   /** The one bill being looked at, from this customer's list. */
   const [bill, setBill] = useState<Bill | null>(null);
   const [draft, setDraft] =
     useState<{
       id?: string; name: string; nameKn: string; phone: string; address: string; notes: string;
+      more: string[]; whatsapp: string;
     } | null>(null);
+
+  const receive = async () => {
+    if (!open || !pay) return;
+    const amount = Number(pay.amount.replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) { setPay({ ...pay, error: t('pay.enterAmount') }); return; }
+    const at = parseLocalInput(pay.when);
+    if (!at) { setPay({ ...pay, error: t('pay.badWhen') }); return; }
+    try {
+      await api.receivePayment(open.customer.id, { amount, at, note: pay.note.trim() });
+      setPay(null);
+      setOpen(await api.getCustomer(open.customer.id));
+      await load();
+    } catch (e) {
+      setPay({ ...pay, error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const cancelPayment = async (p: Payment) => {
+    if (!open || p.cancelled) return;
+    if (!window.confirm(t('pay.cancelAsk', { amount: money(p.amount) }))) return;
+    try {
+      await api.cancelPayment(p.id);
+      setOpen(await api.getCustomer(open.customer.id));
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -89,6 +123,8 @@ export function CustomersPage() {
         name: fields.name,
         nameKn: fields.nameKn,
         phone: fields.phone,
+        phones: [fields.phone, ...draft.more.map((p) => p.trim())].filter(Boolean),
+        whatsapp: draft.whatsapp.trim(),
         address: draft.address.trim(),
         notes: draft.notes.trim(),
       });
@@ -173,7 +209,7 @@ export function CustomersPage() {
         <button
           className="btn"
           style={{ flex: '0 0 auto', paddingInline: 16 }}
-          onClick={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '' })}
+          onClick={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '' })}
         >
           {t('common.new')}
         </button>
@@ -263,6 +299,8 @@ export function CustomersPage() {
                     address: open.customer.address ?? '',
                     notes: open.customer.notes ?? '',
                     phone: open.customer.phone,
+                    more: customerPhones(open.customer).slice(1),
+                    whatsapp: open.customer.whatsapp ?? '',
                   })
                 }
               >
@@ -288,7 +326,7 @@ export function CustomersPage() {
           </div>
 
           <p className="muted small">
-            {open.customer.phone ? open.customer.phone + ' · ' : ''}
+            {open.customer.phone ? customerPhones(open.customer).join(', ') + ' · ' : ''}
             {t('cs.since', { date: stamp(open.customer.since) })}
             {open.customer.lastVisit ? t('cs.lastVisit', { date: stamp(open.customer.lastVisit) }) : ''}
           </p>
@@ -303,6 +341,58 @@ export function CustomersPage() {
             <p className="muted small" style={{ whiteSpace: 'pre-wrap' }}>
               <strong>{t('cs.notes')}:</strong> {open.customer.notes}
             </p>
+          ) : null}
+
+          {open.customer.whatsapp ? (
+            <p className="muted small"><strong>{t('cust.whatsapp')}:</strong> {open.customer.whatsapp}</p>
+          ) : null}
+
+          {pay ? (
+            <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+              {pay.error ? <p className="error">{pay.error}</p> : null}
+              <div className="field">
+                <label htmlFor="p-amount">{t('pay.amount')}</label>
+                <input id="p-amount" className="input" inputMode="decimal" value={pay.amount}
+                  onChange={(e) => setPay({ ...pay, amount: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="p-when">{t('pay.when')}</label>
+                <input id="p-when" className="input" value={pay.when}
+                  onChange={(e) => setPay({ ...pay, when: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="p-note">{t('pay.note')}</label>
+                <input id="p-note" className="input" value={pay.note}
+                  onChange={(e) => setPay({ ...pay, note: e.target.value })} />
+              </div>
+              <button className="btn plain" onClick={() => setPay(null)}>{t('common.cancel')}</button>{' '}
+              <button className="btn" onClick={() => void receive()}>{t('pay.save')}</button>
+            </div>
+          ) : (
+            <p>
+              <button className="btn plain" onClick={() => setPay({ amount: '', when: localInput(), note: '', error: null })}>
+                {t('pay.receive')}
+              </button>
+            </p>
+          )}
+
+          {(open.payments ?? []).length > 0 ? (
+            <div className="list" style={{ marginBottom: 12 }}>
+              {(open.payments ?? []).map((p) => (
+                <button key={p.id} className="list-row" onClick={() => void cancelPayment(p)}
+                  title={p.cancelled ? '' : t('pay.cancel')}>
+                  <span className="grow">
+                    <span style={{ display: 'block' }}>{t('pay.row')}</span>
+                    <span className="muted small">
+                      {stamp(p.at)}{p.note ? ' · ' + p.note : ''}{p.cancelled ? ' · ' + t('pay.cancelled') : ''}
+                    </span>
+                  </span>
+                  <span style={{ fontWeight: 700, textDecoration: p.cancelled ? 'line-through' : undefined }}>
+                    {money(p.amount)}
+                  </span>
+                </button>
+              ))}
+            </div>
           ) : null}
 
           {open.bills.length === 0 ? (
@@ -377,6 +467,30 @@ export function CustomersPage() {
                 value={draft.phone}
                 onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
               />
+            </div>
+            {draft.more.map((num, i) => (
+              <div className="field" key={i}>
+                <label htmlFor={'c-phone-' + i}>{t('cust.phones') + ' ' + (i + 2)}</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input id={'c-phone-' + i} className="input" inputMode="tel" value={num}
+                    onChange={(e) => setDraft({ ...draft, more: draft.more.map((m, j) => (j === i ? e.target.value : m)) })} />
+                  <button className="btn plain" aria-label={t('cust.removePhone')}
+                    onClick={() => setDraft({ ...draft, more: draft.more.filter((_, j) => j !== i) })}>×</button>
+                </div>
+              </div>
+            ))}
+            {draft.more.length < 7 ? (
+              <p>
+                <button className="btn plain" onClick={() => setDraft({ ...draft, more: [...draft.more, ''] })}>
+                  {t('cust.addPhone')}
+                </button>
+              </p>
+            ) : null}
+            <div className="field">
+              <label htmlFor="c-wa">{t('cust.whatsapp')}</label>
+              <input id="c-wa" className="input" inputMode="tel" value={draft.whatsapp}
+                onChange={(e) => setDraft({ ...draft, whatsapp: e.target.value })} />
+              <span className="muted small">{t('cust.whatsappHint')}</span>
             </div>
             {/* Both kept in the app only: a 58mm roll has no room for an address. */}
             <div className="field">

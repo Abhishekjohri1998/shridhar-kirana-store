@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { buildReceipt, type Bill } from '@shridhar/shared';
+import { billAsText, buildReceipt, pickLang, whatsappNumber, type Bill } from '@shridhar/shared';
+import { api as billingApi } from '../lib/api';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
 import { api } from '../lib/api';
@@ -33,6 +34,19 @@ export function BillDialog({
   /** Which question the footer is asking, if any: cancelling it, or removing it for good. */
   const [asking, setAsking] = useState<'cancel' | 'delete' | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /* WhatsApp from the website: wa.me with the bill as text, in the customer's chat when we
+     know their number. The tablet sends the picture instead. */
+  const whatsapp = async () => {
+    let number = bill.customer ? whatsappNumber(bill.customer) : '';
+    if (bill.customer) {
+      try {
+        number = whatsappNumber((await billingApi.getCustomer(bill.customer.id)).customer) || number;
+      } catch { /* the bill's own copy of the phone will do */ }
+    }
+    const text = billAsText(bill, pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang), shop.receiptLabels);
+    window.open('https://wa.me/' + number + '?text=' + encodeURIComponent(text), '_blank', 'noopener');
+  };
 
   const share = async () => {
     setError(null);
@@ -133,6 +147,7 @@ export function BillDialog({
       <button className="btn plain" disabled={printer.busy} onClick={() => void share()}>
         {printer.busy ? t('hist.sharing') : t('hist.share')}
       </button>
+      <button className="btn plain" onClick={() => void whatsapp()}>{t('wa.send')}</button>
       <button className="btn" disabled={printer.busy || bill.cancelled} onClick={() => void reprint()}>
         {printer.busy ? t('hist.printing') : t('hist.printAgain')}
       </button>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   checkCustomer,
   customerName,
+  customerPhones,
   money,
   searchKey,
   type Customer,
@@ -100,7 +101,7 @@ export function CustomerBar() {
         <div className="customer-chip">
           <span className="grow ellipsis">
             <strong>{customerName(c, shop.lang) || t('cust.unnamed')}</strong>
-            {c.phone ? <span className="muted small"> · {c.phone}</span> : null}
+            {c.phone ? <span className="muted small"> · {customerPhones(c).join(', ')}</span> : null}
           </span>
           {/* The balance if there is one, because that is the figure the shopkeeper is looking
               for; the bill count only when there is nothing more pressing to say. */}
@@ -198,7 +199,7 @@ export function CustomerBar() {
                 <button className="suggestion" onClick={() => attach(m)}>
                   <span className="grow ellipsis">
                     <strong>{customerName(m, shop.lang) || t('cust.unnamed')}</strong>
-                    {m.phone ? <span className="muted small"> · {m.phone}</span> : null}
+                    {m.phone ? <span className="muted small"> · {customerPhones(m).join(', ')}</span> : null}
                   </span>
                   <span className="muted small">
                     {m.balance !== 0
