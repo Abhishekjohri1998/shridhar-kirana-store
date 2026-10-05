@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
+  ActivityIndicator, Alert, Animated, Easing, Pressable, StatusBar, StyleSheet, Text, View,
 } from 'react-native';
 // Imported by weight, not from the package root: the root re-exports all four faces and metro
 // then bundles every one of them, which is three quarters of a megabyte of fonts the app never
@@ -18,6 +18,7 @@ import { BillScreen } from './src/screens/BillScreen';
 import { CustomersScreen } from './src/screens/CustomersScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
+import { PersonLoginScreen } from './src/screens/PersonLoginScreen';
 import { ServerScreen } from './src/screens/ServerScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { StockScreen } from './src/screens/StockScreen';
@@ -135,10 +136,38 @@ function Shell() {
 
   // Three gates, in the order a new phone hits them: where is the server, who are you, then work.
   if (!shop.serverUrl) return <ServerScreen />;
-  if (!shop.signedIn) return <LoginScreen />;
+  // Phone + PIN first; the shop PIN is the way in when stock cannot be asked.
+  if (!shop.signedIn && !shop.stockOnly) return shop.pinMode ? <LoginScreen /> : <PersonLoginScreen />;
   // Closed from recents and opened again: the till is behind the PIN, but the token, the parked
   // bills and everything else are exactly where they were.
   if (shop.locked) return <LoginScreen locked />;
+
+  const askSwitchUser = () => {
+    Alert.alert(shop.t('login.switchUser'), shop.t('login.switchAsk'), [
+      { text: shop.t('common.cancel'), style: 'cancel' },
+      { text: shop.t('login.switchUser'), onPress: shop.switchUser },
+    ]);
+  };
+
+  /* A shop worker or the godown: stock's own screens, already signed in, and nothing else. */
+  if (shop.stockOnly) {
+    return (
+      <View style={[styles.shell, frame > 0 ? { minHeight: frame } : null]}>
+        <View style={styles.header}>
+          <Mark size={24} color={C.accent} />
+          <Text style={[styles.headerText, handFont(shop.person?.name ?? '', 19)]} numberOfLines={1}>
+            {shop.person?.name || shop.t('nav.stock')}
+          </Text>
+          <Pressable style={styles.switchItem} onPress={askSwitchUser} hitSlop={6}>
+            <Text style={styles.switchText}>{shop.t('login.switchUser')}</Text>
+          </Pressable>
+        </View>
+        <View style={[styles.visible, { paddingBottom: insets.bottom }]}>
+          <StockScreen />
+        </View>
+      </View>
+    );
+  }
 
   const index = TABS.findIndex((t) => t.key === tab);
   const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
@@ -177,6 +206,11 @@ function Shell() {
           </Text>
           {app === 'billing' ? (
             <Text style={styles.badge}>{shop.t('app.today', { amount: money(shop.today.total) })}</Text>
+          ) : null}
+          {shop.person ? (
+            <Pressable onPress={askSwitchUser} hitSlop={6} accessibilityLabel={shop.t('login.switchUser')}>
+              <Text style={styles.person} numberOfLines={1}>{shop.person.name || shop.t('login.switchUser')}</Text>
+            </Pressable>
           ) : null}
           <View style={styles.switch}>
             {(['billing', 'stock'] as const).map((key) => (
@@ -362,6 +396,7 @@ const styles = StyleSheet.create({
   switchItem: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: R.pill },
   switchOn: { backgroundColor: C.card, ...shadow(1) },
   switchText: { fontSize: 13, fontWeight: '600', color: C.soft },
+  person: { fontSize: 13, fontWeight: '600', color: C.soft, maxWidth: 140, textDecorationLine: 'underline' },
   switchTextOn: { color: C.accentDeep, fontWeight: '800' },
 
   tabBar: {

@@ -7,6 +7,7 @@ import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { markStockSignOut, stockSignOutPending } from '../lib/api';
 import { useShop } from '../lib/useShop';
 import { C, R, TYPE } from '../theme';
 
@@ -16,7 +17,18 @@ import { C, R, TYPE } from '../theme';
  * Billing and stock are two separate programs, kept apart at the shop's asking: none of stock's
  * code lives in this folder. This screen is a browser window onto the stock server, so the
  * counter can reach both from one app. Stock has its own sign-in, remembered inside the window.
+ *
+ * A person who signed in by phone and PIN brings a stock session with them; the window's first
+ * load carries it as `#token=`, which the stock site signs in with, so the Stock tab opens
+ * already signed in. After "Switch user" with no new session (the shop PIN), the window's first
+ * load drops the last person's stored session instead.
  */
+
+/** Forgets the stock site's saved session. Only ever on the first load after a switch. */
+const FORGET_STOCK_SESSION = `
+try { localStorage.removeItem('stock.token'); } catch (e) {}
+true;
+`;
 
 const STOCK_KEY = 'shridhar.stockUrl';
 
@@ -66,11 +78,31 @@ export function StockScreen() {
   const [canBack, setCanBack] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  /* Decided once, when the window first opens: hand over this person's session, or forget the
+     last one. Neither is repeated on later loads, so stock's own sign-out keeps working. */
+  const [firstLoad, setFirstLoad] = useState<{ hash: string; forget: boolean } | null>(null);
+  const firstDone = useRef(false);
 
   useEffect(() => {
     AsyncStorage.getItem(STOCK_KEY)
       .then((saved) => setUrl(saved || shippedStockUrl()))
       .catch(() => setUrl(shippedStockUrl()));
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void stockSignOutPending().then((pending) => {
+      if (!alive) return;
+      const token = shop.stockToken;
+      setFirstLoad({
+        hash: token ? '#token=' + encodeURIComponent(token) : '',
+        forget: !token && pending,
+      });
+      if (pending) void markStockSignOut(false);
+    });
+    return () => { alive = false; };
+    // Once per mount: App remounts this window when the person changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Android's back button walks back through stock's own pages before it leaves the app.
@@ -104,7 +136,7 @@ export function StockScreen() {
     setUrl(next);
   };
 
-  if (url === null) {
+  if (url === null || firstLoad === null) {
     return <View style={styles.center}><ActivityIndicator color={C.accent} /></View>;
   }
 
@@ -150,17 +182,19 @@ export function StockScreen() {
     <View style={styles.fill}>
       <WebView
         ref={web}
-        source={{ uri: url }}
+        source={{ uri: firstLoad.hash ? url + '/' + firstLoad.hash : url }}
         style={styles.fill}
         domStorageEnabled
         javaScriptEnabled
         pullToRefreshEnabled
         allowFileAccess
         setSupportMultipleWindows={false}
-        injectedJavaScriptBeforeContentLoaded={CATCH_DOWNLOADS}
+        injectedJavaScriptBeforeContentLoaded={
+          firstLoad.forget && !firstDone.current ? FORGET_STOCK_SESSION + CATCH_DOWNLOADS : CATCH_DOWNLOADS
+        }
         onMessage={onMessage}
         onLoadStart={() => setLoading(true)}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={() => { firstDone.current = true; setLoading(false); }}
         onError={() => setFailed(true)}
         onHttpError={(e) => { if (e.nativeEvent.statusCode >= 500) setFailed(true); }}
         onNavigationStateChange={(s) => setCanBack(s.canGoBack)}

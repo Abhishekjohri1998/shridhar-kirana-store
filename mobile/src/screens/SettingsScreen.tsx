@@ -477,6 +477,11 @@ export function SettingsScreen() {
         </Text>
 
         <View style={{ height: 10 }} />
+        {shop.person ? (
+          <Text style={styles.hint}>{t('login.signedInAs', { name: shop.person.name })}</Text>
+        ) : null}
+        <Button label={t('login.switchUser')} tone="plain" onPress={shop.switchUser} />
+        <View style={{ height: 8 }} />
         <Button label={t('set.signOut')} tone="plain" onPress={shop.signOut} />
         <View style={{ height: 8 }} />
         <Button label={t('set.changeServer')} tone="plain" onPress={() => setConfirmServer(true)} />

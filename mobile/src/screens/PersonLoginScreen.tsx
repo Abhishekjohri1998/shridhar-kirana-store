@@ -7,29 +7,29 @@ import { useShop } from '../lib/useShop';
 import { C, R, SP, TYPE, handFont, shadow } from '../theme';
 
 /**
- * The PIN screen, in both of its jobs.
+ * The first screen after the server address: a person's own phone number and PIN.
  *
- * `locked` is a session that is already signed in and only needs the PIN again -- the app was
- * closed and reopened. It says so, because a shopkeeper who sees a login screen with a parked
- * bill behind it needs to know the bill is still there.
+ * Checked by the stock server, through billing's server, and the role decides what opens: an
+ * admin gets Billing and Stock, a shop worker or the godown gets stock's own screens only. When
+ * stock cannot be asked, the shop PIN below still opens billing exactly as it always did.
  */
-export function LoginScreen({ locked = false }: { locked?: boolean }) {
+export function PersonLoginScreen() {
   const shop = useShop();
+  const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
-  const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
 
   const submit = async () => {
-    if (!pin.trim()) {
-      setError(shop.t('login.enterPin'));
+    if (!phone.trim() || !pin.trim()) {
+      setError(shop.t('login.enterPhone'));
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      if (locked) await shop.unlock(pin.trim());
-      else await shop.signIn(pin.trim());
+      await shop.signInPerson(phone.trim(), pin.trim());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setPin('');
@@ -46,16 +46,17 @@ export function LoginScreen({ locked = false }: { locked?: boolean }) {
             <Mark size={46} color={C.accent} />
           </View>
           <Text style={[styles.title, handFont(shopName, 22)]}>{shopName}</Text>
-          <Text style={styles.lede}>
-            {locked
-              ? (shop.person
-                ? shop.t('login.lockedPersonPrompt', { name: shop.person.name })
-                : shop.t('login.lockedPrompt'))
-              : shop.t('login.prompt')}
-          </Text>
+          <Text style={styles.lede}>{shop.t('login.personPrompt')}</Text>
 
           {error ? <ErrorText>{error}</ErrorText> : null}
 
+          <Field
+            label={shop.t('login.phone')}
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            autoComplete="tel"
+          />
           <Field
             label={shop.t('login.pin')}
             value={pin}
@@ -66,25 +67,16 @@ export function LoginScreen({ locked = false }: { locked?: boolean }) {
             onSubmitEditing={() => void submit()}
           />
           <Button
-            label={
-              busy ? shop.t('login.checking')
-                : (locked ? shop.t('login.unlock') : shop.t('login.signIn'))
-            }
+            label={busy ? shop.t('login.checking') : shop.t('login.signIn')}
             onPress={() => void submit()}
             disabled={busy}
           />
-          {!locked ? (
-            <Pressable style={styles.alt} onPress={() => shop.setPinMode(false)} hitSlop={8}>
-              <Text style={styles.serverChange}>{shop.t('login.usePhone')}</Text>
-            </Pressable>
-          ) : null}
+          <Pressable style={styles.alt} onPress={() => shop.setPinMode(true)} hitSlop={8}>
+            <Text style={styles.altText}>{shop.t('login.useShopPin')}</Text>
+          </Pressable>
         </View>
       </Fade>
 
-      {/* The address, and a way out of it.
-          A wrong address saved on the first screen leaves the operator here for ever: signing in
-          is impossible because the server cannot be reached, and the only control that could fix
-          it used to live in Settings, on the far side of this login. */}
       <Pressable style={styles.serverRow} onPress={shop.forgetServer}>
         <Text style={styles.server}>{shop.serverUrl}</Text>
         <Text style={styles.serverChange}>{shop.t('set.changeServer')}</Text>
@@ -107,10 +99,10 @@ const styles = StyleSheet.create({
   markRow: { alignItems: 'center', marginBottom: SP.md },
   title: { ...TYPE.title, fontSize: 22, textAlign: 'center', marginBottom: 4 },
   lede: { fontSize: 14, color: C.soft, marginBottom: 20, lineHeight: 20, textAlign: 'center' },
-  /* Widely spaced dots, so the operator can count what they typed without unmasking it. */
   pin: { textAlign: 'center', fontSize: 22, letterSpacing: 10 },
+  alt: { alignItems: 'center', marginTop: 16, paddingVertical: 6 },
+  altText: { fontSize: 14, color: C.accent, fontWeight: '700', textDecorationLine: 'underline' },
   serverRow: { alignItems: 'center', marginTop: 18, paddingVertical: 8 },
-  alt: { alignItems: 'center', marginTop: 10, paddingVertical: 6 },
   server: { fontSize: 12, color: C.faint, textAlign: 'center' },
   serverChange: {
     fontSize: 13, color: C.accent, fontWeight: '700', marginTop: 6,

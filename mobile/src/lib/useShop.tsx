@@ -6,15 +6,16 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, draftForStock, mergeStockTicks,
-  type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
+  type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
 
 /** What a stock suggestion fills a line with. */
 export type StockPick = { nameEn: string; nameKn: string; unit: string; stockItemId: string; rate: number };
 import {
-  ApiError, api, checkStoredPin, forgetPin, getBaseUrl, getToken, loadStoredConfig,
-  rememberPin, setServerUrl, setToken,
+  ApiError, api, checkStoredPin, forgetPin, getBaseUrl, getToken, loadPerson, loadStoredConfig,
+  markStockSignOut, rememberPin, savePerson, setServerUrl, setToken,
+  type CustomerInput, type StoredPerson,
 } from './api';
 
 const CACHE_KEY = 'shridhar.cache';
@@ -103,6 +104,19 @@ type Shop = {
 
   saveServerUrl: (url: string) => Promise<void>;
   signIn: (pin: string) => Promise<void>;
+  /** Who signed in by phone and PIN; null for the shop PIN. */
+  person: StoredPerson | null;
+  /** The stock session that came with the person, handed to the Stock window. */
+  stockToken: string | null;
+  /** A shop worker or the godown: stock's screens only, no billing. */
+  stockOnly: boolean;
+  /** Sign in by personal phone and PIN, checked by the stock server. */
+  signInPerson: (phone: string, pin: string) => Promise<PersonRole>;
+  /** Back to the sign-in screen for somebody else. Parked bills stay. */
+  switchUser: () => void;
+  /** Whether the sign-in screen shows the shop PIN rather than phone + PIN. */
+  pinMode: boolean;
+  setPinMode: (on: boolean) => void;
   /** Let a signed-in session back in. Throws with a message if the PIN is wrong. */
   unlock: (pin: string) => Promise<void>;
   signOut: () => void;
@@ -156,9 +170,7 @@ type Shop = {
   newBill: () => void;
   switchBill: (id: string) => void;
   closeBill: (id: string) => void;
-  saveCustomer: (input: {
-    id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
-  }) => Promise<Customer>;
+  saveCustomer: (input: CustomerInput) => Promise<Customer>;
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
   setNote: (value: string) => void;
@@ -186,6 +198,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
    * keeps the token, keeps the drafts, and only puts the screen behind the PIN.
    */
   const [locked, setLocked] = useState(true);
+  const [person, setPerson] = useState<StoredPerson | null>(null);
+  const [stockToken, setStockToken] = useState<string | null>(null);
+  const [pinMode, setPinMode] = useState(false);
+  const stockOnly = person != null && person.role !== 'admin' && stockToken != null;
   const [offline, setOffline] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [bills, setBills] = useState<Bill[]>([]);
@@ -502,7 +518,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     let alive = true;
     (async () => {
       const stored = await loadStoredConfig();
+      const who = await loadPerson();
       if (!alive) return;
+      setPerson(who.person);
+      setStockToken(who.stockToken);
       setServerUrlState(stored.baseUrl);
       // The cached settings let the slip draw with the shop's own name before the network answers.
       try {
@@ -541,6 +560,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       const { token } = await api.login(pin);
       await setToken(token);
       await rememberPin(pin);
+      // The shop PIN is nobody in particular, and brings no stock session.
+      await savePerson(null, null);
+      setPerson(null);
+      setStockToken(null);
       setSignedIn(true);
       setLocked(false);
       await loadEverything();
@@ -562,20 +585,74 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLocked(false);
       return;
     }
-    if (known === false) throw new Error(t('login.wrongPin'));
+    if (known === false) throw new Error(t(person ? 'login.wrongPersonPin' : 'login.wrongPin'));
+    if (person) {
+      // Nothing stored to check against: ask stock again, by the phone they signed in with.
+      const got = await api.person(person.phone, pin);
+      if (got.token) await setToken(got.token);
+      await savePerson({ ...person, role: got.role, name: got.name }, got.stockToken);
+      setStockToken(got.stockToken);
+      await rememberPin(pin);
+      setLocked(false);
+      return;
+    }
     const { token } = await api.login(pin);
     await setToken(token);
     await rememberPin(pin);
     setLocked(false);
-  }, [t]);
+  }, [t, person]);
+
+  const forgetPerson = useCallback((): void => {
+    void savePerson(null, null);
+    setPerson(null);
+    setStockToken(null);
+    setPinMode(false);
+  }, []);
 
   const signOut = useCallback(() => {
     void setToken(null);
     void forgetPin();
+    if (person) void markStockSignOut(true);
+    forgetPerson();
     setSignedIn(false);
     setLocked(true);
     resetDraft();
-  }, [resetDraft]);
+  }, [resetDraft, forgetPerson, person]);
+
+  /*
+   * Hand the tablet to somebody else. Like signing out, but the bills being written stay
+   * parked, and the Stock window is told to drop the last person's session.
+   */
+  const switchUser = useCallback(() => {
+    void setToken(null);
+    void forgetPin();
+    void markStockSignOut(true);
+    forgetPerson();
+    setSignedIn(false);
+    setLocked(true);
+  }, [forgetPerson]);
+
+  const signInPerson = useCallback(async (phone: string, pin: string): Promise<PersonRole> => {
+    const got = await api.person(phone.trim(), pin);
+    const who: StoredPerson = { role: got.role, name: got.name, phone: phone.trim() };
+    await savePerson(who, got.stockToken);
+    await rememberPin(pin);
+    // A fresh session for this person replaces whatever the Stock window held.
+    await markStockSignOut(false);
+    setPerson(who);
+    setStockToken(got.stockToken);
+    if (got.role === 'admin' && got.token) {
+      await setToken(got.token);
+      setLocked(false);
+      await loadEverything();
+    } else {
+      // No billing for this role: drop any billing session the device still had.
+      await setToken(null);
+      setSignedIn(false);
+      setLocked(false);
+    }
+    return got.role;
+  }, [loadEverything]);
 
   /**
    * Forget where the server is, sending the app back to its first screen.
@@ -588,9 +665,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     void setToken(null);
     void setServerUrl('');
     setServerUrlState('');
+    forgetPerson();
     setSignedIn(false);
     resetDraft();
-  }, [resetDraft]);
+  }, [resetDraft, forgetPerson]);
 
   const addItemToCart = useCallback((item: Item, qty = 1) => {
     setCart((prev) => {
@@ -821,9 +899,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     [cart, customer, note, resetDraft, t, stockOn, active.draftId],
   );
 
-  const saveCustomer = useCallback(async (input: {
-    id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
-  }) => {
+  const saveCustomer = useCallback(async (input: CustomerInput) => {
     const saved = await api.saveCustomer(input);
     // Through setCustomer, not setCustomerState: saving by phone can match somebody who already
     // owes money, and their balance needs dating like any other attachment. The web app has
@@ -850,6 +926,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, paidInput, printBalance, printBalanceTouched, note,
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
+      person, stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
@@ -862,6 +939,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       ready, serverUrl, signedIn, locked, offline, settings, bills, today, cart,
       customer, inactive, paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
+      person, stockToken, stockOnly, signInPerson, switchUser, pinMode,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,

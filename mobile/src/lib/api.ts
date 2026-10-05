@@ -1,6 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import { normaliseServerUrl, pinDigest, type Bill, type BillLine, type Customer, type Item, type Settings, type TodaySummary } from '@shridhar/shared';
+import {
+  normaliseServerUrl, pinDigest, type Bill, type BillLine, type Customer, type Item, type Payment,
+  type Person, type PersonRole, type Settings, type TodaySummary,
+} from '@shridhar/shared';
 import type { StockItem, StockQuote, StockTicks, draftForStock } from '@shridhar/shared';
 
 const TOKEN_KEY = 'shridhar.token';
@@ -12,6 +15,48 @@ const TOKEN_KEY = 'shridhar.token';
 const PIN_KEY = 'shridhar.pin';
 const SALT_KEY = 'shridhar.salt';
 const SERVER_KEY = 'shridhar.server';
+/* Who signed in by their own phone and PIN, and the stock session that came with it. */
+const PERSON_KEY = 'shridhar.person';
+const STOCK_TOKEN_KEY = 'shridhar.stockToken';
+/* Set by "Switch user", so the Stock window drops the last person's session on its next open. */
+const STOCK_SIGNOUT_KEY = 'shridhar.stockSignOut';
+
+/** The signed-in person, with the phone they used (for unlocking when no PIN digest is kept). */
+export type StoredPerson = Person & { phone: string };
+
+export async function loadPerson(): Promise<{ person: StoredPerson | null; stockToken: string | null }> {
+  try {
+    const pairs = await AsyncStorage.multiGet([PERSON_KEY, STOCK_TOKEN_KEY]);
+    const raw = pairs[0]?.[1];
+    const parsed = raw ? (JSON.parse(raw) as StoredPerson) : null;
+    const ok = parsed && (['admin', 'worker', 'godown'] as PersonRole[]).includes(parsed.role);
+    return { person: ok ? parsed : null, stockToken: pairs[1]?.[1] || null };
+  } catch {
+    return { person: null, stockToken: null };
+  }
+}
+
+export async function savePerson(person: StoredPerson | null, stockToken: string | null): Promise<void> {
+  try {
+    if (person) await AsyncStorage.setItem(PERSON_KEY, JSON.stringify(person));
+    else await AsyncStorage.removeItem(PERSON_KEY);
+    if (stockToken) await AsyncStorage.setItem(STOCK_TOKEN_KEY, stockToken);
+    else await AsyncStorage.removeItem(STOCK_TOKEN_KEY);
+  } catch {
+    /* the person will simply be asked to sign in again */
+  }
+}
+
+export async function markStockSignOut(on: boolean): Promise<void> {
+  try {
+    if (on) await AsyncStorage.setItem(STOCK_SIGNOUT_KEY, '1');
+    else await AsyncStorage.removeItem(STOCK_SIGNOUT_KEY);
+  } catch { /* nothing to do */ }
+}
+
+export async function stockSignOutPending(): Promise<boolean> {
+  try { return (await AsyncStorage.getItem(STOCK_SIGNOUT_KEY)) === '1'; } catch { return false; }
+}
 
 /**
  * Where the server is.
@@ -164,7 +209,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   // A 401 from the login route means the PIN was wrong, not that a session lapsed.
-  if (res.status === 401 && path !== '/auth/login') {
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/person') {
     await setToken(null);
     throw new ApiError(401, 'Your session has expired. Sign in again.');
   }
@@ -175,10 +220,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+export type CustomerInput = {
+  id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+  phones?: string[]; whatsapp?: string;
+};
+
 export const api = {
   /** Used by the setup screen to check an address before saving it. */
   health: () => request<{ ok: boolean; storage: 'mongo' | 'file' }>('/health'),
   login: (pin: string) => request<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ pin }) }),
+  /** Phone and PIN of a stock account. Only an admin gets `token` (billing). */
+  person: (phone: string, pin: string) =>
+    request<{ role: PersonRole; name: string; stockToken: string; token?: string }>(
+      '/auth/person', { method: 'POST', body: JSON.stringify({ phone, pin }) }),
 
   listItems: () => request<Item[]>('/items'),
   createItem: (item: Omit<Item, 'id'> & { id?: string }) =>
@@ -220,12 +274,19 @@ export const api = {
   listCustomers: () => request<Customer[]>('/customers'),
   searchCustomers: (q: string) => request<Customer[]>('/customers/search?q=' + encodeURIComponent(q)),
   getCustomer: (id: string) =>
-    request<{ customer: Customer; bills: Bill[]; balanceAt: string | null }>(
+    request<{ customer: Customer; bills: Bill[]; payments?: Payment[]; balanceAt: string | null }>(
       '/customers/' + encodeURIComponent(id),
     ),
-  saveCustomer: (input: {
-    id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
-  }) =>
+  /** Money received with no bill. */
+  receivePayment: (customerId: string, input: { amount: number; at?: string; note?: string }) =>
+    request<{ payment: Payment; customer: Customer }>(
+      '/customers/' + encodeURIComponent(customerId) + '/payments',
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  cancelPayment: (id: string) =>
+    request<Payment>('/payments/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }),
+  listPayments: (limit = 100) => request<Payment[]>('/payments?limit=' + limit),
+  saveCustomer: (input: CustomerInput) =>
     input.id
       ? request<Customer>('/customers/' + encodeURIComponent(input.id), {
           method: 'PUT',
