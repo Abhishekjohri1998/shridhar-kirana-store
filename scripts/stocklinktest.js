@@ -47,6 +47,14 @@ const PARLE = {
   ],
 };
 
+/** Stock's accounts, as the fake knows them. */
+const PEOPLE = {
+  '9000000001': { pin: '1111', role: 'admin', name: 'Owner' },
+  '9000000002': { pin: '2222', role: 'worker', name: 'Ravi' },
+  '9000000004': { pin: '4444', role: 'godown', name: 'Godown' },
+  '9000000003': { pin: '3333', role: 'worker', name: 'Old', retired: true },
+};
+
 function startFakeStock(port) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -56,7 +64,7 @@ function startFakeStock(port) {
     };
     if (req.headers['x-link-key'] !== KEY) {
       fake.keyMisses += 1;
-      send(401, { error: 'bad key' });
+      send(401, { error: 'Wrong link key' });
       return;
     }
     const p = url.pathname;
@@ -87,6 +95,20 @@ function startFakeStock(port) {
     }
     if (req.method === 'GET' && p === '/api/billing-link/settings') {
       send(200, { roundTo: fake.roundTo });
+      return;
+    }
+    if (req.method === 'POST' && p === '/api/billing-link/auth') {
+      let raw = '';
+      req.on('data', (d) => { raw += d; });
+      req.on('end', () => {
+        let b = {};
+        try { b = JSON.parse(raw); } catch { /* empty */ }
+        const who = PEOPLE[b.phone];
+        if (who && who.pin === b.pin) {
+          if (who.retired) send(403, { error: 'This role is no longer used' });
+          else send(200, { role: who.role, name: who.name, token: 'stock-jwt-' + who.role });
+        } else send(401, { error: 'wrong' });
+      });
       return;
     }
     if (req.method === 'POST' && p === '/api/billing-link/draft') {
@@ -309,6 +331,42 @@ async function main() {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ given: true }),
     })).status, 401);
 
+    console.log('\nSigning in by person');
+    const person = (srv, phone, pin) => srv.call('/auth/person', {
+      method: 'POST', body: JSON.stringify({ phone, pin }), headers: {},
+    });
+    const admin = await person(on, '9000000001', '1111');
+    eq('an admin signs in', admin.status, 200);
+    eq('as admin', admin.body.role, 'admin');
+    eq('with their name', admin.body.name, 'Owner');
+    eq('and a stock session', admin.body.stockToken, 'stock-jwt-admin');
+    check('and a billing token', typeof admin.body.token === 'string' && admin.body.token.length > 20);
+    const viaAdmin = await fetch('http://127.0.0.1:' + (BASE_PORT + 2) + '/api/settings', {
+      headers: { authorization: 'Bearer ' + admin.body.token },
+    });
+    eq('which opens billing', viaAdmin.status, 200);
+    const worker = await person(on, '9000000002', '2222');
+    eq('a worker signs in', worker.status, 200);
+    eq('as worker', worker.body.role, 'worker');
+    eq('with a stock session', worker.body.stockToken, 'stock-jwt-worker');
+    eq('and no billing token', worker.body.token, undefined);
+    const godown = await person(on, '9000000004', '4444');
+    eq('godown signs in with no billing token', godown.body.role + '/' + godown.body.token, 'godown/undefined');
+    const bad = await person(on, '9000000001', '9999');
+    eq('a wrong PIN is 401', bad.status, 401);
+    check('with a message', /not right/.test(bad.body.error || ''), bad.body.error);
+    const retired = await person(on, '9000000003', '3333');
+    eq('a retired role is 403', retired.status, 403);
+    eq('with stock\'s reason', retired.body.error, 'This role is no longer used');
+    const offPerson = await person(off, '9000000001', '1111');
+    eq('with the link off it is 503', offPerson.status, 503);
+    check('telling them to use the shop PIN', /shop PIN/.test(offPerson.body.error || ''), offPerson.body.error);
+    const refused = await person(wrong, '9000000001', '1111');
+    eq('a refused link key is 503 too', refused.status, 503);
+    check('also pointing at the shop PIN', /shop PIN/.test(refused.body.error || ''), refused.body.error);
+    eq('no phone is 400', (await on.call('/auth/person', { method: 'POST', body: JSON.stringify({ pin: '1' }) })).status, 400);
+    eq('the shop PIN still works', (await on.post('/auth/login', { pin: PIN })).status, 200);
+
     console.log('\nStock gone altogether');
     // Billing's fetch keeps its connection open; drop it, or close() waits on it for ever.
     stock.closeAllConnections();
@@ -316,6 +374,9 @@ async function main() {
     eq('search answers empty', JSON.stringify((await on.call('/stock/items?q=parle')).body.items), '[]');
     const alone = await on.post('/bills', { lines: LINES });
     eq('and a bill still saves, unrounded', alone.body.total, 253);
+    const gone = await on.call('/auth/person', { method: 'POST', body: JSON.stringify({ phone: '9000000001', pin: '1111' }) });
+    eq('signing in by person is 503', gone.status, 503);
+    check('and points at the shop PIN', /shop PIN/.test(gone.body.error || ''), gone.body.error);
   } finally {
     for (const s of [off, on, wrong]) s.child.kill();
     try { stock.closeAllConnections(); stock.close(); } catch { /* already closed */ }

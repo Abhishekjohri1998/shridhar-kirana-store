@@ -241,6 +241,31 @@ function billDoc(lines) {
   });
   check('a customer with both names is valid', !bothNames.validateSync());
 
+  // Several numbers and a WhatsApp one; and an older row with neither still validates.
+  const contacts = new Customer({
+    id: 'p9', name: 'Many', phone: '9886012345', phones: ['9886012345', '8022223333'], whatsapp: '9900011111',
+    since: new Date().toISOString(), totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+  });
+  check('a customer with several numbers is valid', !contacts.validateSync());
+  const oldRow = new Customer({
+    id: 'p8', name: 'Old', phone: '9886012346',
+    since: new Date().toISOString(), totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+  });
+  check('an older customer with no list is valid', !oldRow.validateSync());
+  check('and gains no empty list it never had', oldRow.toObject().phones === undefined);
+
+  const Payment = registered.Payment;
+  check('the payment model is registered', Boolean(Payment));
+  if (Payment) {
+    const p = new Payment({
+      id: 'pay-1', customerId: 'p9', amount: 300, at: new Date().toISOString(), note: '',
+      createdAt: new Date().toISOString(),
+    });
+    check('a payment with an empty remark is valid', !p.validateSync());
+    const noAmount = new Payment({ id: 'pay-2', customerId: 'p9', at: 'x', createdAt: 'x' });
+    check('a payment with no amount is not', Boolean(noAmount.validateSync()));
+  }
+
   console.log('\nUpdate documents Mongo will accept');
   const DEFAULTS = { shopName: 'Shop', footer: 'Thanks', paper: '58mm', language: 'en',
     showRate: false, inactiveAfterDays: 30, key: 'shop' };

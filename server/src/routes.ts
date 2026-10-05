@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ERASE_WORD, INK_LIMITS, checkGstin, inkPointCount } from '@shridhar/shared';
+import { ERASE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount } from '@shridhar/shared';
 import { issueToken, pinMatches, requireAuth, secretMatches } from './auth';
 import { env } from './env';
 import { HttpError, handler } from './http';
+import { checkSignInBrake, noteSignInFailure } from './rateLimit';
 import { getRepo } from './store';
-import { stockDraft, stockItems, stockLinkOn, stockQuote, stockRoundTo } from './stockLink';
+import { stockAuth, stockDraft, stockItems, stockLinkOn, stockQuote, stockRoundTo } from './stockLink';
 
 
 /** Handwriting arrives as pen paths. Capped so one bill cannot carry a megabyte of scribble. */
@@ -94,6 +95,10 @@ const customerBody = z.object({
   name: z.string().trim().max(80).default(''),
   nameKn: z.string().trim().max(80).default(''),
   phone: z.string().trim().max(24).default(''),
+  // More numbers, the first being `phone`. Optional, so an older app that sends only `phone`
+  // saves exactly as before.
+  phones: z.array(z.string().trim().max(24)).max(8).optional(),
+  whatsapp: z.string().trim().max(24).optional(),
   address: z.string().trim().max(400).default(''),
   notes: z.string().trim().max(1000).default(''),
 });
@@ -111,9 +116,25 @@ const customerPatch = z.object({
   name: z.string().trim().max(80).optional(),
   nameKn: z.string().trim().max(80).optional(),
   phone: z.string().trim().max(24).optional(),
+  phones: z.array(z.string().trim().max(24)).max(8).optional(),
+  whatsapp: z.string().trim().max(24).optional(),
   address: z.string().trim().max(400).optional(),
   notes: z.string().trim().max(1000).optional(),
 });
+
+/** Money received with no bill. */
+const paymentBody = z.object({
+  amount: z.coerce.number().finite().positive().max(10_000_000),
+  // When it was received; now when absent. Anything parseable, stored as ISO.
+  at: z.string().trim().max(40).optional()
+    .refine((v) => v == null || v === '' || Number.isFinite(Date.parse(v)), { message: 'not a date' }),
+  note: z.string().trim().max(200).optional(),
+});
+
+/** Phones listed with `phone` first: what the store takes. */
+function phoneList(phone: string, phones: string[] | undefined): string[] {
+  return customerPhones({ phones: [phone, ...(phones ?? [])] });
+}
 
 /** Readable ids, so the data stays legible if anyone ever looks at the collection directly. */
 
@@ -124,9 +145,53 @@ api.get('/health', handler(async (_req, res) => {
 }));
 
 api.post('/auth/login', handler(async (req, res) => {
+  checkSignInBrake(req);
   const { pin } = z.object({ pin: z.string().min(1).max(64) }).parse(req.body);
-  if (!pinMatches(pin)) throw new HttpError(401, 'That PIN is not right');
+  if (!pinMatches(pin)) {
+    noteSignInFailure(req);
+    throw new HttpError(401, 'That PIN is not right');
+  }
   res.json({ token: issueToken() });
+}));
+
+/**
+ * A person signing in with their own phone and PIN, checked against the stock app's accounts.
+ *
+ * Every person gets a stock session, so the Stock side of the tablet opens already signed in.
+ * Only an admin also gets a billing token: a shop worker or the godown sees stock's screens and
+ * nothing of billing. When stock cannot be asked, the answer says to use the shop PIN, which
+ * still works exactly as before.
+ */
+api.post('/auth/person', handler(async (req, res) => {
+  checkSignInBrake(req);
+  const { phone, pin } = z.object({
+    phone: z.string().trim().min(1).max(24),
+    pin: z.string().min(1).max(64),
+  }).parse(req.body);
+  const said = await stockAuth(phone, pin);
+  if (said.kind === 'off' || said.kind === 'down') {
+    res.status(503).json({
+      off: true,
+      error: said.kind === 'off'
+        ? 'Personal sign-in is not set up on this server. Use "Sign in with shop PIN".'
+        : 'The stock server cannot be reached just now. Use "Sign in with shop PIN".',
+    });
+    return;
+  }
+  if (said.kind === 'denied') {
+    if (said.status === 401) {
+      noteSignInFailure(req);
+      throw new HttpError(401, 'That phone number or PIN is not right');
+    }
+    if (said.status === 429) throw new HttpError(429, said.error || 'Too many wrong tries. Wait a few minutes.');
+    throw new HttpError(403, said.error || 'This account can no longer sign in');
+  }
+  res.json({
+    role: said.role,
+    name: said.name,
+    stockToken: said.token,
+    ...(said.role === 'admin' ? { token: issueToken() } : {}),
+  });
 }));
 
 api.use(requireAuth);
@@ -179,7 +244,22 @@ api.get('/customers/:id', handler(async (req, res) => {
    * shows the same date the paper will.
    */
   const owing = bills.find((b) => !b.cancelled && b.paid < b.total);
-  res.json({ customer, bills, balanceAt: owing ? owing.at : null });
+  const payments = await getRepo().listPayments(100, customer.id);
+  res.json({ customer, bills, payments, balanceAt: owing ? owing.at : null });
+}));
+
+/* Money received with no bill: the khata settled, or part of it, in cash. */
+api.post('/customers/:id/payments', handler(async (req, res) => {
+  const id = z.string().trim().min(1).max(80).parse(req.params.id);
+  const body = paymentBody.parse(req.body);
+  const payment = await getRepo().createPayment(id, {
+    amount: body.amount,
+    ...(body.at ? { at: new Date(body.at).toISOString() } : {}),
+    ...(body.note ? { note: body.note } : {}),
+  });
+  if (!payment) throw new HttpError(404, 'No such customer');
+  const customer = await getRepo().getCustomer(id);
+  res.status(201).json({ payment, customer });
 }));
 
 api.post('/customers', handler(async (req, res) => {
@@ -187,7 +267,11 @@ api.post('/customers', handler(async (req, res) => {
   if (!body.name && !body.nameKn && !body.phone) {
     throw new HttpError(400, 'Give the customer a name or a phone number');
   }
-  res.status(201).json(await getRepo().upsertCustomer(body));
+  res.status(201).json(await getRepo().upsertCustomer({
+    ...body,
+    phones: phoneList(body.phone, body.phones),
+    ...(body.whatsapp != null ? { whatsapp: body.whatsapp } : {}),
+  }));
 }));
 
 api.put('/customers/:id', handler(async (req, res) => {
@@ -196,11 +280,18 @@ api.put('/customers/:id', handler(async (req, res) => {
   const existing = await getRepo().getCustomer(id);
   if (!existing) throw new HttpError(404, 'No such customer');
 
-  // Whatever the request did not mention keeps the value it already had.
+  // Whatever the request did not mention keeps the value it already had. An older app that
+  // sends only `phone` changes the first number and keeps the rest.
+  const had = customerPhones(existing);
+  const phones = patch.phones != null
+    ? phoneList(patch.phone ?? '', patch.phones)
+    : patch.phone != null ? phoneList(patch.phone, had.slice(1)) : had;
   const body = {
     name: patch.name ?? existing.name,
     nameKn: patch.nameKn ?? existing.nameKn ?? '',
-    phone: patch.phone ?? existing.phone,
+    phone: phones[0] ?? '',
+    phones,
+    whatsapp: patch.whatsapp ?? existing.whatsapp ?? '',
     address: patch.address ?? existing.address ?? '',
     notes: patch.notes ?? existing.notes ?? '',
   };
@@ -208,6 +299,20 @@ api.put('/customers/:id', handler(async (req, res) => {
     throw new HttpError(400, 'Give the customer a name or a phone number');
   }
   res.json(await getRepo().upsertCustomer({ ...body, id }));
+}));
+
+/* Taken back out of the customer's figures. Kept, marked cancelled, like a bill. */
+api.post('/payments/:id/cancel', handler(async (req, res) => {
+  const id = z.string().trim().min(1).max(80).parse(req.params.id);
+  const payment = await getRepo().cancelPayment(id);
+  if (!payment) throw new HttpError(404, 'No such payment');
+  res.json(payment);
+}));
+
+api.get('/payments', handler(async (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(500).default(100).parse(req.query.limit ?? 100);
+  const customerId = z.string().trim().min(1).max(80).optional().parse(req.query.customerId || undefined);
+  res.json(await getRepo().listPayments(limit, customerId));
 }));
 
 api.delete('/customers/:id', handler(async (req, res) => {
@@ -278,12 +383,13 @@ api.delete('/bills/:no', handler(async (req, res) => {
  */
 api.get('/backup', handler(async (_req, res) => {
   const repo = getRepo();
-  const [settings, customers, bills] = await Promise.all([
+  const [settings, customers, bills, payments] = await Promise.all([
     repo.getSettings(),
     repo.listCustomers(),
     repo.listBills(5000),
+    repo.listPayments(5000),
   ]);
-  res.json({ at: new Date().toISOString(), settings, customers, bills });
+  res.json({ at: new Date().toISOString(), settings, customers, bills, payments });
 }));
 
 /**

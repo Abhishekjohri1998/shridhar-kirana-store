@@ -19,3 +19,29 @@ export function normalisePhone(raw: string): string {
   if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1); // 0 98860 12345
   return digits;
 }
+
+/**
+ * Every number a customer has, primary first, normalised and without repeats.
+ *
+ * Customers saved before the list existed carry only `phone`; this reads them as a list of one,
+ * so nothing has to be migrated.
+ */
+export function customerPhones(c: { phone?: string; phones?: string[] }): string[] {
+  const out: string[] = [];
+  for (const raw of [...(c.phones ?? []), c.phone ?? '']) {
+    const d = normalisePhone(raw);
+    if (d && !out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+/**
+ * The number WhatsApp knows a customer by, with the country code: their WhatsApp number if one
+ * is saved, else their first phone. A ten-digit Indian number gets 91 in front. Empty when there
+ * is none.
+ */
+export function whatsappNumber(c: { phone?: string; phones?: string[]; whatsapp?: string }): string {
+  const d = normalisePhone(c.whatsapp || customerPhones(c)[0] || '');
+  if (!d) return '';
+  return d.length === 10 ? '91' + d : d;
+}

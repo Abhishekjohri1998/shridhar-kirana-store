@@ -2,10 +2,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_SETTINGS, billTotal, customerMatches, round2, roundToStep,
-  type Bill, type Customer, type Item, type Settings, type TodaySummary,
+  type Bill, type Customer, type Item, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, normalisePhone,
+  contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId,
   type NewBill, type Repo,
 } from './types';
 
@@ -15,6 +15,9 @@ type CustomerRow = {
   /** Their name on a Kannada keypad. Absent on every row written before the field existed. */
   nameKn?: string;
   phone: string;
+  /** Every number, `phone` first, and the WhatsApp one. Absent on older rows. */
+  phones?: string[];
+  whatsapp?: string;
   /** Where to deliver, and anything worth remembering. Absent on rows written before they
    *  existed, which reads as empty. */
   address?: string;
@@ -30,11 +33,12 @@ type Db = {
   items: Item[];
   bills: Bill[];
   customers: CustomerRow[];
+  payments: Payment[];
   settings: Settings;
   billNo: number;
 };
 
-const EMPTY: Db = { items: [], bills: [], customers: [], settings: { ...DEFAULT_SETTINGS }, billNo: 0 };
+const EMPTY: Db = { items: [], bills: [], customers: [], payments: [], settings: { ...DEFAULT_SETTINGS }, billNo: 0 };
 
 /**
  * Stand-in for MongoDB until the connection string arrives. One JSON file, writes serialised
@@ -66,7 +70,13 @@ export async function createFileRepo(dir: string): Promise<Repo> {
     await fs.rename(tmp, file);
   }
 
-  const toCustomer = (row: CustomerRow): Customer => ({ ...row, balance: customerBalance(row) });
+  const toCustomer = (row: CustomerRow): Customer => ({
+    ...row,
+    phones: row.phones && row.phones.length ? row.phones : row.phone ? [row.phone] : [],
+    whatsapp: row.whatsapp ?? '',
+    balance: customerBalance(row),
+  });
+  if (!Array.isArray(db.payments)) db.payments = [];
 
   return {
     kind: 'file',
@@ -223,6 +233,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
     eraseAll(keepCustomers) {
       return serial(async () => {
         db.bills = [];
+        db.payments = [];
         if (keepCustomers) {
           // The four fields createBill adds to and cancelBill takes from. Zeroing them is what
           // "no bills" means for a customer; the name and the phone number are left alone.
@@ -267,9 +278,10 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return row ? toCustomer(row) : null;
     },
 
-    upsertCustomer({ id, name, nameKn, phone, address, notes }) {
+    upsertCustomer({ id, name, nameKn, phone, phones, address, notes, whatsapp }) {
       return serial(async () => {
-        const digits = normalisePhone(phone);
+        const contacts = contactsOf({ phone, phones, whatsapp });
+        const digits = contacts.phone;
         // Found by id, or by phone when one is given -- which is what stops the same person
         // being saved twice as they get re-entered at the counter.
         const existing = id
@@ -282,6 +294,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           existing.name = name;
           existing.nameKn = nameKn ?? '';
           existing.phone = digits;
+          existing.phones = contacts.phones;
+          existing.whatsapp = contacts.whatsapp;
           existing.address = address ?? '';
           existing.notes = notes ?? '';
           await flush();
@@ -293,6 +307,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           name,
           nameKn: nameKn ?? '',
           phone: digits,
+          phones: contacts.phones,
+          whatsapp: contacts.whatsapp,
           address: address ?? '',
           notes: notes ?? '',
           since: new Date().toISOString(),
@@ -315,6 +331,44 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         await flush();
         return true;
       });
+    },
+
+    createPayment(customerId, { amount, at, note }) {
+      return serial(async () => {
+        const row = db.customers.find((c) => c.id === customerId);
+        if (!row) return null;
+        const now = new Date().toISOString();
+        const payment: Payment = {
+          id: makePaymentId(), customerId, amount: round2(amount),
+          at: at ?? now, note: note ?? '', createdAt: now,
+        };
+        row.totalPaid = round2(row.totalPaid + payment.amount);
+        db.payments.push(payment);
+        await flush();
+        return { ...payment };
+      });
+    },
+
+    cancelPayment(id) {
+      return serial(async () => {
+        const payment = db.payments.find((p) => p.id === id);
+        if (!payment) return null;
+        if (payment.cancelled) return { ...payment };
+        payment.cancelled = true;
+        payment.cancelledAt = new Date().toISOString();
+        const row = db.customers.find((c) => c.id === payment.customerId);
+        if (row) row.totalPaid = round2(row.totalPaid - payment.amount);
+        await flush();
+        return { ...payment };
+      });
+    },
+
+    async listPayments(limit, customerId) {
+      return db.payments
+        .filter((p) => (customerId ? p.customerId === customerId : true))
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .slice(0, limit)
+        .map((p) => ({ ...p }));
     },
 
     async inactiveCustomers(days) {

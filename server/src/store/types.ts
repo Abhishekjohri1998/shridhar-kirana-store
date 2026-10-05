@@ -1,5 +1,5 @@
 import { normalisePhone } from '@shridhar/shared';
-import type { Bill, BillLine, Customer, Item, Settings, TodaySummary } from '@shridhar/shared';
+import type { Bill, BillLine, Customer, Item, Payment, Settings, TodaySummary } from '@shridhar/shared';
 
 export { normalisePhone };
 
@@ -22,7 +22,26 @@ export type NewBill = {
 
 export type CustomerInput = {
   id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+  /** Every number, primary first. When given, `phone` is taken from its first entry. */
+  phones?: string[];
+  whatsapp?: string;
 };
+
+export type NewPayment = { amount: number; at?: string; note?: string };
+
+/** The stored contact fields of a customer, from whatever an input carried. */
+export function contactsOf(input: { phone: string; phones?: string[]; whatsapp?: string }):
+  { phone: string; phones: string[]; whatsapp: string } {
+  const list = input.phones && input.phones.length
+    ? input.phones.map(normalisePhone).filter((p, i, a) => p && a.indexOf(p) === i)
+    : [normalisePhone(input.phone)].filter(Boolean);
+  return { phone: list[0] ?? '', phones: list, whatsapp: normalisePhone(input.whatsapp ?? '') };
+}
+
+/** Readable payment ids, like the customer ones. */
+export function makePaymentId(): string {
+  return 'pay-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
 
 /**
  * Everything the API needs from storage. Two implementations exist -- MongoDB, and a JSON file
@@ -104,6 +123,16 @@ export type Repo = {
   deleteCustomer(id: string): Promise<boolean>;
   /** Customers whose last bill is older than `days`, oldest visit first. */
   inactiveCustomers(days: number): Promise<Customer[]>;
+
+  /**
+   * Money received with no bill. Moves `totalPaid` up by the amount, so the balance falls.
+   * Null when there is no such customer.
+   */
+  createPayment(customerId: string, input: NewPayment): Promise<Payment | null>;
+  /** Takes a payment back out of the customer's figures. Idempotent; null when there is none. */
+  cancelPayment(id: string): Promise<Payment | null>;
+  /** Newest first, by when the money was received. */
+  listPayments(limit: number, customerId?: string): Promise<Payment[]>;
 };
 
 /** Midnight-to-midnight in the server's own timezone, which is the shop's day. */

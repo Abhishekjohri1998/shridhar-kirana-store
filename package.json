@@ -17,7 +17,7 @@
     "start": "npm run start --workspace @shridhar/server",
     "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
     "selftest": "npm run build:shared && node scripts/selftest.js",
-    "test": "npm run typecheck && npm run fieldtest && npm run i18ntest && npm run rastertest && npm run printertest && npm run schematest && npm run selftest && npm run stocklinktest",
+    "test": "npm run typecheck && npm run fieldtest && npm run i18ntest && npm run rastertest && npm run printertest && npm run schematest && npm run selftest && npm run stocklinktest && npm run ledgertest && npm run plugintest",
     "fieldtest": "node scripts/fieldtest.js",
     "i18ntest": "node scripts/i18ntest.js",
     "i18n:review": "node scripts/gen-i18n-review.js",
@@ -26,7 +26,9 @@
     "rastertest": "node scripts/rastertest.js",
     "printertest": "node scripts/printertest.js",
     "schematest": "node scripts/schematest.js",
-    "stocklinktest": "node scripts/stocklinktest.js"
+    "stocklinktest": "node scripts/stocklinktest.js",
+    "ledgertest": "node scripts/ledgertest.js",
+    "plugintest": "node scripts/plugintest.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -155,14 +155,14 @@ export function customerName(c: { name: string; nameKn?: string }, lang: Lang): 
 }
 
 export function customerMatches(
-  c: { name: string; nameKn?: string; phone: string },
+  c: { name: string; nameKn?: string; phone: string; phones?: string[] },
   query: string,
 ): boolean {
   const typed = String(query ?? '').trim();
   if (!typed) return false;
 
   const digits = normalisePhone(typed);
-  if (digits.length > 0 && c.phone.startsWith(digits)) return true;
+  if (digits.length > 0 && [c.phone, ...(c.phones ?? [])].some((p) => p.startsWith(digits))) return true;
 
   /*
    * Any word of the name, not just the first.

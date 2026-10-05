@@ -1,10 +1,10 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
   DEFAULT_SETTINGS, billTotal, customerMatches, round2, roundToStep,
-  type Bill, type BillLine, type Customer, type Ink, type Settings, type TodaySummary,
+  type Bill, type BillLine, type Customer, type Ink, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  customerBalance, dayBounds, inactiveCutoff, makeCustomerId, normalisePhone, upsertDoc,
+  contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId, upsertDoc,
   type CustomerInput, type NewBill, type Repo,
 } from './types';
 
@@ -14,6 +14,8 @@ type CustomerDoc = {
   name: string;
   nameKn?: string;
   phone: string;
+  phones?: string[];
+  whatsapp?: string;
   /** Where to deliver, and anything worth remembering. Absent on rows written before they
    *  existed, which reads as empty. */
   address?: string;
@@ -114,6 +116,9 @@ const customerSchema = new Schema<CustomerDoc>(
     // Optional with a plain default -- see the note on the bill's copy above.
     nameKn: { type: String, required: false, default: '' },
     phone: { type: String, required: true, default: '' },
+    // Optional, no `required` beside a default. Absent on older rows, read as [phone].
+    phones: { type: [String], required: false, default: undefined },
+    whatsapp: { type: String, required: false, default: '' },
     // Kept in the app only: a 58mm slip has no room for an address.
     address: { type: String, required: false, default: '' },
     notes: { type: String, required: false, default: '' },
@@ -126,6 +131,21 @@ const customerSchema = new Schema<CustomerDoc>(
   { versionKey: false },
 );
 customerSchema.index({ lastVisit: 1 });
+
+const paymentSchema = new Schema<Payment>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    customerId: { type: String, required: true, index: true },
+    amount: { type: Number, required: true },
+    at: { type: String, required: true },
+    note: { type: String, required: false, default: '' },
+    createdAt: { type: String, required: true },
+    cancelled: { type: Boolean, required: false, default: false },
+    cancelledAt: { type: String, required: false, default: null },
+  },
+  { versionKey: false },
+);
+paymentSchema.index({ customerId: 1, at: -1 });
 
 const settingsSchema = new Schema<SettingsDoc>(
   {
@@ -169,6 +189,8 @@ const Customers: Model<CustomerDoc> =
 const SettingsModel: Model<SettingsDoc> =
   (mongoose.models.Settings as Model<SettingsDoc> | undefined) ??
   mongoose.model<SettingsDoc>('Settings', settingsSchema);
+const Payments: Model<Payment> =
+  (mongoose.models.Payment as Model<Payment> | undefined) ?? mongoose.model<Payment>('Payment', paymentSchema);
 const Counters: Model<CounterDoc> =
   (mongoose.models.Counter as Model<CounterDoc> | undefined) ??
   mongoose.model<CounterDoc>('Counter', counterSchema);
@@ -183,7 +205,12 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
 
   const toCustomer = (doc: CustomerDoc): Customer => {
     const c = strip(doc);
-    return { ...c, balance: customerBalance(c) };
+    return {
+      ...c,
+      phones: c.phones && c.phones.length ? c.phones : c.phone ? [c.phone] : [],
+      whatsapp: c.whatsapp ?? '',
+      balance: customerBalance(c),
+    };
   };
 
   // Named rather than returned inline, so deleteBill can reach cancelBill: the money has to go
@@ -411,6 +438,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
 
     async eraseAll(keepCustomers) {
       await Bills.deleteMany({});
+      await Payments.deleteMany({});
       if (keepCustomers) {
         // The four fields createBill adds to and cancelBill takes from. Zeroing them is what
         // "no bills" means for a customer; the name and the phone number are left alone.
@@ -471,8 +499,9 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return doc ? toCustomer(doc as unknown as CustomerDoc) : null;
     },
 
-    async upsertCustomer({ id, name, nameKn, phone, address, notes }) {
-      const digits = normalisePhone(phone);
+    async upsertCustomer({ id, name, nameKn, phone, phones, address, notes, whatsapp }) {
+      const contacts = contactsOf({ phone, phones, whatsapp });
+      const digits = contacts.phone;
       // An existing record is found by id, or by phone when one is given -- which is what stops
       // the same person being saved twice as they get re-entered at the counter.
       const existing = id
@@ -484,7 +513,10 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       if (existing) {
         const doc = await Customers.findOneAndUpdate(
           { id: (existing as unknown as CustomerDoc).id },
-          { $set: { name, nameKn: nameKn ?? '', phone: digits, address: address ?? '', notes: notes ?? '' } },
+          { $set: {
+            name, nameKn: nameKn ?? '', phone: digits, phones: contacts.phones,
+            whatsapp: contacts.whatsapp, address: address ?? '', notes: notes ?? '',
+          } },
           { new: true },
         ).lean();
         return toCustomer(doc as unknown as CustomerDoc);
@@ -495,6 +527,8 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         name,
         nameKn: nameKn ?? '',
         phone: digits,
+        phones: contacts.phones,
+        whatsapp: contacts.whatsapp,
         address: address ?? '',
         notes: notes ?? '',
         since: new Date().toISOString(),
@@ -521,6 +555,52 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
     async deleteCustomer(id) {
       const res = await Customers.deleteOne({ id });
       return res.deletedCount > 0;
+    },
+
+    async createPayment(customerId, { amount, at, note }) {
+      const now = new Date().toISOString();
+      const payment: Payment = {
+        id: makePaymentId(), customerId, amount: round2(amount),
+        at: at ?? now, note: note ?? '', createdAt: now, cancelled: false, cancelledAt: null,
+      };
+      // The figures first, and only for a customer who exists; undone if the record fails.
+      const moved = await Customers.updateOne({ id: customerId }, { $inc: { totalPaid: payment.amount } });
+      if (moved.matchedCount === 0) return null;
+      try {
+        await Payments.create(payment);
+      } catch (err) {
+        await Customers.updateOne({ id: customerId }, { $inc: { totalPaid: -payment.amount } })
+          .catch(() => undefined);
+        throw err;
+      }
+      return payment;
+    },
+
+    async cancelPayment(id) {
+      // Claimed with a guard, as cancelBill does, so two tills cannot both take it back.
+      const claimed = await Payments.findOneAndUpdate(
+        { id, cancelled: { $ne: true } },
+        { $set: { cancelled: true, cancelledAt: new Date().toISOString() } },
+        { new: true },
+      ).lean();
+      if (!claimed) {
+        const existing = await Payments.findOne({ id }).lean();
+        return existing ? strip(existing as unknown as Payment) : null;
+      }
+      const payment = strip(claimed as unknown as Payment);
+      try {
+        await Customers.updateOne({ id: payment.customerId }, { $inc: { totalPaid: -payment.amount } });
+      } catch (err) {
+        await Payments.updateOne({ id }, { $set: { cancelled: false, cancelledAt: null } })
+          .catch(() => undefined);
+        throw err;
+      }
+      return payment;
+    },
+
+    async listPayments(limit, customerId) {
+      const docs = await Payments.find(customerId ? { customerId } : {}).sort({ at: -1 }).limit(limit).lean();
+      return docs.map((d) => strip(d as unknown as Payment));
     },
 
     async inactiveCustomers(days) {

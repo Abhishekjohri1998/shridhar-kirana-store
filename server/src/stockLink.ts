@@ -86,3 +86,51 @@ export async function stockRoundTo(): Promise<number> {
   const step = isObj(got) ? Number(got.roundTo) : 0;
   return step === 1 || step === 5 || step === 10 ? step : 0;
 }
+
+/** What stock said about a phone and PIN. */
+export type StockAuthAnswer =
+  | { kind: 'ok'; role: 'admin' | 'worker' | 'godown'; name: string; token: string }
+  | { kind: 'denied'; status: 401 | 403 | 429; error: string }
+  /** The link is switched off, or stock did not answer sensibly in time. */
+  | { kind: 'off' }
+  | { kind: 'down' };
+
+/**
+ * A person signing in with their own phone and PIN, checked against stock's accounts.
+ *
+ * Unlike the calls above, this one has to tell "wrong PIN" from "stock is not there": the first
+ * is the person's to fix, the second is a reason to fall back to the shop PIN. Still never
+ * throws, and still gives up after the same timeout.
+ */
+export async function stockAuth(phone: string, pin: string): Promise<StockAuthAnswer> {
+  if (!stockLinkOn()) return { kind: 'off' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STOCK_TIMEOUT_MS);
+  try {
+    const res = await fetch(env.stockUrl + '/api/billing-link/auth', {
+      method: 'POST',
+      headers: { 'x-link-key': env.linkKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ phone, pin }),
+      signal: controller.signal,
+    });
+    let body: unknown = null;
+    try { body = await res.json(); } catch { body = null; }
+    const said = isObj(body) && typeof body.error === 'string' ? body.error : '';
+    // Stock refusing billing's own key is a broken link, not a wrong PIN.
+    if (res.status === 401 && /link key/i.test(said)) return { kind: 'down' };
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      return { kind: 'denied', status: res.status, error: said };
+    }
+    if (!res.ok || !isObj(body)) return { kind: 'down' };
+    const role = body.role;
+    if ((role !== 'admin' && role !== 'worker' && role !== 'godown')
+      || typeof body.token !== 'string' || !body.token) {
+      return { kind: 'down' };
+    }
+    return { kind: 'ok', role, name: typeof body.name === 'string' ? body.name : '', token: body.token };
+  } catch {
+    return { kind: 'down' };
+  } finally {
+    clearTimeout(timer);
+  }
+}

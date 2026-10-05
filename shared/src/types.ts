@@ -157,7 +157,15 @@ export type Bill = {
 export type Customer = {
   id: string;
   name: string;
+  /** The first of `phones`, kept on its own so every older reader still finds a number here. */
   phone: string;
+  /**
+   * Every number they can be reached on, `phone` first. Absent on records saved before the list
+   * existed, which read as `[phone]`.
+   */
+  phones?: string[];
+  /** The number to send WhatsApp receipts to, when it is not their first phone. */
+  whatsapp?: string;
   /**
    * The same person's name in Kannada, typed on a Kannada keypad rather than guessed at.
    * Either box may be empty; whichever exists is what shows, so a customer entered before this
@@ -212,6 +220,27 @@ export const DEFAULT_SETTINGS: Settings = {
   showRate: false,
   inactiveAfterDays: 30,
 };
+
+/**
+ * Money received from a customer with no bill: settling their khata in cash. It lowers what they
+ * owe exactly as an overpaid bill would. Cancelled rather than deleted, like a bill.
+ */
+export type Payment = {
+  id: string;
+  customerId: string;
+  amount: number;
+  /** When the money was received (ISO). The shop may enter one from earlier in the day. */
+  at: string;
+  note: string;
+  /** When it was written down (ISO). */
+  createdAt: string;
+  cancelled?: boolean;
+  cancelledAt?: string | null;
+};
+
+/** Who signed in on the tablet, as stock's accounts say. */
+export type PersonRole = 'admin' | 'worker' | 'godown';
+export type Person = { role: PersonRole; name: string };
 
 export type TodaySummary = { count: number; total: number };
 
