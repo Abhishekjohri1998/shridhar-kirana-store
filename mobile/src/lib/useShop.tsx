@@ -831,7 +831,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     updateLine(index, (l) => ({
       ...l,
       nameEn: pick.nameEn,
-      nameKn: pick.nameKn || pick.nameEn,
+      nameKn: pick.nameKn,
       unit: pick.unit,
       stockItemId: pick.stockItemId,
       rate: pick.rate,

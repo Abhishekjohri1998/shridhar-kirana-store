@@ -18,6 +18,16 @@ export function lineAmount(qty: number, rate: number): number {
   return round2(qty * rate);
 }
 
+/**
+ * What a bill line comes to, for showing beside its rate while the bill is written: "× 4 = ₹680".
+ * Empty when there is no rate yet, or when the quantity is 1 -- the amount is then the rate
+ * itself and saying it twice would only clutter the line.
+ */
+export function lineAmountText(qty: number, rate: number): string {
+  if (!(rate > 0) || !(qty > 0) || round2(qty) === 1) return '';
+  return '× ' + qtyText(qty) + ' = ₹' + money(lineAmount(qty, rate));
+}
+
 /** 1370 -> "1370",  1370.5 -> "1370.50". The paper slip shows whole rupees, so we don't
  *  force decimals where there are none. */
 export function money(n: number): string {

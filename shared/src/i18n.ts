@@ -1,5 +1,5 @@
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
-import type { Lang } from './types';
+import type { BillLine, Lang } from './types';
 
 /**
  * Interface strings, English and Kannada, shared by the web app and the phone app.
@@ -595,6 +595,15 @@ export function pickLang(en: string | undefined, kn: string | undefined, lang: L
   const english = (en ?? '').trim();
   const kannada = (kn ?? '').trim();
   return lang === 'kn' ? kannada || english : english || kannada;
+}
+
+/**
+ * The name a bill line goes by in this language: English mode prefers the English name, Kannada
+ * mode the Kannada one, each falling back to the other. For lines picked from stock, which carry
+ * both names as stock has them; a hand-typed line keeps its typed text in nameKn either way.
+ */
+export function lineName(line: Pick<BillLine, 'nameEn' | 'nameKn'>, lang: Lang): string {
+  return pickLang(line.nameEn, line.nameKn, lang);
 }
 
 export function makeT(lang: Lang): T {

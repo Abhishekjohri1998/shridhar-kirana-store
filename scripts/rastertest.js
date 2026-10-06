@@ -514,6 +514,23 @@ for (const paper of ['58mm', '80mm']) {
 }
 
 console.log('');
+console.log('A line picked from stock prints its name in the slip language');
+{
+  const picked = (language) => JSON.stringify(shared.buildReceipt({
+    no: 1, at: '2026-09-27T18:27:00', total: 220, paid: 220, balance: 0, showBalance: false,
+    lines: [{ itemId: 's1', nameKn: 'ಪಾರ್ಲೆ-ಜಿ', nameEn: 'Parle-G', qty: 2, rate: 110, unit: 'pack', stockItemId: 'it_1' }],
+  }, { ...baseSettings, paper: '58mm', language }).rows);
+  check('in English, the English name', picked('en').includes('Parle-G') && !picked('en').includes('ಪಾರ್ಲೆ-ಜಿ'));
+  check('in Kannada, the Kannada name', picked('kn').includes('ಪಾರ್ಲೆ-ಜಿ') && !picked('kn').includes('Parle-G'));
+  const typed = (language) => JSON.stringify(shared.buildReceipt({
+    no: 1, at: '2026-09-27T18:27:00', total: 90, paid: 90, balance: 0, showBalance: false,
+    lines: [{ itemId: 'l1', nameKn: 'Rice 5kg', nameEn: '', qty: 1, rate: 90 }],
+  }, { ...baseSettings, paper: '58mm', language }).rows);
+  check('a typed line prints what was typed, either language',
+    typed('en').includes('Rice 5kg') && typed('kn').includes('Rice 5kg'));
+}
+
+console.log('');
 console.log('A long name does not print over its label');
 for (const name of ['Arjuna Yallari Mukkal Basavaraj Kartikar Honnalli', 'ಅರ್ಜುನ ಯಲ್ಲರಿ ಮುಕ್ಕಲ್ ಬಸವರಾಜ ಕಾರ್ತಿಕರ್ ಹೊನ್ನಳ್ಳಿ']) {
   const withName = (n) => shared.buildReceipt({

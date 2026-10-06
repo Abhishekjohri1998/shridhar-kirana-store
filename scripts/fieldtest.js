@@ -783,6 +783,20 @@ eqs('and a blank built-in address is not turned into one', pick('', '   '), '');
 check('the built-in address is forced to https, so Android will not block it',
   pick('', 'shridhar-billing.duckdns.org').startsWith('https://'));
 
+console.log('');
+console.log('Line names by language, and the line amount beside the rate');
+{
+  const picked = { nameEn: 'Parle-G', nameKn: 'ಪಾರ್ಲೆ-ಜಿ' };
+  eqs('English mode shows the English name', SH.lineName(picked, 'en'), 'Parle-G');
+  eqs('Kannada mode shows the Kannada name', SH.lineName(picked, 'kn'), 'ಪಾರ್ಲೆ-ಜಿ');
+  eqs('no Kannada name falls back to English', SH.lineName({ nameEn: 'Sugar', nameKn: '' }, 'kn'), 'Sugar');
+  eqs('no English name falls back to Kannada', SH.lineName({ nameEn: '', nameKn: 'ಉಪ್ಪು' }, 'en'), 'ಉಪ್ಪು');
+  eqs('4 at 170 shows what it comes to', SH.lineAmountText(4, 170), '× 4 = ₹680');
+  eqs('weighed goods keep their decimals', SH.lineAmountText(1.5, 47), '× 1.5 = ₹70.50');
+  eqs('a quantity of 1 adds nothing, so shows nothing', SH.lineAmountText(1, 170), '');
+  eqs('no rate yet shows nothing', SH.lineAmountText(4, 0), '');
+}
+
 fs.rmSync(BUILD, { recursive: true, force: true });
 
 console.log('');

@@ -3,7 +3,7 @@ import { lineAmount, money, qtyText, round2 } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
-import { pickLang } from './i18n';
+import { lineName, pickLang } from './i18n';
 
 /** Kept for the 58mm default; the live width now comes from the shop's paper setting. */
 export const PAPER_WIDTH = 384;
@@ -306,7 +306,7 @@ export function buildReceipt(
     const unit = (line.unit ?? '').trim();
     const nameOf = (text: string) =>
       unit && text.trim() ? qtyText(line.qty) + ' ' + unit + ' ' + text : text;
-    const typedAll = nameOf(line.nameKn || line.nameEn);
+    const typedAll = nameOf(line.stockItemId ? lineName(line, lang) : line.nameKn || line.nameEn);
     const stripsAll = inkStrips(line);
     /*
      * Written and typed both: whichever was used last is what prints, at the shop's asking. A line

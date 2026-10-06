@@ -14,6 +14,8 @@ import {
   parsePaid,
   parsePrice,
   round2,
+  lineAmountText,
+  lineName,
   slipTailPadding,
   carriedBalance,
   dateStamp,
@@ -567,7 +569,9 @@ export function BillPage() {
                       <input
                         ref={(el) => { names.current[line.itemId] = el; }}
                         className="slip-name"
-                        value={line.nameKn}
+                        // Picked from stock: the name in the app's language. Typing over it lets go
+                        // of the pick (setLineName); a typed line shows just what was typed.
+                        value={line.stockItemId ? lineName(line, shop.lang) : line.nameKn}
                         placeholder={t('bill.typeHint')}
                         aria-label={t('bill.writeLine', { n: index + 1 })}
                         onChange={(e) => {
@@ -615,7 +619,7 @@ export function BillPage() {
                             <li key={item.id} className="stock-item">
                               <span className="stock-name">
                                 {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
-                                  ? item.nameKn + ' · ' + item.nameEn
+                                  ? lineName(item, shop.lang) + ' · ' + lineName(item, shop.lang === 'kn' ? 'en' : 'kn')
                                   : item.nameKn || item.nameEn}
                               </span>
                               <span className="stock-chips">
@@ -627,7 +631,7 @@ export function BillPage() {
                                       type="button"
                                       className="pay-all stock-chip"
                                       aria-label={t('stock.pick', {
-                                        name: item.nameKn || item.nameEn, unit: label, price: money(u.price),
+                                        name: lineName(item, shop.lang), unit: label, price: money(u.price),
                                       })}
                                       // Before the name box loses focus, so the list is still there.
                                       onMouseDown={(e) => e.preventDefault()}
@@ -686,6 +690,7 @@ export function BillPage() {
                   </button>
 
                   <span className="slip-price-tag" aria-hidden="true">{t('bill.price')}</span>
+                  <div className="slip-price-cell">
                   <input
                     className="slip-price"
                     inputMode="decimal"
@@ -695,6 +700,12 @@ export function BillPage() {
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
                     onBlur={() => { wantFlip.current = true; }}
                   />
+                  {/* What the line comes to, so a quantity of 4 visibly makes it more. Inside the
+                      price cell so the columns still line up with the header. */}
+                  {lineAmountText(line.qty, line.rate) ? (
+                    <span className="line-amount">{lineAmountText(line.qty, line.rate)}</span>
+                  ) : null}
+                  </div>
                   {/* Two kilos at 44 is typed as 44*2 and priced at 88. The counter PC has a
                       real keyboard, so the operators need no keys of their own here -- only the
                       answer, shown before it is committed so a wrong sum is caught on the screen

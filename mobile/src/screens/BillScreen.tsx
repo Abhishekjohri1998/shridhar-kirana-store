@@ -3,7 +3,7 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
-  lineHasSomething, nextTypingLine,
+  lineHasSomething, nextTypingLine, lineAmountText, lineName,
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
@@ -796,7 +796,9 @@ export function BillScreen() {
                     <TextInput
                       ref={(el) => { names.current[line.itemId] = el; }}
                       style={styles.slipName}
-                      value={line.nameKn}
+                      // Picked from stock: the name in the app's language. Typing over it lets go
+                      // of the pick (setLineName), and a typed line shows just what was typed.
+                      value={line.stockItemId ? lineName(line, shop.lang) : line.nameKn}
                       onChangeText={(text) => {
                         shop.setLineName(index, text);
                         stock.onNameTyped(line.itemId, text);
@@ -844,7 +846,7 @@ export function BillScreen() {
                           <View key={item.id} style={styles.stockItem}>
                             <Text style={styles.stockName} numberOfLines={1}>
                               {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
-                                ? item.nameKn + ' · ' + item.nameEn
+                                ? lineName(item, shop.lang) + ' · ' + lineName(item, shop.lang === 'kn' ? 'en' : 'kn')
                                 : item.nameKn || item.nameEn}
                             </Text>
                             <View style={styles.stockChips}>
@@ -855,7 +857,7 @@ export function BillScreen() {
                                     key={u.code}
                                     style={styles.stockChip}
                                     accessibilityLabel={t('stock.pick', {
-                                      name: item.nameKn || item.nameEn, unit: label, price: money(u.price),
+                                      name: lineName(item, shop.lang), unit: label, price: money(u.price),
                                     })}
                                     onPress={() => {
                                       setPriceText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
@@ -913,9 +915,10 @@ export function BillScreen() {
                     it; in the stacked layout the box has moved down here, so its name comes with
                     it rather than pointing at the writing strip. */}
                 {compact ? <Text style={styles.slipPriceTag}>{t('bill.price')}</Text> : null}
+                <View style={styles.colPrice}>
                 <TextInput
                   ref={(el) => { prices.current[line.itemId] = el; }}
-                  style={[styles.slipPrice, styles.colPrice]}
+                  style={styles.slipPrice}
                   keyboardType="decimal-pad"
                   placeholder="—"
                   placeholderTextColor={C.faint}
@@ -934,6 +937,14 @@ export function BillScreen() {
                   // undone under the shopkeeper's finger about eighty milliseconds later.
                   onBlur={blurRow}
                 />
+                {/* What the line comes to, under its rate, so a quantity of 4 visibly makes it
+                    more. Kept inside the price column so the header still lines up. */}
+                {lineAmountText(line.qty, line.rate) ? (
+                  <Text style={styles.lineAmount} numberOfLines={1} adjustsFontSizeToFit>
+                    {lineAmountText(line.qty, line.rate)}
+                  </Text>
+                ) : null}
+                </View>
 
                 {/* Swaps this one line between writing and typing, and says which way it will go. */}
                 <Pressable
@@ -1224,6 +1235,7 @@ const styles = StyleSheet.create({
   /** Matches styles.tick, width and margin both, so the header tracks the row. */
   colTick: { width: 30, marginRight: 6 },
   colPrice: { width: 92 },
+  lineAmount: { fontSize: 11, color: C.soft, textAlign: 'right', marginTop: 2 },
   colIcon: { width: 34, alignItems: 'center', justifyContent: 'center' },
 
   slipLine: {
