@@ -68,7 +68,21 @@ const CATCH_DOWNLOADS = `
 true;
 `;
 
-export function StockScreen() {
+/*
+ * A page that puts the cursor in a box as it loads would raise the keyboard over billing while
+ * this window is loading hidden. Loaded hidden, nothing on it keeps the focus.
+ */
+const DROP_FOCUS = `
+try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
+true;
+`;
+
+/**
+ * `active` is false while the window is loaded hidden behind billing (App mounts it as soon as
+ * an admin is in, so the first tap on Stock is instant). Hidden, it takes no back presses and
+ * no focus.
+ */
+export function StockScreen({ active = true }: { active?: boolean }) {
   const shop = useShop();
   const t = shop.t;
   const web = useRef<WebView>(null);
@@ -82,18 +96,20 @@ export function StockScreen() {
      last one. Neither is repeated on later loads, so stock's own sign-out keeps working. */
   const [firstLoad, setFirstLoad] = useState<{ hash: string; forget: boolean } | null>(null);
   const firstDone = useRef(false);
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
-  useEffect(() => {
-    AsyncStorage.getItem(STOCK_KEY)
-      .then((saved) => setUrl(saved || shippedStockUrl()))
-      .catch(() => setUrl(shippedStockUrl()));
-  }, []);
-
+  /* One step before the window can start loading: the saved address and whether the last
+     person's stock session is to be forgotten, read together. */
   useEffect(() => {
     let alive = true;
-    void stockSignOutPending().then((pending) => {
+    const token = shop.stockToken;
+    void Promise.all([
+      AsyncStorage.getItem(STOCK_KEY).catch(() => null),
+      stockSignOutPending(),
+    ]).then(([saved, pending]) => {
       if (!alive) return;
-      const token = shop.stockToken;
+      setUrl(saved || shippedStockUrl());
       setFirstLoad({
         hash: token ? '#token=' + encodeURIComponent(token) : '',
         forget: !token && pending,
@@ -108,12 +124,12 @@ export function StockScreen() {
   // Android's back button walks back through stock's own pages before it leaves the app.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!canBack) return false;
+      if (!active || !canBack) return false;
       web.current?.goBack();
       return true;
     });
     return () => sub.remove();
-  }, [canBack]);
+  }, [active, canBack]);
 
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
     let msg: { type?: string; name?: string; mime?: string; data?: string };
@@ -189,12 +205,18 @@ export function StockScreen() {
         pullToRefreshEnabled
         allowFileAccess
         setSupportMultipleWindows={false}
+        cacheEnabled
+        cacheMode="LOAD_DEFAULT"
         injectedJavaScriptBeforeContentLoaded={
           firstLoad.forget && !firstDone.current ? FORGET_STOCK_SESSION + CATCH_DOWNLOADS : CATCH_DOWNLOADS
         }
         onMessage={onMessage}
         onLoadStart={() => setLoading(true)}
-        onLoadEnd={() => { firstDone.current = true; setLoading(false); }}
+        onLoadEnd={() => {
+          firstDone.current = true;
+          setLoading(false);
+          if (!activeRef.current) { web.current?.injectJavaScript(DROP_FOCUS); }
+        }}
         onError={() => setFailed(true)}
         onHttpError={(e) => { if (e.nativeEvent.statusCode >= 500) setFailed(true); }}
         onNavigationStateChange={(s) => setCanBack(s.canGoBack)}

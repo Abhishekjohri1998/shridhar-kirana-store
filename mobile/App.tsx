@@ -113,7 +113,7 @@ function Shell() {
   const shop = useShop();
   const [tab, setTab] = useState<TabKey>('bill');
   /* Which program is on screen. Stock is the stock website in a window (see StockScreen): opened
-     the first time it is asked for, then kept, and billing stays mounted underneath it so a bill
+     hidden ahead of time for whoever will use it (see stockMounted), then kept, and billing stays mounted underneath it so a bill
      half written is still there on the way back. */
   const [app, setApp] = useState<'billing' | 'stock'>('billing');
   const [stockOpened, setStockOpened] = useState(false);
@@ -163,11 +163,15 @@ function Shell() {
           </Pressable>
         </View>
         <View style={[styles.visible, { paddingBottom: insets.bottom }]}>
-          <StockScreen />
+          <StockScreen active />
         </View>
       </View>
     );
   }
+
+  /* Stock is loaded hidden as soon as someone who will use it is in -- an admin, or anyone who
+     brought a stock session -- so the first tap on Stock shows it at once instead of a spinner. */
+  const stockMounted = stockOpened || shop.person?.role === 'admin' || shop.stockToken != null;
 
   const index = TABS.findIndex((t) => t.key === tab);
   const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
@@ -232,9 +236,13 @@ function Shell() {
           </View>
         </View>
 
-        {stockOpened ? (
-          <View style={app === 'stock' ? styles.visible : styles.hidden}>
-            <StockScreen />
+        {stockMounted ? (
+          <View
+            style={app === 'stock' ? styles.visible : styles.hidden}
+            pointerEvents={app === 'stock' ? 'auto' : 'none'}
+            importantForAccessibility={app === 'stock' ? 'auto' : 'no-hide-descendants'}
+          >
+            <StockScreen active={app === 'stock'} />
           </View>
         ) : null}
 
