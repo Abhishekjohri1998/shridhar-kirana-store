@@ -14,7 +14,7 @@ import {
   parsePaid,
   parsePrice,
   round2,
-  lineAmountText,
+  lineAmount,
   lineName,
   slipTailPadding,
   carriedBalance,
@@ -269,8 +269,9 @@ export function BillPage() {
       shop.setLineRate(index, 0);
       return;
     }
+    // The box holds the line total (qty x rate); typing one sets the rate from it.
     const parsed = parsePrice(text);
-    if (parsed.ok) shop.setLineRate(index, parsed.value);
+    if (parsed.ok) shop.setLineTotal(index, parsed.value);
   };
 
   /**
@@ -696,14 +697,17 @@ export function BillPage() {
                     inputMode="decimal"
                     aria-label={t('bill.priceOfLine', { n: index + 1 })}
                     placeholder={t('bill.price')}
-                    value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
+                    value={priceText[line.itemId] ?? (line.rate > 0 ? money(lineAmount(line.qty, line.rate)) : '')}
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
-                    onBlur={() => { wantFlip.current = true; }}
+                    onBlur={() => {
+                      wantFlip.current = true;
+                      // Show the total worked out from the rate again once the box is left.
+                      setPriceText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
+                    }}
                   />
-                  {/* What the line comes to, so a quantity of 4 visibly makes it more. Inside the
-                      price cell so the columns still line up with the header. */}
-                  {lineAmountText(line.qty, line.rate) ? (
-                    <span className="line-amount">{lineAmountText(line.qty, line.rate)}</span>
+                  {/* The box is the line total; the rate it comes from sits small underneath. */}
+                  {line.rate > 0 && line.qty !== 1 ? (
+                    <span className="line-amount">{t('bill.each', { rate: money(line.rate) })}</span>
                   ) : null}
                   </div>
                   {/* Two kilos at 44 is typed as 44*2 and priced at 88. The counter PC has a

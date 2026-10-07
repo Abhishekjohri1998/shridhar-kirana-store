@@ -1,5 +1,5 @@
 import type { Bill, BillLine, Ink, Settings } from './types';
-import { lineAmount, money, qtyText, round2 } from './money';
+import { lineAmount, money, qtyText, rateIsRound, round2 } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
@@ -296,7 +296,8 @@ export function buildReceipt(
       // a serial number matches the numbering on screen and makes a line easy to point at.
       no: String(index + 1),
       amount: money(lineAmount(line.qty, line.rate)),
-      note: settings.showRate ? '@ ' + money(line.rate) : undefined,
+      // A total typed over the rate (500 for 3) prints its rate too, so the slip explains itself.
+      note: settings.showRate || !rateIsRound(line.rate) ? '@ ' + money(line.rate) : undefined,
     };
     /*
      * A line picked from the stock app's suggestions carries its unit, and prints its quantity

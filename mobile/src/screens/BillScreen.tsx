@@ -3,7 +3,7 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
-  lineHasSomething, nextTypingLine, lineAmountText, lineName,
+  lineHasSomething, nextTypingLine, lineAmount, lineName,
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
@@ -387,8 +387,9 @@ export function BillScreen() {
       shop.setLineRate(index, 0);
       return;
     }
+    // The box holds the line total (qty x rate); typing one sets the rate from it.
     const parsed = parsePrice(text);
-    if (parsed.ok) shop.setLineRate(index, parsed.value);
+    if (parsed.ok) shop.setLineTotal(index, parsed.value);
   };
 
   /**
@@ -923,7 +924,7 @@ export function BillScreen() {
                   placeholder="—"
                   placeholderTextColor={C.faint}
                   accessibilityLabel={t('bill.priceOfLine', { n: index + 1 })}
-                  value={priceText[line.itemId] ?? (line.rate > 0 ? String(line.rate) : '')}
+                  value={priceText[line.itemId] ?? (line.rate > 0 ? money(lineAmount(line.qty, line.rate)) : '')}
                   onChangeText={(text) => onPrice(index, line.itemId, text)}
                   returnKeyType="next"
                   // Without this the keyboard closes on the way past, and the next field has to
@@ -935,13 +936,17 @@ export function BillScreen() {
                   // Leaving a field never moves the page. It used to turn to the newest line,
                   // which meant tapping out at line 27 and dragging up towards line 2 was
                   // undone under the shopkeeper's finger about eighty milliseconds later.
-                  onBlur={blurRow}
+                  // Leaving the box shows the total worked out from the rate again, so a
+                  // later change of quantity is seen at once.
+                  onBlur={() => {
+                    blurRow();
+                    setPriceText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
+                  }}
                 />
-                {/* What the line comes to, under its rate, so a quantity of 4 visibly makes it
-                    more. Kept inside the price column so the header still lines up. */}
-                {lineAmountText(line.qty, line.rate) ? (
+                {/* The box is the line total; the rate it comes from sits small underneath. */}
+                {line.rate > 0 && line.qty !== 1 ? (
                   <Text style={styles.lineAmount} numberOfLines={1} adjustsFontSizeToFit>
-                    {lineAmountText(line.qty, line.rate)}
+                    {t('bill.each', { rate: money(line.rate) })}
                   </Text>
                 ) : null}
                 </View>

@@ -19,13 +19,22 @@ export function lineAmount(qty: number, rate: number): number {
 }
 
 /**
- * What a bill line comes to, for showing beside its rate while the bill is written: "× 4 = ₹680".
- * Empty when there is no rate yet, or when the quantity is 1 -- the amount is then the rate
- * itself and saying it twice would only clutter the line.
+ * The rate that makes a line come to exactly `total`: 500 for 3 is 166.666..., kept unrounded so
+ * lineAmount(3, rate) is 500 again and not 500.01. The price box shows the line total and the
+ * shopkeeper may type a different one; this is how that becomes a rate. A quantity of 0 or less
+ * counts as 1, which is what a handwritten line without a quantity is.
  */
-export function lineAmountText(qty: number, rate: number): string {
-  if (!(rate > 0) || !(qty > 0) || round2(qty) === 1) return '';
-  return '× ' + qtyText(qty) + ' = ₹' + money(lineAmount(qty, rate));
+export function rateForTotal(total: number, qty: number): number {
+  const q = qty > 0 ? qty : 1;
+  const t = round2(total);
+  const r = t / q;
+  // round2 absorbs any last-bit error, but check rather than trust it.
+  return lineAmount(q, r) === t ? r : round2(r);
+}
+
+/** Whether a rate is a whole number of paise; 166.666... is not, and prints as "@ 166.67". */
+export function rateIsRound(rate: number): boolean {
+  return Math.abs(rate * 100 - Math.round(rate * 100)) < 1e-6;
 }
 
 /** 1370 -> "1370",  1370.5 -> "1370.50". The paper slip shows whole rupees, so we don't

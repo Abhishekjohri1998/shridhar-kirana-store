@@ -273,6 +273,9 @@ const CASES = [
     lines: [...LINES, { itemId: 'bare', nameKn: '', nameEn: '', qty: 1, rate: 12 }],
   }), { paper: '58mm' }],
   ['with rates printed under each line', bill(), { paper: '58mm', showRate: true }],
+  ['with a typed total of 500 for 3', bill({
+    lines: [{ itemId: 'svt', nameKn: 'S V T', nameEn: '', qty: 3, unit: 'Pkt', rate: 500 / 3 }], total: 500, paid: 500,
+  }), { paper: '58mm' }],
   ['with a long Kannada word that has to break', bill({
     lines: [{ itemId: 'long', nameKn: 'ಇಪ್ಪತ್ತೈದುಕಿಲೋಅಕ್ಕಿಚೀಲ', nameEn: '', qty: 1, rate: 1450 }],
   }), { paper: '58mm' }],

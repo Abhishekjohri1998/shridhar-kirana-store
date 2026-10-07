@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
-  nextLineId, receiptLabelsFor, reviveDraft, round2, draftForStock, mergeStockTicks,
+  nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -141,6 +141,8 @@ type Shop = {
   setLineInk: (index: number, ink: Ink | null) => void;
   addBlankLine: () => void;
   setLineRate: (index: number, rate: number) => void;
+  /** The line total typed in the price box: the rate becomes total / qty, and qty stays (1 if none). */
+  setLineTotal: (index: number, total: number) => void;
   setLineName: (index: number, name: string) => void;
   setLineGiven: (index: number, given: boolean) => void;
   /** Another line of writing for the same item, under its first. At most two more. */
@@ -735,6 +737,17 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setLineTotal = useCallback((index: number, total: number) => {
+    setCart((prev) => {
+      const next = [...prev];
+      const existing = next[index];
+      if (!existing) return prev;
+      const qty = existing.qty > 0 ? existing.qty : 1;
+      next[index] = { ...existing, qty, rate: rateForTotal(total, qty) };
+      return next;
+    });
+  }, []);
+
   /** The item's name, typed rather than written. Kannada goes in the same box as English. */
   const setLineName = useCallback((index: number, name: string) => {
     setCart((prev) => {
@@ -927,7 +940,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
       person, stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode,
-      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
@@ -940,7 +953,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
       person, stockToken, stockOnly, signInPerson, switchUser, pinMode,
-      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, removeLine, clearCart, commitBill,
+      addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,

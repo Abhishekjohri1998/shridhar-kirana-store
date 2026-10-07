@@ -811,10 +811,26 @@ console.log('Line names by language, and the line amount beside the rate');
     check('a heavy draft is held to the cap', JSON.stringify(slim).length <= SH.STOCK_DRAFT_MAX_BYTES, String(JSON.stringify(slim).length));
     check('and still says every line is written', slim.lines.every((l) => l.ink !== false));
   }
-  eqs('4 at 170 shows what it comes to', SH.lineAmountText(4, 170), '× 4 = ₹680');
-  eqs('weighed goods keep their decimals', SH.lineAmountText(1.5, 47), '× 1.5 = ₹70.50');
-  eqs('a quantity of 1 adds nothing, so shows nothing', SH.lineAmountText(1, 170), '');
-  eqs('no rate yet shows nothing', SH.lineAmountText(4, 0), '');
+
+  console.log('\nA typed line total becomes the rate');
+  {
+    const r = SH.rateForTotal(500, 3);
+    check('500 for 3 comes to exactly 500', SH.lineAmount(3, r) === 500, String(SH.lineAmount(3, r)));
+    eqs('at 166.67 each', SH.money(r), '166.67');
+    check('which is not a round rate', !SH.rateIsRound(r));
+    check('170 is', SH.rateIsRound(170) && SH.rateIsRound(12.5));
+    eqs('no quantity counts as 1', SH.rateForTotal(80, 0), 80);
+    eqs('the bill sums to 500', SH.billTotal([{ itemId: 'a', nameKn: '', nameEn: '', qty: 3, rate: r }]), 500);
+    let bad = 0;
+    for (let q = 1; q <= 60; q += 1) for (let t = 1; t <= 2000; t += 7) {
+      const tt = t + (t % 3) * 0.33;
+      if (SH.lineAmount(q, SH.rateForTotal(tt, q)) !== SH.round2(tt)) bad += 1;
+    }
+    for (const q of [0.25, 0.5, 1.5, 2.75, 0.333]) for (let t = 1; t <= 900; t += 3) {
+      if (SH.lineAmount(q, SH.rateForTotal(t, q)) !== t) bad += 1;
+    }
+    eqs('every typed total comes back exactly', bad, 0);
+  }
 }
 
 fs.rmSync(BUILD, { recursive: true, force: true });

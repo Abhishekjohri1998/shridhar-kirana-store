@@ -214,6 +214,16 @@ async function main() {
   eq('midnight prints as 12 am', shared.stamp('2026-09-03T00:05:00'), '03/09/26 12:05 am');
   eq('showRate adds the per-unit note',
     shared.buildReceipt(BILL, { ...SETTINGS, showRate: true }).rows.filter((r) => r.t === 'item')[1].note, '@ 110');
+  {
+    // A total of 500 typed over 3: the rate is 500/3, the line and the bill come to exactly 500.
+    const typed = [{ itemId: 't1', nameKn: 'SVT', nameEn: 'SVT', qty: 3, rate: shared.rateForTotal(500, 3) }];
+    eq('a typed total of 500 for 3 sums to 500', shared.billTotal(typed), 500);
+    const row = shared.buildReceipt({ ...BILL, lines: typed, total: 500 }, SETTINGS).rows.find((r) => r.t === 'item' && r.no === '1');
+    eq('and prints 500', row && row.amount, '500');
+    eq('at 166.67, unasked', row && row.note, '@ 166.67');
+    eq('a round rate prints no note unasked',
+      shared.buildReceipt(BILL, SETTINGS).rows.filter((r) => r.t === 'item')[1].note, undefined);
+  }
   check('no balance lines unless asked', !receipt.rows.some((r) => r.t === 'kv' && String(r.left).startsWith('Paid')));
   check('no customer lines without a customer', !receipt.rows.some((r) => r.t === 'kv' && r.left === 'Name'));
 
