@@ -52,8 +52,9 @@ const lineBody = z.object({
  * The bill being written, as the worker screen in the stock app sees it.
  *
  * Validated here although billing only passes it on: this is still billing's API, and an
- * unbounded body would be a way to fill stock's memory through billing's door. No handwriting
- * travels -- the workers need to know a line is written by hand, not what it says.
+ * unbounded body would be a way to fill stock's memory through billing's door. Handwriting travels
+ * (the device keeps a draft near 40 KB); each line is held to the same ink limits as a saved bill,
+ * and the whole body to express's 256 KB. `ink: true` is what older apps send, and still accepted.
  */
 const draftBody = z.object({
   draftId: z.string().trim().min(1).max(80),
@@ -71,7 +72,8 @@ const draftBody = z.object({
     stockItemId: z.string().trim().max(80).optional(),
     given: z.boolean().default(false),
     givenAt: z.coerce.number().finite().nonnegative().optional(),
-    ink: z.boolean().default(false),
+    ink: z.union([z.boolean(), inkBody]).default(false),
+    moreInk: z.array(inkBody).max(2).optional(),
   })).max(200),
 });
 

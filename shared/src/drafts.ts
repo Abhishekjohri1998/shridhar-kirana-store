@@ -1,5 +1,5 @@
 import { billTotal } from './doc';
-import type { BillLine, Customer, StockTicks } from './types';
+import type { BillLine, Customer, Ink, StockTicks } from './types';
 
 /**
  * A bill being written, whole enough to put down and pick up again.
@@ -92,33 +92,68 @@ export function reviveDraft(raw: Draft): Draft {
   };
 }
 
+/** How big a draft sent to stock may get, handwriting and all. */
+export const STOCK_DRAFT_MAX_BYTES = 40_000;
+
+/** Ink with its points rounded to whole units and every `step`th point kept. */
+function slimInk(ink: Ink, step: number): Ink {
+  return {
+    w: Math.round(ink.w),
+    h: Math.round(ink.h),
+    strokes: ink.strokes.map((s) => {
+      const out: number[] = [];
+      const n = s.length / 2;
+      for (let i = 0; i < n; i += 1) {
+        // Keep the last point of every stroke so a thinned word still ends where it was written.
+        if (i % step === 0 || i === n - 1) out.push(Math.round(s[2 * i]!), Math.round(s[2 * i + 1]!));
+      }
+      return out;
+    }).filter((s) => s.length > 0),
+  };
+}
+
 /**
  * The bill being written, as the stock app's worker screen is sent it.
  *
- * Names, quantities, units and ticks -- no handwriting. The workers need to know a line is
- * written by hand so they can look at the counter; the strokes themselves are kilobytes they
- * could not read on a rack screen anyway. Blank scaffolding lines are left out like on paper.
+ * Names, quantities, units, ticks -- and the handwriting itself, so a worker can read a written
+ * line straight away instead of waiting for it to be digitised. The strokes are rounded to whole
+ * units and, if the whole draft would pass STOCK_DRAFT_MAX_BYTES, thinned; as a last resort the
+ * writing is left off and only `ink: true` says it is there. Blank scaffolding lines are left out
+ * like on paper.
  */
 export function draftForStock(d: Draft, closed = false) {
-  const lines = closed ? [] : d.lines.filter(lineHasSomething).map((l) => ({
-    key: l.itemId,
-    nameEn: l.nameEn,
-    nameKn: l.nameKn,
-    qty: l.qty,
-    ...(l.unit ? { unit: l.unit } : {}),
-    rate: l.rate,
-    ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
-    given: l.given === true,
-    ...(d.givenAt[l.itemId] ? { givenAt: d.givenAt[l.itemId] } : {}),
-    ink: lineHasInk(l),
-  }));
+  const kept = closed ? [] : d.lines.filter(lineHasSomething);
+  const build = (step: number) => kept.map((l) => {
+    const strips = [l.ink, ...(l.moreInk ?? [])].filter((i): i is Ink => i != null && i.strokes.length > 0);
+    const inkOut: Ink | boolean = step > 0 && l.ink && l.ink.strokes.length > 0 ? slimInk(l.ink, step) : strips.length > 0;
+    const more = step > 0 ? (l.moreInk ?? []).filter((i) => i.strokes.length > 0).map((i) => slimInk(i, step)) : [];
+    return {
+      key: l.itemId,
+      nameEn: l.nameEn,
+      nameKn: l.nameKn,
+      qty: l.qty,
+      ...(l.unit ? { unit: l.unit } : {}),
+      rate: l.rate,
+      ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
+      given: l.given === true,
+      ...(d.givenAt[l.itemId] ? { givenAt: d.givenAt[l.itemId] } : {}),
+      ink: inkOut,
+      ...(more.length > 0 ? { moreInk: more } : {}),
+    };
+  });
   const customerName = (d.customer?.name || d.customer?.nameKn || d.typed.name || d.typed.nameKn).trim();
-  return {
+  const wrap = (lines: ReturnType<typeof build>) => ({
     draftId: d.draftId,
     ...(customerName ? { customerName: customerName.slice(0, 80) } : {}),
     ...(closed ? { closed: true } : {}),
     lines,
-  };
+  });
+  // Full detail first, then every 2nd, 4th, 8th point; then no strokes at all.
+  for (const step of [1, 2, 4, 8, 0]) {
+    const body = wrap(build(step));
+    if (step === 0 || JSON.stringify(body).length <= STOCK_DRAFT_MAX_BYTES) return body;
+  }
+  return wrap(build(0));
 }
 
 /**

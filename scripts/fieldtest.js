@@ -791,6 +791,26 @@ console.log('Line names by language, and the line amount beside the rate');
   eqs('Kannada mode shows the Kannada name', SH.lineName(picked, 'kn'), 'ಪಾರ್ಲೆ-ಜಿ');
   eqs('no Kannada name falls back to English', SH.lineName({ nameEn: 'Sugar', nameKn: '' }, 'kn'), 'Sugar');
   eqs('no English name falls back to Kannada', SH.lineName({ nameEn: '', nameKn: 'ಉಪ್ಪು' }, 'en'), 'ಉಪ್ಪು');
+
+  console.log('\nThe draft sent to stock carries the handwriting');
+  {
+    const d = SH.emptyDraft('t1');
+    const ink = { w: 300.4, h: 120, strokes: [[20.6, 40.2, 20.1, 80.9]] };
+    d.lines = [{ itemId: 'a', nameKn: '', nameEn: '', qty: 1, rate: 10, ink, moreInk: [{ w: 300, h: 120, strokes: [[1, 2, 3, 4]] }] },
+      { itemId: 'b', nameKn: 'Salt', nameEn: 'Salt', qty: 1, rate: 5 }];
+    const out = SH.draftForStock(d);
+    eqs('strokes rounded to whole units', JSON.stringify(out.lines[0].ink), '{"w":300,"h":120,"strokes":[[21,40,20,81]]}');
+    eqs('the added strips go too', JSON.stringify(out.lines[0].moreInk), '[{"w":300,"h":120,"strokes":[[1,2,3,4]]}]');
+    eqs('a typed line says no ink', out.lines[1].ink, false);
+    // A bill of long scrawls, far past the cap.
+    const big = SH.emptyDraft('t2');
+    const stroke = Array.from({ length: 1200 }, (_, i) => 100 + (i % 97));
+    big.lines = Array.from({ length: 30 }, (_, i) => ({ itemId: 'x' + i, nameKn: '', nameEn: '', qty: 1, rate: 1,
+      ink: { w: 300, h: 120, strokes: Array.from({ length: 8 }, () => stroke) } }));
+    const slim = SH.draftForStock(big);
+    check('a heavy draft is held to the cap', JSON.stringify(slim).length <= SH.STOCK_DRAFT_MAX_BYTES, String(JSON.stringify(slim).length));
+    check('and still says every line is written', slim.lines.every((l) => l.ink !== false));
+  }
   eqs('4 at 170 shows what it comes to', SH.lineAmountText(4, 170), '× 4 = ₹680');
   eqs('weighed goods keep their decimals', SH.lineAmountText(1.5, 47), '× 1.5 = ₹70.50');
   eqs('a quantity of 1 adds nothing, so shows nothing', SH.lineAmountText(1, 170), '');

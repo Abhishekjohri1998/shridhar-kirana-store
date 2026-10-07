@@ -272,6 +272,20 @@ async function main() {
     const longGot = fake.drafts[fake.drafts.length - 1];
     eq('the customer name cut to 80', longGot && longGot.customerName.length, 80);
     eq('the line names cut to 120', longGot && longGot.lines[0].nameEn.length + '/' + longGot.lines[0].nameKn.length, '120/120');
+    const inked = await on.post('/stock/draft', {
+      draftId: 'd_ink', lines: [{ key: 'l2', qty: 1, rate: 0,
+        ink: { w: 300, h: 120, strokes: [[20, 40, 20, 80]] },
+        moreInk: [{ w: 300, h: 120, strokes: [[5, 5, 9, 9]] }] }],
+    });
+    eq('a draft with handwriting goes through', inked.status, 200);
+    const inkGot = fake.drafts[fake.drafts.length - 1];
+    eq('stock receives the strokes', inkGot && JSON.stringify(inkGot.lines[0].ink.strokes), '[[20,40,20,80]]');
+    eq('and the added strips', inkGot && inkGot.lines[0].moreInk.length, 1);
+    eq('an older app\'s ink: true still goes through',
+      (await on.post('/stock/draft', { draftId: 'd_old', lines: [{ key: 'l3', qty: 1, rate: 1, ink: true }] })).status, 200);
+    eq('ink with too many strokes is refused',
+      (await on.post('/stock/draft', { draftId: 'd_fat', lines: [{ key: 'l4', qty: 1, rate: 1,
+        ink: { w: 10, h: 10, strokes: Array.from({ length: 201 }, () => [1, 1]) } }] })).status, 400);
     eq('a draft with no id is refused', (await on.post('/stock/draft', { lines: [] })).status, 400);
     eq('as is one with a thousand lines',
       (await on.post('/stock/draft', { draftId: 'd_big', lines: Array.from({ length: 201 }, (_, i) => ({ key: 'k' + i, qty: 1, rate: 1 })) })).status, 400);
