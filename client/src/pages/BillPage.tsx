@@ -93,6 +93,29 @@ export function BillPage() {
   const [qtyText, setQtyText] = useState<Record<string, string>>({});
   /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
   const stock = useStockSuggest();
+  /** The line whose unit menu is open, if any; a click elsewhere or Escape shuts it. */
+  const [unitMenu, setUnitMenu] = useState<string | null>(null);
+  const unitMenuRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    if (!unitMenu) return;
+    const away = (e: MouseEvent) => {
+      const el = e.target as Element | null;
+      if (unitMenuRef.current?.contains(el) || el?.closest?.('.stock-unit')) return;
+      setUnitMenu(null);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setUnitMenu(null); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [unitMenu]);
+  /** A pick or a unit change sets the line's own price and quantity, so half-typed text goes. */
+  const clearTyped = (key: string) => {
+    setPriceText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
+    setQtyText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
+  };
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
   /** The scrolling slip and its rows, for turning the page -- see `pageFlip`. */
@@ -610,7 +633,44 @@ export function BillPage() {
                               return rest;
                             })}
                           />
-                          <span className="stock-unit">{line.unit}</span>
+                          <span className="stock-unit-wrap">
+                            <button
+                              type="button"
+                              className="stock-unit"
+                              aria-label={t('stock.unitOf', { n: index + 1 })}
+                              aria-expanded={unitMenu === line.itemId}
+                              onClick={() => {
+                                if (unitMenu === line.itemId) { setUnitMenu(null); return; }
+                                stock.loadUnits(line);
+                                setUnitMenu(line.itemId);
+                              }}
+                            >
+                              {line.unit} ▾
+                            </button>
+                            {unitMenu === line.itemId && stock.unitsFor(line).length > 0 ? (
+                              <ul className="stock-list stock-unit-menu" ref={unitMenuRef}>
+                                {stock.unitsFor(line).map((u) => {
+                                  const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
+                                  return (
+                                    <li key={u.code}>
+                                      <button
+                                        type="button"
+                                        className="stock-unit-opt"
+                                        aria-current={u.code === line.unit}
+                                        onClick={() => {
+                                          clearTyped(line.itemId);
+                                          stock.changeUnit(index, line, u);
+                                          setUnitMenu(null);
+                                        }}
+                                      >
+                                        {label + ' ₹' + money(u.price)}
+                                      </button>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            ) : null}
+                          </span>
                         </>
                       ) : null}
                       </div>
@@ -618,11 +678,21 @@ export function BillPage() {
                         <ul className="stock-list" aria-label={t('stock.matches')}>
                           {stock.items.map((item) => (
                             <li key={item.id} className="stock-item">
-                              <span className="stock-name">
+                              {/* The item itself: a tap puts it on in stock's selling unit. */}
+                              <button
+                                type="button"
+                                className="stock-name"
+                                aria-label={t('stock.pickItem', { name: lineName(item, shop.lang) })}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  clearTyped(line.itemId);
+                                  stock.pickItem(index, line, item);
+                                }}
+                              >
                                 {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
                                   ? lineName(item, shop.lang) + ' · ' + lineName(item, shop.lang === 'kn' ? 'en' : 'kn')
                                   : item.nameKn || item.nameEn}
-                              </span>
+                              </button>
                               <span className="stock-chips">
                                 {item.units.map((u) => {
                                   const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
@@ -637,14 +707,7 @@ export function BillPage() {
                                       // Before the name box loses focus, so the list is still there.
                                       onMouseDown={(e) => e.preventDefault()}
                                       onClick={() => {
-                                        setPriceText((prev) => {
-                                          const { [line.itemId]: _d, ...rest } = prev;
-                                          return rest;
-                                        });
-                                        setQtyText((prev) => {
-                                          const { [line.itemId]: _d, ...rest } = prev;
-                                          return rest;
-                                        });
+                                        clearTyped(line.itemId);
                                         stock.pick(index, line, item, u);
                                       }}
                                     >

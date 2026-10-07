@@ -264,7 +264,11 @@ export type StockUnit = {
   max?: number;
 };
 
-export type StockItem = { id: string; nameEn: string; nameKn: string; units: StockUnit[] };
+export type StockItem = {
+  id: string; nameEn: string; nameKn: string; units: StockUnit[];
+  /** The unit code stock sells this item in by default; else its first unit. */
+  sellUnit?: string;
+};
 
 export type StockQuote = {
   rate: number;

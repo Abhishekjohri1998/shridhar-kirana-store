@@ -41,9 +41,10 @@ const fake = { drafts: [], roundTo: 0, ticks: {}, keyMisses: 0 };
 
 const PARLE = {
   id: 'it_parle', nameEn: 'Parle-G', nameKn: 'ಪಾರ್ಲೆ-ಜಿ',
+  sellUnit: 'pack',
   units: [
-    { code: 'pc', label: 'pc', labelKn: 'ಪೀಸ್', price: 5, min: 4, max: 6 },
     { code: 'pack', label: 'pack', labelKn: 'ಪ್ಯಾಕ್', price: 110 },
+    { code: 'pc', label: 'pc', labelKn: 'ಪೀಸ್', price: 5, min: 4, max: 6 },
   ],
 };
 
@@ -230,8 +231,17 @@ async function main() {
     const found = (await on.call('/stock/items?q=parle')).body.items;
     eq('a search finds the item', found.length, 1);
     eq('with both its names', found[0].nameKn, 'ಪಾರ್ಲೆ-ಜಿ');
-    eq('and its units and prices', found[0].units.map((u) => u.code + '@' + u.price).join(','), 'pc@5,pack@110');
-    eq('and the range stock gave', found[0].units[0].min + '-' + found[0].units[0].max, '4-6');
+    eq('and its units and prices', found[0].units.map((u) => u.code + '@' + u.price).join(','), 'pack@110,pc@5');
+    eq('and the range stock gave', found[0].units[1].min + '-' + found[0].units[1].max, '4-6');
+    eq('and its selling unit', found[0].sellUnit, 'pack');
+    {
+      const { sellUnitOf } = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'index.js'));
+      eq('a tap on the item takes its selling unit', sellUnitOf(found[0]).code, 'pack');
+      const pcFirst = { units: [{ code: 'pc', price: 5 }, { code: 'pack', price: 110 }] };
+      eq('no selling unit: the first unit', sellUnitOf(pcFirst).code, 'pc');
+      eq('an unknown selling unit: the first unit', sellUnitOf({ ...pcFirst, sellUnit: 'box' }).code, 'pc');
+      eq('no units: nothing', sellUnitOf({ units: [] }), undefined);
+    }
     eq('an empty search does not bother stock', JSON.stringify((await on.call('/stock/items?q=')).body.items), '[]');
     eq('nor does nothing matching', JSON.stringify((await on.call('/stock/items?q=zzz')).body.items), '[]');
 

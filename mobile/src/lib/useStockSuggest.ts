@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { sellUnitOf } from '@shridhar/shared';
 import type { BillLine, StockItem, StockUnit } from '@shridhar/shared';
 import { api } from './api';
 import { useShop } from './useShop';
@@ -45,6 +46,8 @@ export function useStockSuggest() {
   const [bounds, setBounds] = useState<Record<string, { min?: number; max?: number }>>({});
   const [quoteWarn, setQuoteWarn] = useState<Record<string, 'below' | 'above' | null>>({});
   const handRate = useRef(new Set<string>());
+  /** Each picked line's units, for its unit menu. Lost on a reload; loadUnits asks stock again. */
+  const [units, setUnits] = useState<Record<string, StockUnit[]>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const cart = useRef(shop.cart);
   cart.current = shop.cart;
@@ -67,12 +70,53 @@ export function useStockSuggest() {
       rate: unit.price,
     });
     handRate.current.delete(line.itemId);
+    setUnits((m) => ({ ...m, [line.itemId]: Array.isArray(item.units) ? item.units : [] }));
     setBounds((b) => ({ ...b, [line.itemId]: { min: unit.min, max: unit.max } }));
     setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
     setQuery(null);
     setItems([]);
     // A quantity already on the line may sit in a slab, so ask straight away.
     if (line.qty !== 1) requote(line.itemId, item.id, unit.code, line.qty);
+  };
+
+  /** A tap on the item itself: it goes on in stock's selling unit. */
+  const pickItem = (index: number, line: BillLine, item: StockItem) => {
+    const unit = sellUnitOf(item);
+    if (unit) pick(index, line, item, unit);
+  };
+
+  /** The units a picked line can switch between, once known. */
+  const unitsFor = (line: BillLine): StockUnit[] => units[line.itemId] ?? [];
+
+  /** After a reload the menu is empty: find the line's item in stock again, by its id. */
+  const loadUnits = (line: BillLine) => {
+    if (!on || !line.stockItemId || units[line.itemId]) return;
+    const id = line.stockItemId;
+    api.stockItems(line.nameEn || line.nameKn)
+      .then((r) => {
+        const found = (Array.isArray(r.items) ? r.items : []).find((x) => x.id === id);
+        if (found) setUnits((m) => ({ ...m, [line.itemId]: found.units }));
+      })
+      .catch(() => undefined);
+  };
+
+  /**
+   * Another unit for a picked line. Its price comes with it, then stock's rate for the quantity --
+   * unless the shopkeeper has typed a price of their own, which stays.
+   */
+  const changeUnit = (index: number, line: BillLine, unit: StockUnit) => {
+    if (!line.stockItemId) return;
+    const mine = handRate.current.has(line.itemId);
+    shop.pickStockItem(index, {
+      nameEn: line.nameEn,
+      nameKn: line.nameKn,
+      unit: unit.code,
+      stockItemId: line.stockItemId,
+      rate: mine ? line.rate : unit.price,
+    });
+    setBounds((b) => ({ ...b, [line.itemId]: { min: unit.min, max: unit.max } }));
+    setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
+    if (!mine && line.qty !== 1) requote(line.itemId, line.stockItemId, unit.code, line.qty);
   };
 
   /** Stock's rate for this quantity, a beat after the last change, unless the rate is the shopkeeper's. */
@@ -126,6 +170,10 @@ export function useStockSuggest() {
     onNameTyped,
     close,
     pick,
+    pickItem,
+    unitsFor,
+    loadUnits,
+    changeUnit,
     onQty,
     onRateTyped,
     warnFor,

@@ -126,6 +126,13 @@ export function BillScreen() {
   const [qtyText, setQtyText] = useState<Record<string, string>>({});
   /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
   const stock = useStockSuggest();
+  /** The line whose unit list is open under it, if any. */
+  const [unitMenu, setUnitMenu] = useState<string | null>(null);
+  /** A pick or a unit change sets the line's own price and quantity, so half-typed text goes. */
+  const clearTyped = (key: string) => {
+    setPriceText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
+    setQtyText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
+  };
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
   /** The same, for the price boxes, so one line's price can hand on to the next one's. */
@@ -837,19 +844,60 @@ export function BillScreen() {
                             setQtyText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
                           }}
                         />
-                        <Text style={styles.stockUnit}>{line.unit}</Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={t('stock.unitOf', { n: index + 1 })}
+                          onPress={() => {
+                            if (unitMenu === line.itemId) { setUnitMenu(null); return; }
+                            stock.loadUnits(line);
+                            setUnitMenu(line.itemId);
+                          }}
+                        >
+                          <Text style={styles.stockUnit}>{line.unit + ' ▾'}</Text>
+                        </Pressable>
                       </>
                     ) : null}
                     </View>
+                    {stock.on && line.unit && unitMenu === line.itemId && stock.unitsFor(line).length > 0 ? (
+                      <View style={[styles.stockList, styles.stockChips, styles.stockUnitMenu]}>
+                        {stock.unitsFor(line).map((u) => {
+                          const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
+                          return (
+                            <Pressable
+                              key={u.code}
+                              style={styles.stockChip}
+                              accessibilityState={{ selected: u.code === line.unit }}
+                              onPress={() => {
+                                clearTyped(line.itemId);
+                                stock.changeUnit(index, line, u);
+                                setUnitMenu(null);
+                              }}
+                            >
+                              <Text style={styles.stockChipText}>{label + ' ₹' + money(u.price)}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ) : null}
                     {stock.openFor === line.itemId ? (
                       <View style={styles.stockList} accessibilityLabel={t('stock.matches')}>
                         {stock.items.map((item) => (
                           <View key={item.id} style={styles.stockItem}>
-                            <Text style={styles.stockName} numberOfLines={1}>
-                              {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
-                                ? lineName(item, shop.lang) + ' · ' + lineName(item, shop.lang === 'kn' ? 'en' : 'kn')
-                                : item.nameKn || item.nameEn}
-                            </Text>
+                            {/* The item itself: a tap puts it on in stock's selling unit. */}
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={t('stock.pickItem', { name: lineName(item, shop.lang) })}
+                              onPress={() => {
+                                clearTyped(line.itemId);
+                                stock.pickItem(index, line, item);
+                              }}
+                            >
+                              <Text style={styles.stockName} numberOfLines={1}>
+                                {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
+                                  ? lineName(item, shop.lang) + ' · ' + lineName(item, shop.lang === 'kn' ? 'en' : 'kn')
+                                  : item.nameKn || item.nameEn}
+                              </Text>
+                            </Pressable>
                             <View style={styles.stockChips}>
                               {item.units.map((u) => {
                                 const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
@@ -861,8 +909,7 @@ export function BillScreen() {
                                       name: lineName(item, shop.lang), unit: label, price: money(u.price),
                                     })}
                                     onPress={() => {
-                                      setPriceText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
-                                      setQtyText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
+                                      clearTyped(line.itemId);
                                       stock.pick(index, line, item, u);
                                     }}
                                   >
@@ -1304,6 +1351,7 @@ const styles = StyleSheet.create({
     borderRadius: R.pill, paddingHorizontal: 12, paddingVertical: 7,
   },
   stockChipText: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
+  stockUnitMenu: { padding: 8 },
   stockWarn: { ...TYPE.hint, color: C.gold, marginTop: 2 },
 
   foot: {
