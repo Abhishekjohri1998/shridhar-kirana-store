@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, AppState, BackHandler, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, AppState, BackHandler, Linking, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -268,6 +268,13 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           firstLoad.forget && !firstDone.current ? FORGET_STOCK_SESSION + CATCH_DOWNLOADS : CATCH_DOWNLOADS
         }
         onMessage={onMessage}
+        // Call, Open in Maps and WhatsApp links leave the window for the phone's own apps. Left
+        // to the WebView they fail to load, and a failed load reads as "stock unreachable".
+        onShouldStartLoadWithRequest={(req) => {
+          if (/^(https?|about|blob|data):/i.test(req.url)) return true;
+          Linking.openURL(req.url).catch(() => undefined);
+          return false;
+        }}
         onLoadStart={() => { failedThisLoad.current = false; setLoading(true); }}
         onLoadEnd={() => {
           firstDone.current = true;
