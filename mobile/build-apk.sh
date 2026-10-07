@@ -52,6 +52,17 @@ sed -i -E "s/^([[:space:]]*)versionCode .*/\1versionCode $VERSION_CODE/" android
 sed -i -E "s/^([[:space:]]*)versionName .*/\1versionName \"$VERSION_NAME\"/" android/app/build.gradle
 echo "  version $VERSION_NAME ($VERSION_CODE)"
 
+# Same trap for permissions: prebuild copied app.json's android.permissions into the manifest
+# once. Add any listed since (location, build 58) to an existing android/ so they are not lost.
+MANIFEST=android/app/src/main/AndroidManifest.xml
+for PERM in $(node -p "require('./app.json').expo.android.permissions.join(' ')"); do
+  grep -q "\"$PERM\"" "$MANIFEST" || {
+    sed -i "0,/<application/s##<uses-permission android:name=\"$PERM\"/>
+  <application#" "$MANIFEST"
+    echo "  added $PERM to the manifest"
+  }
+done
+
 # Written with forward slashes on purpose: a .properties file treats a backslash as an escape,
 # so sdk.dir=C\:\android-sdk is read as C:android-sdk and the build dies twenty minutes later
 # saying "The filename, directory name, or volume label syntax is incorrect".

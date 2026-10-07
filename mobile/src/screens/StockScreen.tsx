@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, AppState, BackHandler, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, AppState, BackHandler, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -187,6 +187,23 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
     let msg: { type?: string; name?: string; mime?: string; data?: string };
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
+    if (msg.type === 'need-location') {
+      // The stock site asks before "Start delivery". Android's location permission is asked
+      // here once; the WebView then answers navigator.geolocation (geolocationEnabled below).
+      // Works while the app is open on screen; no background tracking in this version.
+      let granted = true;
+      if (Platform.OS === 'android') {
+        const res = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+        ]);
+        granted = Object.values(res).some((v) => v === PermissionsAndroid.RESULTS.GRANTED);
+      }
+      web.current?.injectJavaScript(
+        `window.dispatchEvent(new CustomEvent('location-permission',{detail:{granted:${granted}}}));true;`,
+      );
+      return;
+    }
     if (msg.type !== 'download' || !msg.name || !msg.data) return;
     const safe = msg.name.replace(/[^\w.\-]+/g, '_');
     const file = FileSystem.cacheDirectory + safe;
@@ -241,6 +258,7 @@ export function StockScreen({ active = true }: { active?: boolean }) {
         style={styles.fill}
         domStorageEnabled
         javaScriptEnabled
+        geolocationEnabled
         pullToRefreshEnabled
         allowFileAccess
         setSupportMultipleWindows={false}
