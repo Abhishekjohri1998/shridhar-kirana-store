@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, AppState, BackHandler, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -77,6 +77,16 @@ try { if (document.activeElement && document.activeElement.blur) document.active
 true;
 `;
 
+/*
+ * One failed load is not "stock is down": a short drop in the shop's internet, or a load made
+ * hidden behind billing, used to leave the full error panel up until somebody pressed Try again.
+ * Now it tries again by itself -- quietly, after 2, 5 and 10 seconds and then every 15 -- and the
+ * full panel only comes up after a minute of failing, and only on screen.
+ */
+const RETRY_AFTER_MS = [2000, 5000, 10000];
+const RETRY_EVERY_MS = 15000;
+const GIVE_UP_AFTER_MS = 60000;
+
 /**
  * `active` is false while the window is loaded hidden behind billing (App mounts it as soon as
  * an admin is in, so the first tap on Stock is instant). Hidden, it takes no back presses and
@@ -87,7 +97,13 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   const t = shop.t;
   const web = useRef<WebView>(null);
   const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  /** When the current run of failed loads began; null while stock loads fine. */
+  const [failingSince, setFailingSince] = useState<number | null>(null);
+  /** A minute of failures: the full panel, with Try again, if the window is on screen. */
+  const [gaveUp, setGaveUp] = useState(false);
+  const failedThisLoad = useRef(false);
+  const attempts = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   const [canBack, setCanBack] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -121,6 +137,43 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const retryNow = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    setLoading(true);
+    web.current?.reload();
+  }, []);
+
+  /** A load failed: note when the failing began, and try again after the next wait. */
+  const onFail = useCallback(() => {
+    failedThisLoad.current = true;
+    const now = Date.now();
+    setFailingSince((since) => {
+      const began = since ?? now;
+      if (now - began >= GIVE_UP_AFTER_MS) setGaveUp(true);
+      return began;
+    });
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    const wait = RETRY_AFTER_MS[attempts.current] ?? RETRY_EVERY_MS;
+    attempts.current += 1;
+    retryTimer.current = setTimeout(retryNow, wait);
+  }, [retryNow]);
+
+  useEffect(() => () => { if (retryTimer.current) clearTimeout(retryTimer.current); }, []);
+
+  // Opening the Stock tab, or coming back to the app, tries again at once instead of waiting.
+  const failingRef = useRef(false);
+  failingRef.current = failingSince !== null;
+  useEffect(() => {
+    if (active && failingRef.current) retryNow();
+  }, [active, retryNow]);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && failingRef.current) retryNow();
+    });
+    return () => sub.remove();
+  }, [retryNow]);
+
   // Android's back button walks back through stock's own pages before it leaves the app.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -148,7 +201,9 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     if (!/^https?:\/\//.test(next)) return;
     await AsyncStorage.setItem(STOCK_KEY, next);
     setEditing(false);
-    setFailed(false);
+    setFailingSince(null);
+    setGaveUp(false);
+    attempts.current = 0;
     setUrl(next);
   };
 
@@ -156,13 +211,11 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     return <View style={styles.center}><ActivityIndicator color={C.accent} /></View>;
   }
 
-  if (!url || failed || editing) {
+  if (!url || editing) {
     return (
       <View style={styles.center}>
         <Text style={styles.title}>{t('stock.title')}</Text>
-        <Text style={styles.note}>{url && !editing ? t('stock.offline') : t('stock.address')}</Text>
-        {editing || !url ? (
-          <>
+        <Text style={styles.note}>{t('stock.address')}</Text>
             <TextInput
               style={styles.input}
               value={draft}
@@ -176,20 +229,6 @@ export function StockScreen({ active = true }: { active?: boolean }) {
             <Pressable style={styles.btn} onPress={saveAddress}>
               <Text style={styles.btnText}>{t('common.save')}</Text>
             </Pressable>
-          </>
-        ) : (
-          <>
-            <Pressable
-              style={styles.btn}
-              onPress={() => { setFailed(false); setLoading(true); web.current?.reload(); }}
-            >
-              <Text style={styles.btnText}>{t('stock.retry')}</Text>
-            </Pressable>
-            <Pressable onPress={() => { setDraft(url); setEditing(true); }} hitSlop={8}>
-              <Text style={styles.link}>{t('stock.change')}</Text>
-            </Pressable>
-          </>
-        )}
       </View>
     );
   }
@@ -211,19 +250,47 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           firstLoad.forget && !firstDone.current ? FORGET_STOCK_SESSION + CATCH_DOWNLOADS : CATCH_DOWNLOADS
         }
         onMessage={onMessage}
-        onLoadStart={() => setLoading(true)}
+        onLoadStart={() => { failedThisLoad.current = false; setLoading(true); }}
         onLoadEnd={() => {
           firstDone.current = true;
           setLoading(false);
+          if (!failedThisLoad.current) {
+            // Loaded: whatever was failing is over.
+            attempts.current = 0;
+            setFailingSince(null);
+            setGaveUp(false);
+          }
           if (!activeRef.current) { web.current?.injectJavaScript(DROP_FOCUS); }
         }}
-        onError={() => setFailed(true)}
-        onHttpError={(e) => { if (e.nativeEvent.statusCode >= 500) setFailed(true); }}
+        onError={onFail}
+        onHttpError={(e) => { if (e.nativeEvent.statusCode >= 500) onFail(); }}
         onNavigationStateChange={(s) => setCanBack(s.canGoBack)}
       />
-      {loading ? (
+      {loading && failingSince === null ? (
         <View style={styles.loadingBar} pointerEvents="none">
           <ActivityIndicator color={C.accent} />
+        </View>
+      ) : null}
+      {/* Failing, but not for long: a small strip while it keeps trying. */}
+      {failingSince !== null && !(gaveUp && active) ? (
+        <View style={styles.strip} pointerEvents="none">
+          <Text style={styles.stripText}>{t('stock.reconnecting')}</Text>
+        </View>
+      ) : null}
+      {/* A minute of failures, on screen: the full panel. It keeps trying underneath. */}
+      {gaveUp && active ? (
+        <View style={[styles.center, styles.cover]}>
+          <Text style={styles.title}>{t('stock.title')}</Text>
+          <Text style={styles.note}>{t('stock.offline')}</Text>
+          <Pressable
+            style={styles.btn}
+            onPress={() => { attempts.current = 0; setFailingSince(Date.now()); setGaveUp(false); retryNow(); }}
+          >
+            <Text style={styles.btnText}>{t('stock.retry')}</Text>
+          </Pressable>
+          <Pressable onPress={() => { setDraft(url); setEditing(true); }} hitSlop={8}>
+            <Text style={styles.link}>{t('stock.change')}</Text>
+          </Pressable>
         </View>
       ) : null}
     </View>
@@ -249,4 +316,10 @@ const styles = StyleSheet.create({
   btnText: { color: C.accentInk, fontWeight: '700' },
   link: { color: C.accentDeep, fontWeight: '600' },
   loadingBar: { position: 'absolute', top: 10, alignSelf: 'center' },
+  cover: { ...StyleSheet.absoluteFillObject },
+  strip: {
+    position: 'absolute', top: 8, alignSelf: 'center', backgroundColor: C.card, borderRadius: R.pill,
+    borderWidth: 1, borderColor: C.lineStrong, paddingHorizontal: 14, paddingVertical: 6,
+  },
+  stripText: { color: C.soft, fontWeight: '600' },
 });
