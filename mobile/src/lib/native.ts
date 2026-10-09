@@ -7,6 +7,8 @@ import { DeviceEventEmitter, NativeModules, Platform } from 'react-native';
  */
 type ShridharNative = {
   shareToWhatsApp: (phoneE164: string, fileUri: string, text: string) => Promise<string>;
+  /** Absent in builds before 59. */
+  setSuggestOpen?: (open: boolean) => void;
 };
 
 const mod: ShridharNative | undefined =
@@ -37,4 +39,28 @@ export function hasNativeWhatsApp(): boolean {
 export async function shareToWhatsApp(phoneE164: string, fileUri: string, text: string): Promise<void> {
   if (!mod) throw new Error('no native module');
   await mod.shareToWhatsApp(phoneE164, fileUri, text);
+}
+
+/** A key from a hardware keyboard, read natively: React Native's TextInput never reports arrows. */
+export type HwKey = 'up' | 'down' | 'enter';
+
+/**
+ * Up, Down and Enter from a keyboard plugged into the tablet, while a text box has the cursor.
+ * Returns the unsubscribe. Does nothing on a build without the module, and the on-screen
+ * keyboard never sends these.
+ */
+export function onHardwareKey(fn: (key: HwKey) => void): () => void {
+  if (!mod) return () => undefined;
+  const sub = DeviceEventEmitter.addListener('hwKey', (e: { key?: string }) => {
+    if (e?.key === 'up' || e?.key === 'down' || e?.key === 'enter') fn(e.key);
+  });
+  return () => sub.remove();
+}
+
+/**
+ * Tells the native side whether a suggestion list is showing: only then are Up and Down kept
+ * from moving the cursor in the box, so they move through the list instead.
+ */
+export function setSuggestOpen(open: boolean): void {
+  try { mod?.setSuggestOpen?.(open); } catch { /* an older build */ }
 }

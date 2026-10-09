@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  lineHasSomething, nextTypingLine,
+  FALLBACK_UNIT, lineHasSomething, nextTypingLine,
   buildReceipt,
   checkCustomer,
   customerName,
@@ -89,7 +89,7 @@ export function BillPage() {
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
-  /** The same for the quantity of a line picked from stock, the only lines that show one. */
+  /** The same for the quantity of a typed line: '' while the box is entered, until typed in. */
   const [qtyText, setQtyText] = useState<Record<string, string>>({});
   /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
   const stock = useStockSuggest();
@@ -123,6 +123,9 @@ export function BillPage() {
   const rows = useRef<Record<string, HTMLLIElement | null>>({});
   /** The item boxes, so a list can be typed straight down without reaching for the mouse. */
   const names = useRef<Record<string, HTMLInputElement | null>>({});
+  /** The quantity and price boxes, which Enter hands on through: name, quantity, price. */
+  const qtys = useRef<Record<string, HTMLInputElement | null>>({});
+  const prices = useRef<Record<string, HTMLInputElement | null>>({});
   const [tail, setTail] = useState(0);
   /** Which lines are being written rather than typed, by line id. See the mobile copy. */
   const [writing, setWriting] = useState<Record<string, boolean>>({});
@@ -208,6 +211,22 @@ export function BillPage() {
     wantName.current = null;
     field.focus();
   });
+
+  /**
+   * Enter in a name box. A typed name is matched -- the highlighted or best suggestion, else the
+   * name as typed in NOS -- and the cursor goes to its quantity. A line already matched goes
+   * straight there; an empty one goes on down, as before.
+   */
+  const submitName = (index: number, typed: string) => {
+    const line = shop.cart[index];
+    if (!line || !typed.trim()) { stock.close(); goToNextName(index); return; }
+    if (line.unit && stock.openFor !== line.itemId) { stock.close(); qtys.current[line.itemId]?.focus(); return; }
+    clearTyped(line.itemId);
+    void stock.pickBest(index, line, typed).then((ok) => {
+      if (ok) qtys.current[line.itemId]?.focus();
+      else goToNextName(index);
+    });
+  };
 
   const goToNextName = (index: number) => {
     // The next line with nothing written on it, turned to typing -- written lines are stepped
@@ -606,22 +625,36 @@ export function BillPage() {
                         onBlur={() => { window.setTimeout(stock.close, 300); }}
                         onKeyDown={(e) => {
                           if (e.key === 'Escape') stock.close();
+                          // Up and Down walk the suggestions, when there are some to walk.
+                          if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && stock.openFor === line.itemId) {
+                            e.preventDefault();
+                            stock.moveHighlight(e.key === 'ArrowDown' ? 1 : -1);
+                            return;
+                          }
                           if (e.key !== 'Enter') return;
                           // Or the form around the slip takes it as "print this bill".
                           e.preventDefault();
-                          stock.close();
-                          goToNextName(index);
+                          submitName(index, e.currentTarget.value);
                         }}
                       />
-                      {/* A line picked from stock counts in its unit, so its quantity shows --
-                          changing it asks stock for the rate again, slabs and all. */}
-                      {stock.on && line.unit ? (
+                      {/* Every typed line counts in a unit -- stock's, or NOS -- so its quantity
+                          always shows. On a picked line, changing it asks stock for the rate again. */}
                         <>
                           <input
+                            ref={(el) => { qtys.current[line.itemId] = el; }}
                             className="slip-price stock-qty"
                             inputMode="decimal"
                             aria-label={t('stock.qtyOf', { n: index + 1 })}
+                            // Empty on the way in, the old figure showing faintly, so a fresh one
+                            // is typed rather than deleted first. Left empty, the old one stays.
                             value={qtyText[line.itemId] ?? String(line.qty)}
+                            placeholder={String(line.qty)}
+                            onFocus={() => setQtyText((prev) => ({ ...prev, [line.itemId]: '' }))}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter') return;
+                              e.preventDefault();
+                              prices.current[line.itemId]?.focus();
+                            }}
                             onChange={(e) => {
                               const text = e.target.value;
                               setQtyText((prev) => ({ ...prev, [line.itemId]: text }));
@@ -645,9 +678,9 @@ export function BillPage() {
                                 setUnitMenu(line.itemId);
                               }}
                             >
-                              {line.unit} ▾
+                              {line.unit || FALLBACK_UNIT} ▾
                             </button>
-                            {unitMenu === line.itemId && stock.unitsFor(line).length > 0 ? (
+                            {unitMenu === line.itemId ? (
                               <ul className="stock-list stock-unit-menu" ref={unitMenuRef}>
                                 {stock.unitsFor(line).map((u) => {
                                   const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
@@ -668,16 +701,29 @@ export function BillPage() {
                                     </li>
                                   );
                                 })}
+                                {/* Always there: a count of anything, for an item stock does not know. */}
+                                <li>
+                                  <button
+                                    type="button"
+                                    className="stock-unit-opt"
+                                    aria-current={(line.unit || FALLBACK_UNIT) === FALLBACK_UNIT}
+                                    onClick={() => {
+                                      stock.chooseNos(index, line);
+                                      setUnitMenu(null);
+                                    }}
+                                  >
+                                    {FALLBACK_UNIT}
+                                  </button>
+                                </li>
                               </ul>
                             ) : null}
                           </span>
                         </>
-                      ) : null}
                       </div>
                       {stock.openFor === line.itemId ? (
                         <ul className="stock-list" aria-label={t('stock.matches')}>
-                          {stock.items.map((item) => (
-                            <li key={item.id} className="stock-item">
+                          {stock.items.map((item, at) => (
+                            <li key={item.id} className={'stock-item' + (at === stock.highlight ? ' on' : '')}>
                               {/* The item itself: a tap puts it on in stock's selling unit. */}
                               <button
                                 type="button"
@@ -756,6 +802,7 @@ export function BillPage() {
                   <span className="slip-price-tag" aria-hidden="true">{t('bill.price')}</span>
                   <div className="slip-price-cell">
                   <input
+                    ref={(el) => { prices.current[line.itemId] = el; }}
                     className="slip-price"
                     inputMode="decimal"
                     aria-label={t('bill.priceOfLine', { n: index + 1 })}

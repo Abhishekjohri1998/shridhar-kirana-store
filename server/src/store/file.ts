@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, round2, roundToStep,
+  DEFAULT_SETTINGS, billTotal, customerMatches, lastPriceOf, round2, roundToStep,
   type Bill, type Customer, type Item, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -103,6 +103,10 @@ export async function createFileRepo(dir: string): Promise<Repo> {
 
     async getBill(no) {
       return db.bills.find((b) => b.no === no) ?? null;
+    },
+
+    async lastPrice(ask) {
+      return lastPriceOf(ask, db.bills);
     },
 
     createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId }: NewBill) {

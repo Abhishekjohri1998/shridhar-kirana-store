@@ -391,6 +391,23 @@ async function main() {
     eq('no phone is 400', (await on.call('/auth/person', { method: 'POST', body: JSON.stringify({ pin: '1' }) })).status, 400);
     eq('the shop PIN still works', (await on.post('/auth/login', { pin: PIN })).status, 200);
 
+    console.log('\nLast price for a typed line');
+    const lpA = await on.post('/customers', { name: 'Last Price A', phone: '9000000881' });
+    const lpB = await on.post('/customers', { name: 'Last Price B', phone: '9000000882' });
+    await on.post('/bills', { customerId: lpA.body.id, lines: [{ itemId: 'lp1', nameKn: 'Kesari Rava', qty: 1, rate: 52 }] });
+    await on.post('/bills', { customerId: lpB.body.id, lines: [{ itemId: 'lp2', nameKn: 'kesari  rava ', qty: 2, rate: 55 }] });
+    const lpGone = await on.post('/bills', { lines: [{ itemId: 'lp3', nameKn: 'Kesari Rava', qty: 1, rate: 99 }] });
+    await on.post('/bills/' + lpGone.body.no + '/cancel', {});
+    await on.post('/bills', { lines: [{ itemId: 'lp4', nameEn: 'Parle-G', nameKn: '', qty: 1, rate: 108, unit: 'pack', stockItemId: 'it_parle' }] });
+    const lpUrl = (q) => '/items/last-price?' + new URLSearchParams(q).toString();
+    eq('the same customer\'s own last price', (await on.call(lpUrl({ name: 'kesari rava', customer: lpA.body.id }))).body.rate, 52);
+    eq('marked as theirs', (await on.call(lpUrl({ name: 'kesari rava', customer: lpA.body.id }))).body.sameCustomer, true);
+    eq('anyone\'s latest for a new customer, cancelled skipped', (await on.call(lpUrl({ name: 'Kesari Rava', customer: 'nobody' }))).body.rate, 55);
+    eq('anyone\'s latest with no customer', (await on.call(lpUrl({ name: 'KESARI RAVA' }))).body.rate, 55);
+    eq('by stock\'s id', (await on.call(lpUrl({ name: 'Parle', stockId: 'it_parle' }))).body.rate, 108);
+    eq('never sold is a null rate, not an error', (await on.call(lpUrl({ name: 'Never Sold' }))).body.rate, null);
+    eq('nothing asked is 400', (await on.call(lpUrl({ name: ' ' }))).status, 400);
+
     console.log('\nStock gone altogether');
     // Billing's fetch keeps its connection open; drop it, or close() waits on it for ever.
     stock.closeAllConnections();

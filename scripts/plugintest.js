@@ -73,6 +73,20 @@ check('the file ends with the class brace', once.trimEnd().endsWith('}'));
 check('the existing methods survive', once.includes('invokeDefaultOnBackPressed') && once.includes('getMainComponentName'));
 check('running it twice changes nothing', twice === once);
 
+console.log('\nMainActivity: the hardware keyboard (build 59)');
+check('the key hook is added', once.includes('override fun dispatchKeyEvent(event: KeyEvent): Boolean'));
+check('it asks the module first', once.includes('ShridharNativeModule.onKey(event, currentFocus)'));
+check('and passes the key on otherwise', once.includes('return super.dispatchKeyEvent(event)'));
+check('KeyEvent is imported once', count(once, '\nimport android.view.KeyEvent\n') === 1);
+check('the module is imported once', count(once, 'import com.shridhar.billing.stylus.ShridharNativeModule\n') === 1);
+// An activity patched by an older build has the pen hook but not this one: it must still gain it.
+const old = once.replace(/\n  \/\/ withStylus: Up, Down[\s\S]*?return super\.dispatchKeyEvent\(event\)\n  \}\n/, '\n');
+check('the sample without the key hook is an old-style activity', !old.includes('dispatchKeyEvent') && old.includes('dispatchTouchEvent'));
+const upgraded = plugin.addToMainActivity(old, PKG);
+check('an older patched activity gains the key hook', upgraded.includes('ShridharNativeModule.onKey(event, currentFocus)'));
+check('without a second pen hook', count(upgraded, 'ShridharNativeModule.onMotion(ev)') === 2);
+check('braces still balance', count(upgraded, '{') === count(upgraded, '}'));
+
 console.log('\nMainApplication');
 const app1 = plugin.addToMainApplication(APPLICATION, PKG);
 const app2 = plugin.addToMainApplication(app1, PKG);
@@ -96,6 +110,11 @@ check('with the jid extra', mod.includes('putExtra("jid", digits + "@s.whatsapp.
 check('through expo-file-system\'s FileProvider', mod.includes('.FileSystemFileProvider'));
 check('rejects when neither is there', mod.includes('promise.reject("NO_WHATSAPP"'));
 check('braces balance', count(mod, '{') === count(mod, '}'));
+check('emits hwKey for the keyboard', mod.includes('.emit("hwKey", map)'));
+check('only for a text box', mod.includes('if (focus !is EditText) return false'));
+check('Up, Down and Enter', ['KEYCODE_DPAD_UP','KEYCODE_DPAD_DOWN','KEYCODE_ENTER'].every((k) => mod.includes(k)));
+check('arrows kept only while a list is open; Enter never', mod.includes('return key != "enter" && suggestOpen'));
+check('JS can say the list is open', mod.includes('@ReactMethod fun setSuggestOpen(open: Boolean)'));
 const pkg = plugin.packageSource(PKG);
 check('the package creates the module', pkg.includes('listOf(ShridharNativeModule(ctx))'));
 

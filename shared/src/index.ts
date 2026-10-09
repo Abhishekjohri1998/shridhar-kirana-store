@@ -16,3 +16,4 @@ export * from './serverUrl';
 export * from './hash';
 export * from './when';
 export * from './stock';
+export * from './lastPrice';

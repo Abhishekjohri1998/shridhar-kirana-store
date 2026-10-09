@@ -1,5 +1,5 @@
 import { normalisePhone } from '@shridhar/shared';
-import type { Bill, BillLine, Customer, Item, Payment, Settings, TodaySummary } from '@shridhar/shared';
+import type { Bill, BillLine, Customer, Item, LastPrice, LastPriceAsk, Payment, Settings, TodaySummary } from '@shridhar/shared';
 
 export { normalisePhone };
 
@@ -66,6 +66,11 @@ export type Repo = {
 
   listBills(limit: number, customerId?: string): Promise<Bill[]>;
   getBill(no: number): Promise<Bill | null>;
+  /**
+   * The rate an item last sold at -- this customer's last bill with it first, else anyone's --
+   * for a typed line to start from. See lastPriceOf in shared, which both stores answer through.
+   */
+  lastPrice(ask: LastPriceAsk): Promise<LastPrice | null>;
   /**
    * Assigns the bill number, recomputes the total, and rolls the customer's running balance
    * forward. Never trusts a total from the browser.

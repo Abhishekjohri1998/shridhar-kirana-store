@@ -1880,6 +1880,8 @@ select.input {
 }
 .stock-item { display: flex; flex-direction: column; gap: 5px; padding: 7px 10px; }
 .stock-item + .stock-item { border-top: 1px solid var(--line); }
+/* The suggestion the arrow keys are on: Enter takes this one. */
+.stock-item.on { background: var(--brand-wash); }
 .stock-name {
   padding: 0; font: inherit; text-align: left; color: var(--ink-900);
   background: none; border: 0; cursor: pointer;

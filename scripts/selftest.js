@@ -151,6 +151,38 @@ async function main() {
 
   const shared = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'index.js'));
 
+  // ------------------------------------------------------------ typing a line: Enter, NOS, last price
+  console.log('\nTyping a line: best match, NOS, last price');
+  const SUG = [
+    { id: 's1', nameEn: 'Sugar Cubes', nameKn: '', units: [] },
+    { id: 's2', nameEn: 'Brown sugar', nameKn: '', units: [] },
+    { id: 's3', nameEn: 'Sugar', nameKn: 'ಸಕ್ಕರೆ', units: [] },
+  ];
+  eq('an exact name wins over list order', shared.bestMatch(SUG, ' sugar ').id, 's3');
+  eq('an exact Kannada name too', shared.bestMatch(SUG, 'ಸಕ್ಕರೆ').id, 's3');
+  eq('else a name starting with it', shared.bestMatch(SUG, 'sug').id, 's1');
+  eq('else the first result', shared.bestMatch(SUG, 'brwn').id, 's1');
+  eq('nothing to take from no results', shared.bestMatch([], 'sugar'), undefined);
+  eq('the fallback unit is NOS', shared.FALLBACK_UNIT, 'NOS');
+  const LP = [
+    { no: 1, at: '', total: 0, paid: 0, balance: 0, showBalance: false, customer: { id: 'c1', name: 'A', phone: '' },
+      lines: [{ itemId: 'a', nameKn: 'Sugar', nameEn: '', qty: 1, rate: 40 }] },
+    { no: 2, at: '', total: 0, paid: 0, balance: 0, showBalance: false, customer: { id: 'c2', name: 'B', phone: '' },
+      lines: [{ itemId: 'b', nameKn: '', nameEn: 'SUGAR ', qty: 1, rate: 44, stockItemId: 's3' }] },
+    { no: 3, at: '', total: 0, paid: 0, balance: 0, showBalance: false, cancelled: true,
+      lines: [{ itemId: 'c', nameKn: 'sugar', nameEn: '', qty: 1, rate: 99 }] },
+    { no: 4, at: '', total: 0, paid: 0, balance: 0, showBalance: false,
+      lines: [{ itemId: 'd', nameKn: 'Rice', nameEn: '', qty: 1, rate: 60 }] },
+  ];
+  eq('the same customer\'s last price first', shared.lastPriceOf({ name: 'sugar', customerId: 'c1' }, LP).rate, 40);
+  eq('and says so', shared.lastPriceOf({ name: 'sugar', customerId: 'c1' }, LP).sameCustomer, true);
+  eq('else anyone\'s latest, cancelled skipped', shared.lastPriceOf({ name: 'Sugar', customerId: 'c9' }, LP).rate, 44);
+  eq('with no customer, anyone\'s latest', shared.lastPriceOf({ name: 'sugar' }, LP).billNo, 2);
+  eq('stock\'s id matches whatever the name', shared.lastPriceOf({ name: 'Sakkare', stockItemId: 's3' }, LP).rate, 44);
+  eq('never sold is null', shared.lastPriceOf({ name: 'Jaggery', customerId: 'c1' }, LP), null);
+  eq('an empty ask is null', shared.lastPriceOf({ name: '  ' }, LP), null);
+  eq('names compare without case or extra spaces', shared.itemNameKey('  Brown   Sugar '), 'brown sugar');
+
   // raster.ts reaches for `document` when called, so the fake only has to exist by then.
   global.document = { createElement: (tag) => (tag === 'canvas' ? fakeCanvas() : {}) };
   const { rasterize } = require(path.join(BUILD, 'raster.js'));

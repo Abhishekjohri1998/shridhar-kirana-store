@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, round2, roundToStep,
+  DEFAULT_SETTINGS, billTotal, customerMatches, itemNameKey, lastPriceOf, round2, roundToStep,
   type Bill, type BillLine, type Customer, type Ink, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -102,6 +102,10 @@ const billSchema = new Schema<Bill>(
 // Bills are read newest first, the day summary scans one day, and a customer's history filters by id.
 billSchema.index({ at: -1 });
 billSchema.index({ 'customer.id': 1, no: -1 });
+// A typed line's last price: found by stock's id, or by either name, newest bill first.
+billSchema.index({ 'lines.stockItemId': 1, no: -1 });
+billSchema.index({ 'lines.nameEn': 1, no: -1 });
+billSchema.index({ 'lines.nameKn': 1, no: -1 });
 
 /** Mongo's "that key is taken" -- error 11000, however the driver happens to wrap it. */
 function isDuplicateKey(err: unknown): boolean {
@@ -247,6 +251,28 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
     async getBill(no) {
       const doc = await Bills.findOne({ no }).lean();
       return doc ? strip(doc as unknown as Bill) : null;
+    },
+
+    async lastPrice(ask) {
+      /*
+       * Mongo only narrows to the bills that could hold the item -- by stock's id, or by a name
+       * spelled the way it was asked for or its lowercase -- newest first, a handful at most.
+       * Which line and which customer win is decided by lastPriceOf, the same as the file store.
+       */
+      const key = itemNameKey(ask.name);
+      const names = [...new Set([ask.name.trim(), key].filter(Boolean))];
+      const or: Record<string, unknown>[] = [];
+      if (ask.stockItemId) or.push({ 'lines.stockItemId': ask.stockItemId });
+      if (names.length) or.push({ 'lines.nameEn': { $in: names } }, { 'lines.nameKn': { $in: names } });
+      if (!or.length) return null;
+      const base = { cancelled: { $ne: true }, $or: or };
+      const newest = async (filter: Record<string, unknown>) =>
+        (await Bills.find(filter).sort({ no: -1 }).limit(5).lean()).map((d) => strip(d as unknown as Bill));
+      if (ask.customerId) {
+        const theirs = lastPriceOf(ask, await newest({ ...base, 'customer.id': ask.customerId }));
+        if (theirs) return theirs;
+      }
+      return lastPriceOf({ ...ask, customerId: undefined }, await newest(base));
     },
 
     async createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId }) {

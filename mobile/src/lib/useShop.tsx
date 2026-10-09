@@ -11,7 +11,8 @@ import {
 } from '@shridhar/shared';
 
 /** What a stock suggestion fills a line with. */
-export type StockPick = { nameEn: string; nameKn: string; unit: string; stockItemId: string; rate: number };
+/** A line filled from stock, or -- with no stockItemId -- a typed name stock does not know, in NOS. */
+export type StockPick = { nameEn: string; nameKn: string; unit: string; stockItemId?: string; rate: number };
 import {
   ApiError, api, checkStoredPin, forgetPin, getBaseUrl, getToken, loadPerson, loadStoredConfig,
   markStockSignOut, rememberPin, savePerson, setServerUrl, setToken,
@@ -841,15 +842,18 @@ export function ShopProvider({ children }: { children: ReactNode }) {
    * Typing over the name afterwards lets go of the pick -- see setLineName.
    */
   const pickStockItem = useCallback((index: number, pick: StockPick) => {
-    updateLine(index, (l) => ({
-      ...l,
-      nameEn: pick.nameEn,
-      nameKn: pick.nameKn,
-      unit: pick.unit,
-      stockItemId: pick.stockItemId,
-      rate: pick.rate,
-      lastMode: 'text',
-    }));
+    updateLine(index, (l) => {
+      const { stockItemId: _old, ...rest } = l;
+      return {
+        ...rest,
+        nameEn: pick.nameEn,
+        nameKn: pick.nameKn,
+        unit: pick.unit,
+        ...(pick.stockItemId ? { stockItemId: pick.stockItemId } : {}),
+        rate: pick.rate,
+        lastMode: 'text',
+      };
+    });
   }, [updateLine]);
 
   /** An empty line at the foot of the slip, so there is always somewhere to write next. */

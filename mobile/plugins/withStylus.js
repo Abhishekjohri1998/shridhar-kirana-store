@@ -17,15 +17,60 @@
  *  2. Adds to MainActivity a dispatchTouchEvent / dispatchGenericMotionEvent hook that passes
  *     every motion event to the module first.
  *  3. Registers the package in MainApplication.
+ *  4. Adds to MainActivity a dispatchKeyEvent hook for a hardware keyboard (build 59): Up, Down
+ *     and Enter, while a text box has the cursor, go to JavaScript as `hwKey` events
+ *     ({key: 'up' | 'down' | 'enter'}). React Native's TextInput never reports the arrows on
+ *     Android. Up and Down are kept from the text box only while JavaScript says a suggestion
+ *     list is open (`setSuggestOpen`); Enter always carries on to the box as before.
  */
 const fs = require('fs');
 const path = require('path');
 
 const MARK = 'ShridharNativeModule.onMotion';
 const PKG_MARK = 'ShridharNativePackage()';
+const KEY_MARK = 'ShridharNativeModule.onKey';
 
-/** MainActivity.kt with the hook added. Unchanged when it is already there. */
+/** Adds lines just inside the class's closing brace. */
+function beforeClassEnd(src, block) {
+  const end = src.lastIndexOf('}');
+  if (end < 0) throw new Error('withStylus: MainActivity has no class body');
+  return src.slice(0, end).replace(/\s*$/, '\n') + block + '}' + src.slice(end + 1);
+}
+
+/** The imports a hook needs, each once, under the package line. */
+function addImports(src, lines) {
+  let out = src;
+  for (const line of lines) {
+    if (!out.includes(line + '\n')) out = out.replace(/^(package [^\n]+\n)/m, '$1\n' + line + '\n');
+  }
+  return out;
+}
+
+/** MainActivity.kt with the hooks added. Each one is added only when it is not already there. */
 function addToMainActivity(src, appPackage) {
+  return addKeyHook(addMotionHook(src, appPackage), appPackage);
+}
+
+/** The keyboard hook, on its own mark, so an activity patched before build 59 gains it too. */
+function addKeyHook(src, appPackage) {
+  if (src.includes(KEY_MARK)) return src;
+  const out = addImports(src, [
+    'import android.view.KeyEvent',
+    'import ' + appPackage + '.stylus.ShridharNativeModule',
+  ]);
+  const hook = [
+    '',
+    '  // withStylus: Up, Down and Enter from a hardware keyboard, for the suggestion list.',
+    '  override fun dispatchKeyEvent(event: KeyEvent): Boolean {',
+    '    if (' + KEY_MARK + '(event, currentFocus)) return true',
+    '    return super.dispatchKeyEvent(event)',
+    '  }',
+    '',
+  ].join('\n');
+  return beforeClassEnd(out, hook);
+}
+
+function addMotionHook(src, appPackage) {
   if (src.includes(MARK)) return src;
   let out = src;
   const imports = [
@@ -49,9 +94,7 @@ function addToMainActivity(src, appPackage) {
     '  }',
     '',
   ].join('\n');
-  const end = out.lastIndexOf('}');
-  if (end < 0) throw new Error('withStylus: MainActivity has no class body');
-  return out.slice(0, end).replace(/\s*$/, '\n') + hook + '}' + out.slice(end + 1);
+  return beforeClassEnd(out, hook);
 }
 
 /** MainApplication.kt with the package registered. Unchanged when it already is. */
@@ -68,7 +111,10 @@ function moduleSource(appPackage) {
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
+import android.widget.EditText
 import androidx.core.content.FileProvider
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -87,6 +133,9 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
   // Required by NativeEventEmitter on the JS side.
   @ReactMethod fun addListener(eventName: String) {}
   @ReactMethod fun removeListeners(count: Int) {}
+
+  /** JavaScript says whether a suggestion list is showing, so Up and Down belong to it. */
+  @ReactMethod fun setSuggestOpen(open: Boolean) { suggestOpen = open }
 
   @ReactMethod
   fun shareToWhatsApp(phone: String, fileUri: String, text: String, promise: Promise) {
@@ -127,6 +176,13 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     promise.reject("NO_WHATSAPP", "WhatsApp is not installed")
   }
 
+  private fun emitKey(key: String) {
+    if (!ctx.hasActiveReactInstance()) return
+    val map = Arguments.createMap()
+    map.putString("key", key)
+    ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("hwKey", map)
+  }
+
   private fun emit(down: Boolean) {
     if (!ctx.hasActiveReactInstance()) return
     val map = Arguments.createMap()
@@ -137,6 +193,26 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
   companion object {
     @Volatile private var instance: ShridharNativeModule? = null
     @Volatile private var held = false
+    @Volatile private var suggestOpen = false
+
+    /**
+     * Called by MainActivity for every key event. Up, Down and Enter from a hardware keyboard,
+     * while a text box has focus, are sent to JavaScript on the way down. Returns true -- the
+     * key is used up -- only for Up and Down while a suggestion list is open; everything else
+     * goes on to the app exactly as before. The on-screen keyboard does not come through here.
+     */
+    @JvmStatic
+    fun onKey(ev: KeyEvent, focus: View?): Boolean {
+      if (focus !is EditText) return false
+      val key = when (ev.keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP -> "up"
+        KeyEvent.KEYCODE_DPAD_DOWN -> "down"
+        KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> "enter"
+        else -> return false
+      }
+      if (ev.action == KeyEvent.ACTION_DOWN) instance?.emitKey(key)
+      return key != "enter" && suggestOpen
+    }
 
     /** Called by MainActivity for every touch and hover event, before anything else sees it. */
     @JvmStatic
@@ -214,5 +290,6 @@ function withStylus(config) {
 module.exports = withStylus;
 module.exports.addToMainActivity = addToMainActivity;
 module.exports.addToMainApplication = addToMainApplication;
+module.exports.KEY_MARK = KEY_MARK;
 module.exports.moduleSource = moduleSource;
 module.exports.packageSource = packageSource;

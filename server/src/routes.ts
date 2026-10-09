@@ -331,6 +331,19 @@ api.get('/bills', handler(async (req, res) => {
   res.json(await getRepo().listBills(limit, customerId));
 }));
 
+/*
+ * The rate an item last sold at, for a typed line to start from: this customer's last bill with
+ * it, else anyone's. 404-free -- no history is `{ rate: null }`, and the line keeps its own rate.
+ */
+api.get('/items/last-price', handler(async (req, res) => {
+  const name = z.string().trim().max(120).default('').parse(req.query.name ?? '');
+  const stockItemId = z.string().trim().max(80).optional().parse(req.query.stockId || undefined);
+  const customerId = z.string().trim().max(80).optional().parse(req.query.customer || undefined);
+  if (!name && !stockItemId) throw new HttpError(400, 'A name or a stock id is needed');
+  const found = await getRepo().lastPrice({ name, stockItemId, customerId });
+  res.json(found ?? { rate: null });
+}));
+
 api.get('/bills/:no', handler(async (req, res) => {
   const no = z.coerce.number().int().positive().parse(req.params.no);
   const bill = await getRepo().getBill(no);

@@ -57,8 +57,9 @@ echo "  version $VERSION_NAME ($VERSION_CODE)"
 MANIFEST=android/app/src/main/AndroidManifest.xml
 for PERM in $(node -p "require('./app.json').expo.android.permissions.join(' ')"); do
   grep -q "\"$PERM\"" "$MANIFEST" || {
-    sed -i "0,/<application/s##<uses-permission android:name=\"$PERM\"/>
-  <application#" "$MANIFEST"
+    # On one line with \n: a real newline inside the s command is an "unterminated s command"
+    # to sed, which is how build 58's location permissions stopped this script half-way.
+    sed -i "0,/<application/s##<uses-permission android:name=\"$PERM\"/>\n  <application#" "$MANIFEST"
     echo "  added $PERM to the manifest"
   }
 done

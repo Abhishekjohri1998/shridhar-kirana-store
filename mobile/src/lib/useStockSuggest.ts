@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sellUnitOf } from '@shridhar/shared';
+import { FALLBACK_UNIT, bestMatch, sellUnitOf } from '@shridhar/shared';
 import type { BillLine, StockItem, StockUnit } from '@shridhar/shared';
 import { api } from './api';
 import { useShop } from './useShop';
@@ -22,6 +22,17 @@ export function useStockSuggest() {
   /** The line whose name box is being typed in, and what it says. */
   const [query, setQuery] = useState<{ key: string; q: string } | null>(null);
   const [items, setItems] = useState<StockItem[]>([]);
+  /**
+   * Which suggestion Enter takes, shown on the list: the best match for what was typed when the
+   * list arrives, then wherever the arrow keys move it. -1 with no list.
+   */
+  const [highlight, setHighlight] = useState(-1);
+  const typedNow = useRef('');
+  typedNow.current = query?.q ?? '';
+  useEffect(() => {
+    const best = bestMatch(items, typedNow.current);
+    setHighlight(best ? items.indexOf(best) : -1);
+  }, [items]);
 
   useEffect(() => {
     const q = query?.q.trim() ?? '';
@@ -61,6 +72,19 @@ export function useStockSuggest() {
 
   const close = useCallback(() => setQuery(null), []);
 
+  /** Up or down the suggestions, round from the last to the first. */
+  const moveHighlight = useCallback((step: 1 | -1) => {
+    setHighlight((h) => {
+      const n = items.length;
+      if (!n) return -1;
+      if (h < 0) return step > 0 ? 0 : n - 1;
+      return (h + step + n) % n;
+    });
+  }, [items]);
+
+  /** Items stock found again for a line it was not picked for, by the line's itemId. */
+  const found = useRef<Record<string, StockItem>>({});
+
   const pick = (index: number, line: BillLine, item: StockItem, unit: StockUnit) => {
     shop.pickStockItem(index, {
       nameEn: item.nameEn,
@@ -77,6 +101,65 @@ export function useStockSuggest() {
     setItems([]);
     // A quantity already on the line may sit in a slab, so ask straight away.
     if (line.qty !== 1) requote(line.itemId, item.id, unit.code, line.qty);
+    fillLastPrice(line.itemId, lineNameOf(item), item.id, unit.code);
+  };
+
+  /*
+   * The rate this item last went at -- to this customer first, else to anyone -- in place of
+   * stock's list price, once the billing server answers. Only while the line is still what it
+   * was asked for and its price is not the shopkeeper's own; it stays "auto", so a change of
+   * quantity still asks stock again as before.
+   */
+  const fillLastPrice = (key: string, name: string, stockItemId: string | undefined, unit: string) => {
+    if (!name.trim() && !stockItemId) return;
+    api.lastPrice(name, stockItemId, shop.customer?.id)
+      .then((r) => {
+        if (typeof r?.rate !== 'number' || !(r.rate > 0) || handRate.current.has(key)) return;
+        const at = cart.current.findIndex((l) => l.itemId === key);
+        const line = cart.current[at];
+        if (!line || line.unit !== unit || (line.stockItemId ?? undefined) !== stockItemId) return;
+        if (r.rate !== line.rate) shop.setLineRate(at, r.rate);
+      })
+      .catch(() => undefined);
+  };
+
+  /**
+   * A typed name stock does not know: it stays as typed, counted in NOS, with the price it last
+   * went at when the shop has sold it before. Nothing at all for an empty name.
+   */
+  const pickNos = (index: number, line: BillLine, typed?: string) => {
+    const name = typed ?? (line.nameKn || line.nameEn);
+    if (!name.trim()) return false;
+    shop.pickStockItem(index, {
+      nameEn: line.stockItemId ? '' : line.nameEn, nameKn: typed ?? line.nameKn, unit: FALLBACK_UNIT, rate: line.rate,
+    });
+    setQuery(null);
+    setItems([]);
+    fillLastPrice(line.itemId, name, undefined, FALLBACK_UNIT);
+    return true;
+  };
+
+  /**
+   * Enter in the name box: the highlighted suggestion, else the best match for what was typed,
+   * in stock's selling unit -- else the name as typed, in NOS. Asks stock straight away when its
+   * list for this line has not come back yet, so a quick Enter is not taken for "unknown".
+   * Resolves to whether the line was filled.
+   */
+  const pickBest = async (index: number, line: BillLine, typed: string): Promise<boolean> => {
+    if (!typed.trim()) return false;
+    let list = query?.key === line.itemId && query.q === typed ? items : [];
+    if (on && !list.length && typed.trim().length >= 2) {
+      list = await api.stockItems(typed.trim())
+        .then((r) => (Array.isArray(r.items) ? r.items : []))
+        .catch(() => [] as StockItem[]);
+    }
+    const chosen = (highlight >= 0 && list === items && items[highlight]) || bestMatch(list, typed);
+    const unit = chosen ? sellUnitOf(chosen) : undefined;
+    if (chosen && unit) {
+      pick(index, line, chosen, unit);
+      return true;
+    }
+    return pickNos(index, line, typed);
   };
 
   /** A tap on the item itself: it goes on in stock's selling unit. */
@@ -85,17 +168,28 @@ export function useStockSuggest() {
     if (unit) pick(index, line, item, unit);
   };
 
+  /** A line's name as stock gave it, either language. */
+  const lineNameOf = (x: { nameEn: string; nameKn: string }) => x.nameEn || x.nameKn;
+
   /** The units a picked line can switch between, once known. */
   const unitsFor = (line: BillLine): StockUnit[] => units[line.itemId] ?? [];
 
   /** After a reload the menu is empty: find the line's item in stock again, by its id. */
   const loadUnits = (line: BillLine) => {
-    if (!on || !line.stockItemId || units[line.itemId]) return;
+    if (!on || units[line.itemId]) return;
     const id = line.stockItemId;
-    api.stockItems(line.nameEn || line.nameKn)
+    const name = (line.nameEn || line.nameKn).trim();
+    if (!name) return;
+    api.stockItems(name)
       .then((r) => {
-        const found = (Array.isArray(r.items) ? r.items : []).find((x) => x.id === id);
-        if (found) setUnits((m) => ({ ...m, [line.itemId]: found.units }));
+        const list = Array.isArray(r.items) ? r.items : [];
+        // A NOS line: stock may know the name by now -- only the exact name counts.
+        const hit = id
+          ? list.find((x) => x.id === id)
+          : list.find((x) => [x.nameEn, x.nameKn].some((n) => (n ?? '').trim().toLowerCase() === name.toLowerCase()));
+        if (!hit) return;
+        if (!id) found.current[line.itemId] = hit;
+        setUnits((m) => ({ ...m, [line.itemId]: Array.isArray(hit.units) ? hit.units : [] }));
       })
       .catch(() => undefined);
   };
@@ -105,7 +199,12 @@ export function useStockSuggest() {
    * unless the shopkeeper has typed a price of their own, which stays.
    */
   const changeUnit = (index: number, line: BillLine, unit: StockUnit) => {
-    if (!line.stockItemId) return;
+    if (!line.stockItemId) {
+      // A NOS line whose name stock has since been found to know: choosing its unit picks it.
+      const item = found.current[line.itemId];
+      if (item) pick(index, line, item, unit);
+      return;
+    }
     const mine = handRate.current.has(line.itemId);
     shop.pickStockItem(index, {
       nameEn: line.nameEn,
@@ -117,6 +216,14 @@ export function useStockSuggest() {
     setBounds((b) => ({ ...b, [line.itemId]: { min: unit.min, max: unit.max } }));
     setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
     if (!mine && line.qty !== 1) requote(line.itemId, line.stockItemId, unit.code, line.qty);
+  };
+
+  /** NOS from the unit menu: the line lets go of stock's item and keeps its name and price. */
+  const chooseNos = (index: number, line: BillLine) => {
+    if (line.unit === FALLBACK_UNIT && !line.stockItemId) return;
+    shop.pickStockItem(index, { nameEn: line.nameEn, nameKn: line.nameKn, unit: FALLBACK_UNIT, rate: line.rate });
+    setBounds((b) => ({ ...b, [line.itemId]: {} }));
+    setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
   };
 
   /** Stock's rate for this quantity, a beat after the last change, unless the rate is the shopkeeper's. */
@@ -167,10 +274,15 @@ export function useStockSuggest() {
     /** The line the suggestions belong under, if any are showing. */
     openFor: on && query && items.length > 0 ? query.key : null,
     items,
+    /** The suggestion the arrow keys are on, or -1. */
+    highlight,
+    moveHighlight,
     onNameTyped,
     close,
     pick,
     pickItem,
+    pickBest,
+    chooseNos,
     unitsFor,
     loadUnits,
     changeUnit,

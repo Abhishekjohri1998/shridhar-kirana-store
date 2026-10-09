@@ -139,6 +139,13 @@ export const api = {
     request<StockQuote>(
       '/stock/quote?item=' + encodeURIComponent(item) + '&unit=' + encodeURIComponent(unit) + '&qty=' + qty,
     ),
+  /** The rate an item last sold at: this customer's last, else anyone's; `rate: null` when never. */
+  lastPrice: (name: string, stockId?: string, customer?: string) =>
+    request<{ rate: number | null; billNo?: number; sameCustomer?: boolean }>(
+      '/items/last-price?name=' + encodeURIComponent(name)
+        + (stockId ? '&stockId=' + encodeURIComponent(stockId) : '')
+        + (customer ? '&customer=' + encodeURIComponent(customer) : ''),
+    ),
   stockDraft: (body: ReturnType<typeof draftForStock>) =>
     request<{ ticks: StockTicks }>('/stock/draft', { method: 'POST', body: JSON.stringify(body) }),
 };

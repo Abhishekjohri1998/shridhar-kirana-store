@@ -3,7 +3,7 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
-  lineHasSomething, nextTypingLine, lineAmount, lineName,
+  FALLBACK_UNIT, lineHasSomething, nextTypingLine, lineAmount, lineName,
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
@@ -17,6 +17,7 @@ import { Button, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
+import { onHardwareKey, setSuggestOpen } from '../lib/native';
 import { C, R, TYPE, shadow } from '../theme';
 
 /**
@@ -122,7 +123,7 @@ export function BillScreen() {
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
-  /** The same for the quantity of a line picked from stock, the only lines that show one. */
+  /** The same for the quantity of a typed line: '' while the box is entered, until typed in. */
   const [qtyText, setQtyText] = useState<Record<string, string>>({});
   /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
   const stock = useStockSuggest();
@@ -139,6 +140,24 @@ export function BillScreen() {
   const prices = useRef<Record<string, TextInput | null>>({});
   /** And for the item boxes, so a list can be typed straight down without touching the glass. */
   const names = useRef<Record<string, TextInput | null>>({});
+  /** And the quantity boxes, which Enter in a name box hands on to. */
+  const qtys = useRef<Record<string, TextInput | null>>({});
+
+  /*
+   * A keyboard plugged into the tablet: Up and Down move through the suggestions under the name
+   * being typed. Enter needs nothing here -- the name box's own submit picks. Native code only
+   * holds the arrows back from the text box while a list is showing.
+   */
+  const stockOpen = stock.openFor;
+  const stockRef = useRef(stock);
+  stockRef.current = stock;
+  useEffect(() => { setSuggestOpen(stockOpen != null); }, [stockOpen]);
+  useEffect(() => onHardwareKey((key) => {
+    const s = stockRef.current;
+    if (!s.openFor) return;
+    if (key === 'up') s.moveHighlight(-1);
+    else if (key === 'down') s.moveHighlight(1);
+  }), []);
   const sheet = useRef<ScrollView>(null);
   /*
    * What the slip actually measures, so the page can be turned rather than guessed at.
@@ -316,6 +335,28 @@ export function BillScreen() {
     wantFocus.current = { id: '', from: here?.itemId ?? '', kind: 'name' };
     goToNewestLine();
   }, [shop.cart, goToNewestLine, focusRow]);
+
+  /** An item picked by Enter: on to that same line's quantity. */
+  const goToQty = useCallback((id: string) => {
+    focusRow(id);
+    qtys.current[id]?.focus();
+  }, [focusRow]);
+
+  /**
+   * Enter in a name box. A typed name is matched -- the highlighted or best suggestion, else the
+   * name as typed in NOS -- and the cursor goes to its quantity. A line already matched goes
+   * straight there; an empty one goes on down, as before.
+   */
+  const submitName = (index: number, typed: string) => {
+    const line = shop.cart[index];
+    if (!line || !typed.trim()) { stock.close(); goToNextName(index); return; }
+    if (line.unit && stock.openFor !== line.itemId) { stock.close(); goToQty(line.itemId); return; }
+    clearTyped(line.itemId);
+    void stock.pickBest(index, line, typed).then((ok) => {
+      if (ok) goToQty(line.itemId);
+      else goToNextName(index);
+    });
+  };
 
   useEffect(() => {
     const wanted = wantFocus.current;
@@ -819,26 +860,37 @@ export function BillScreen() {
                       // can take it, and it comes back up with a flicker.
                       returnKeyType="next"
                       blurOnSubmit={false}
-                      onSubmitEditing={() => { stock.close(); goToNextName(index); }}
+                      onSubmitEditing={() => submitName(index, line.stockItemId ? lineName(line, shop.lang) : line.nameKn)}
                       onFocus={() => { focusRow(line.itemId); setView('items'); }}
                       // A beat late, so a tap on a unit below lands before the list goes.
                       onBlur={() => { blurRow(); setTimeout(stock.close, 300); }}
                     />
-                    {/* A line picked from stock counts in its unit, so its quantity shows --
-                        changing it asks stock for the rate again, slabs and all. */}
-                    {stock.on && line.unit ? (
+                    {/* Every typed line counts in a unit -- stock's, or NOS -- so its quantity
+                        always shows. On a picked line, changing it asks stock for the rate again. */}
                       <>
                         <TextInput
+                          ref={(el) => { qtys.current[line.itemId] = el; }}
                           style={[styles.slipPrice, styles.stockQty]}
                           keyboardType="decimal-pad"
                           accessibilityLabel={t('stock.qtyOf', { n: index + 1 })}
+                          // Empty on the way in, the old figure showing faintly, so a fresh one is
+                          // typed rather than deleted first. Left empty, the old one stays.
                           value={qtyText[line.itemId] ?? String(line.qty)}
+                          placeholder={String(line.qty)}
+                          placeholderTextColor={C.faint}
                           onChangeText={(text) => {
                             setQtyText((prev) => ({ ...prev, [line.itemId]: text }));
                             const qty = Number(text.replace(',', '.'));
                             if (text.trim() !== '' && Number.isFinite(qty)) stock.onQty(index, line, qty);
                           }}
-                          onFocus={() => { focusRow(line.itemId); setView('items'); }}
+                          returnKeyType="next"
+                          blurOnSubmit={false}
+                          onSubmitEditing={() => { focusRow(line.itemId); prices.current[line.itemId]?.focus(); }}
+                          onFocus={() => {
+                            focusRow(line.itemId);
+                            setView('items');
+                            setQtyText((prev) => ({ ...prev, [line.itemId]: '' }));
+                          }}
                           onBlur={() => {
                             blurRow();
                             setQtyText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
@@ -853,12 +905,11 @@ export function BillScreen() {
                             setUnitMenu(line.itemId);
                           }}
                         >
-                          <Text style={styles.stockUnit}>{line.unit + ' ▾'}</Text>
+                          <Text style={styles.stockUnit}>{(line.unit || FALLBACK_UNIT) + ' ▾'}</Text>
                         </Pressable>
                       </>
-                    ) : null}
                     </View>
-                    {stock.on && line.unit && unitMenu === line.itemId && stock.unitsFor(line).length > 0 ? (
+                    {unitMenu === line.itemId ? (
                       <View style={[styles.stockList, styles.stockChips, styles.stockUnitMenu]}>
                         {stock.unitsFor(line).map((u) => {
                           const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
@@ -877,12 +928,23 @@ export function BillScreen() {
                             </Pressable>
                           );
                         })}
+                        {/* Always there: a count of anything, for an item stock does not know. */}
+                        <Pressable
+                          style={styles.stockChip}
+                          accessibilityState={{ selected: (line.unit || FALLBACK_UNIT) === FALLBACK_UNIT }}
+                          onPress={() => {
+                            stock.chooseNos(index, line);
+                            setUnitMenu(null);
+                          }}
+                        >
+                          <Text style={styles.stockChipText}>{FALLBACK_UNIT}</Text>
+                        </Pressable>
                       </View>
                     ) : null}
                     {stock.openFor === line.itemId ? (
                       <View style={styles.stockList} accessibilityLabel={t('stock.matches')}>
-                        {stock.items.map((item) => (
-                          <View key={item.id} style={styles.stockItem}>
+                        {stock.items.map((item, at) => (
+                          <View key={item.id} style={[styles.stockItem, at === stock.highlight && styles.stockItemOn]}>
                             {/* The item itself: a tap puts it on in stock's selling unit. */}
                             <Pressable
                               accessibilityRole="button"
@@ -1344,6 +1406,8 @@ const styles = StyleSheet.create({
     borderRadius: R.md, ...shadow(2),
   },
   stockItem: { paddingHorizontal: 10, paddingVertical: 7, borderBottomWidth: 1, borderColor: C.line },
+  /* The suggestion the keyboard's arrows are on: the same wash as a ticked line. */
+  stockItemOn: { backgroundColor: C.accentWash },
   stockName: { fontSize: 15, color: C.ink, marginBottom: 5 },
   stockChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   stockChip: {
