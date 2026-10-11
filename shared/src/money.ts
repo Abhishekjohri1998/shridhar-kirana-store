@@ -28,8 +28,27 @@ export function rateForTotal(total: number, qty: number): number {
   const q = qty > 0 ? qty : 1;
   const t = round2(total);
   const r = t / q;
-  // round2 absorbs any last-bit error, but check rather than trust it.
-  return lineAmount(q, r) === t ? r : round2(r);
+  // round2 absorbs any last-bit error, but check rather than trust it. A rate is never cut to
+  // paise (build 64): 0.056 a gram must not become 0.06. If the exact quotient misses by a last
+  // bit, the shortest rate (4 to 8 decimals) that still comes to the total is used instead.
+  if (lineAmount(q, r) === t) return r;
+  for (let d = 4; d <= 8; d++) {
+    const f = 10 ** d;
+    const c = Math.round(r * f) / f;
+    if (lineAmount(q, c) === t) return c;
+  }
+  return r;
+}
+
+/**
+ * A rate as the bill shows it: whole rupees bare, else at least 2 and at most 3 decimals --
+ * "170", "12.50", "0.056". Rates are kept exact; only the display is cut, at 3 places.
+ */
+export function rateText(rate: number): string {
+  const r3 = Math.round((rate + Number.EPSILON) * 1000) / 1000;
+  if (Number.isInteger(r3)) return String(r3);
+  const s = r3.toFixed(3);
+  return s.endsWith('0') ? s.slice(0, -1) : s;
 }
 
 /** Whether a rate is a whole number of paise; 166.666... is not, and prints as "@ 166.67". */
@@ -64,6 +83,10 @@ export function roundedLineAmount(qty: number, rate: number, step: number): numb
 }
 
 /**
+ * Only the AMOUNT is rounded; the rate is never cut to 2 decimals. When the amount is already
+ * on the step (500 g at 0.056 = 28) the rate is returned untouched; otherwise it is the exact
+ * total / qty (see rateForTotal), so qty x rate reproduces the rounded amount.
+ *
  * The rate to store so a line comes to its rounded amount: what the server saves, so the receipt
  * code -- which works the amount out as qty x rate -- prints 110 and not 110.04. The cart keeps
  * stock's own rate until then, so changing the quantity still starts from the real price.

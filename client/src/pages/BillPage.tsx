@@ -23,6 +23,7 @@ import {
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, lineMoveFor, moveInColumn, shortcutFor, shortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
+  rateText,
 } from '@shridhar/shared';
 import { useNavigate } from 'react-router-dom';
 import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
@@ -544,9 +545,12 @@ export function BillPage() {
       case 'prevBill':
       case 'nextBill': {
         const id = adjacentBill(shop.drafts.map((d) => d.id), shop.activeDraftId, action === 'prevBill' ? -1 : 1);
-        if (id) shop.switchBill(id);
+        // Ctrl+PageDown on the last bill starts a new one, as "+ New bill"; no wrapping round.
+        if (id === 'new') shop.newBill();
+        else if (id) shop.switchBill(id);
         return;
       }
+      case 'hideNames': shop.setHideNames(!shop.hideNames); return;
       case 'history': navigate('/history'); return;
       case 'customer':
       case 'customerName':
@@ -576,15 +580,18 @@ export function BillPage() {
       case 'preview': if (hasSomething) setPreview(draft()); return;
       case 'save': if (hasSomething && !saving) void onSave(); return;
       case 'print': if (hasSomething && !saving && !printer.busy) void onPrint(); return;
-      default: return; // toggleApp: nothing to switch to on the web.
+      default: return; // toggleApp: nothing to switch to on the web; bill and settings: App.tsx.
     }
   };
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => undefined);
   keyHandler.current = (e) => {
-    if (e.defaultPrevented || e.isComposing || preview || keysOpen) return;
     // A letter by its key position, so Alt+H is H on every layout (on a Mac Alt+H types a symbol).
     const key = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : e.key;
     const press = { key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey };
+    // Ctrl+H is the browser's History panel; on the bill screen it is ours, even under a dialog.
+    if (shortcutFor(press) === 'hideNames') e.preventDefault();
+    if (e.isComposing || preview || keysOpen) return;
+    if (e.defaultPrevented && shortcutFor(press) !== 'hideNames') return;
     const move = lineMoveFor(press);
     if (move) {
       const at = cursorAt();
@@ -598,7 +605,8 @@ export function BillPage() {
       return;
     }
     const action = shortcutFor(press);
-    if (!action) return;
+    // Alt+B and Alt+S are the app shell's (App.tsx), on every page.
+    if (!action || action === 'bill' || action === 'settings') return;
     e.preventDefault();
     runShortcut(action);
   };
@@ -996,7 +1004,7 @@ export function BillPage() {
                   />
                   {/* The box is the line total; the rate it comes from sits small underneath. */}
                   {line.rate > 0 && line.qty !== 1 ? (
-                    <span className="line-amount">{t('bill.each', { rate: money(line.rate) })}</span>
+                    <span className="line-amount">{t('bill.each', { rate: rateText(line.rate) })}</span>
                   ) : null}
                   </div>
                   {/* Two kilos at 44 is typed as 44*2 and priced at 88. The counter PC has a

@@ -86,6 +86,8 @@ true;
 const RETRY_AFTER_MS = [2000, 5000, 10000];
 const RETRY_EVERY_MS = 15000;
 const GIVE_UP_AFTER_MS = 60000;
+/** The longest a loading spinner shows (build 64). */
+const SPINNER_MAX_MS = 10000;
 
 /**
  * `active` is false while the window is loaded hidden behind billing (App mounts it as soon as
@@ -104,6 +106,7 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   const failedThisLoad = useRef(false);
   const attempts = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The spinner: the first load and reloads we start (retry), never in-page navigation. */
   const [loading, setLoading] = useState(true);
   const [canBack, setCanBack] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -160,6 +163,13 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   }, [retryNow]);
 
   useEffect(() => () => { if (retryTimer.current) clearTimeout(retryTimer.current); }, []);
+
+  // A spinner never outlives 10 seconds, whatever the WebView reports or fails to.
+  useEffect(() => {
+    if (!loading) return undefined;
+    const timer = setTimeout(() => setLoading(false), SPINNER_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   // Opening the Stock tab, or coming back to the app, tries again at once instead of waiting.
   const failingRef = useRef(false);
@@ -275,7 +285,11 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           Linking.openURL(req.url).catch(() => undefined);
           return false;
         }}
-        onLoadStart={() => { failedThisLoad.current = false; setLoading(true); }}
+        // No spinner here (build 64). Android fires onLoadStart for stock's in-page navigation
+        // and for links handed to Linking above, with no onLoadEnd to follow, so a spinner set
+        // here never went away. It shows only for the first load and the reloads we start.
+        onLoadStart={() => { failedThisLoad.current = false; }}
+        onLoadProgress={(e) => { if (e.nativeEvent.progress >= 1) setLoading(false); }}
         onLoadEnd={() => {
           firstDone.current = true;
           setLoading(false);

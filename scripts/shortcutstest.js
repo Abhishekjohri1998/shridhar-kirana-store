@@ -40,6 +40,10 @@ const want = [
   [{ key: 'p', ctrl: true }, 'preview'],
   [{ key: 's', ctrl: true }, 'save'],
   [{ key: 'P', ctrl: true, shift: true }, 'print'],
+  [{ key: 'b', alt: true }, 'bill'],
+  [{ key: 's', alt: true }, 'settings'],
+  [{ key: 'h', ctrl: true }, 'hideNames'],
+  [{ key: 'H', ctrl: true }, 'hideNames'],
 ];
 for (const [press, action] of want) eq(S.chordOf(press) + ' is ' + action, S.shortcutFor(press), action);
 
@@ -52,17 +56,22 @@ eq('Ctrl+Alt+S is not Save', S.shortcutFor({ key: 's', ctrl: true, alt: true }),
 eq('Ctrl+Shift+P is Print, not Preview', S.shortcutFor({ key: 'p', ctrl: true, shift: true }), 'print');
 eq('chord order is Ctrl, Shift, Alt', S.chordOf({ key: 'x', alt: true, shift: true, ctrl: true }), 'Ctrl+Shift+Alt+X');
 
-console.log('\nOff the bill screen only F1 is live');
+console.log('\nOff the bill screen only F1, Alt+B and Alt+S are live');
 eq('F1 anywhere', S.shortcutFor({ key: 'F1' }, false), 'toggleApp');
 eq('Ctrl+S elsewhere is nothing', S.shortcutFor({ key: 's', ctrl: true }, false), null);
 eq('Alt+H elsewhere is nothing', S.shortcutFor({ key: 'h', alt: true }, false), null);
+eq('Alt+B anywhere', S.shortcutFor({ key: 'b', alt: true }, false), 'bill');
+eq('Alt+S anywhere', S.shortcutFor({ key: 's', alt: true }, false), 'settings');
+eq('Ctrl+H elsewhere is nothing', S.shortcutFor({ key: 'h', ctrl: true }, false), null);
 
 console.log('\nThe list itself');
 const chords = S.SHORTCUTS.map((s) => s.chord);
 check('no chord twice', new Set(chords).size === chords.length);
 check('every action once', new Set(S.SHORTCUTS.map((s) => s.action)).size === S.SHORTCUTS.length);
 check('every entry has a help line', S.SHORTCUTS.every((s) => S.STRINGS.en[s.labelKey] && S.STRINGS.kn[s.labelKey]));
-check('only F1 is global', S.SHORTCUTS.filter((s) => s.global).map((s) => s.chord).join() === 'F1');
+check('F1, Alt+B and Alt+S are the global ones', S.SHORTCUTS.filter((s) => s.global).map((s) => s.chord).sort().join() === 'Alt+B,Alt+S,F1');
+eq('Ctrl+H is not Alt+H', S.shortcutFor({ key: 'h', ctrl: true }), 'hideNames');
+eq('a plain B is typing', S.shortcutFor({ key: 'b' }), null);
 
 console.log('\nUp and Down');
 eq('ArrowUp is -1', S.lineMoveFor({ key: 'ArrowUp' }), -1);
@@ -94,9 +103,11 @@ eq('none left in that direction', S.moveInColumn(2, 1, 5, (i) => i < 2), null);
 
 console.log('\nBill tabs');
 eq('next', S.adjacentBill(['a', 'b', 'c'], 'a', 1), 'b');
-eq('previous wraps to the last', S.adjacentBill(['a', 'b', 'c'], 'a', -1), 'c');
-eq('next wraps to the first', S.adjacentBill(['a', 'b', 'c'], 'c', 1), 'a');
-eq('one bill: nowhere to go', S.adjacentBill(['a'], 'a', 1), null);
+eq('previous on the first stays (no wrap)', S.adjacentBill(['a', 'b', 'c'], 'a', -1), null);
+eq('next on the last makes a new bill (no wrap)', S.adjacentBill(['a', 'b', 'c'], 'c', 1), 'new');
+eq('one bill: Ctrl+PageDown makes a new bill', S.adjacentBill(['a'], 'a', 1), 'new');
+eq('one bill: Ctrl+PageUp stays', S.adjacentBill(['a'], 'a', -1), null);
+eq('previous from the middle', S.adjacentBill(['a', 'b', 'c'], 'b', -1), 'a');
 
 console.log('\nThe tab shows the rounded total');
 const line = (qty, rate) => ({ itemId: 'l' + rate, qty, rate, nameKn: 'x', nameEn: '' });
@@ -107,6 +118,40 @@ const two = { ...S.emptyDraft('d2'), lines: [line(1, 110.04), line(3, 37.5)] };
 eq('each line rounded, then added (110 + 113)', S.draftTotal(two, 1), 223);
 eq('and that is the bill total the screen shows',
   S.draftTotal(two, 1), S.billTotal(S.roundLines(two.lines, 1)));
+
+console.log('\nRates keep their precision (build 64)');
+eq('500 g at 0.056: the rate is kept on a step of 1', S.roundedRate(500, 0.056, 1), 0.056);
+eq('and on no step', S.roundedRate(500, 0.056, 0), 0.056);
+eq('the line is 28', S.roundedLineAmount(500, 0.056, 1), 28);
+eq('roundLines keeps 0.056', S.roundLines([{ itemId: 'g', nameKn: '', nameEn: '', qty: 500, rate: 0.056 }], 1)[0].rate, 0.056);
+{
+  const r = S.roundedRate(7, 13.333, 1); // 93.331 -> 93
+  check('93.331 -> 93: qty x rate is 93', S.lineAmount(7, r) === 93, String(r));
+  check('and the rate is not cut to 2 decimals', Math.abs(r - 93 / 7) < 1e-9, String(r));
+}
+eq('"each" shows 0.056', S.rateText(0.056), '0.056');
+eq('"each" shows 12.50', S.rateText(12.5), '12.50');
+eq('"each" shows 170', S.rateText(170), '170');
+eq('"each" shows 166.667 for 500/3', S.rateText(500 / 3), '166.667');
+
+console.log('\nWiring (build 64)');
+{
+  const rd = (p) => require('node:fs').readFileSync(path.join(__dirname, '..', p), 'utf8');
+  for (const f of ['mobile/src/screens/BillScreen.tsx', 'client/src/pages/BillPage.tsx']) {
+    const src = rd(f);
+    check(f + ': Ctrl+PageDown on the last bill makes a new one', src.includes("if (id === 'new') shop.newBill();"));
+    check(f + ': Ctrl+H toggles hideNames', src.includes("case 'hideNames': shop.setHideNames(!shop.hideNames); return;"));
+    check(f + ': "each" shows the rate to 3 places', src.includes("t('bill.each', { rate: rateText(line.rate) })"));
+  }
+  check('web: Ctrl+H never opens the browser history', rd('client/src/pages/BillPage.tsx').includes("if (shortcutFor(press) === 'hideNames') e.preventDefault();"));
+  check('web: Alt+B and Alt+S from any page', rd('client/src/App.tsx').includes("navigate(action === 'bill' ? '/bill' : '/settings')"));
+  check('tablet: Alt+B and Alt+S from any screen', rd('mobile/App.tsx').includes("global === 'bill' || global === 'settings'"));
+  const stock = rd('mobile/src/screens/StockScreen.tsx');
+  check('stock spinner: onLoadStart no longer sets it', !/onLoadStart=\{[^\n]*setLoading\(true\)/.test(stock));
+  check('stock spinner: cleared at full progress', stock.includes('if (e.nativeEvent.progress >= 1) setLoading(false);'));
+  check('stock spinner: 10 s safety timer', stock.includes('const SPINNER_MAX_MS = 10000;') && stock.includes('setTimeout(() => setLoading(false), SPINNER_MAX_MS)'));
+  check('stock spinner: still shown for our own retries', /const retryNow[\s\S]{0,200}setLoading\(true\)/.test(stock));
+}
 
 console.log('\nCustomer boxes, even when the section is folded away');
 eq('F2 -> name', S.customerFieldFor('customerName'), 'name');

@@ -126,9 +126,9 @@ check('emits hwShortcut with the modifiers', mod.includes('.emit("hwShortcut", m
 check('checked before the text-box test, so any focus works', mod.indexOf('if (onShortcut(ev)) return true') >= 0
   && mod.indexOf('if (onShortcut(ev)) return true') < mod.indexOf('if (focus !is EditText) return false'));
 check('off unless JavaScript says so', mod.includes('@Volatile private var shortcutLevel = 0') && mod.includes('if (level <= 0) return false'));
-check('F1 alone at level 1', mod.includes('if (chord == "F1") return true') && mod.includes('return level >= 2 && chord in BILL_CHORDS'));
+check('the global chords at level 1', mod.includes('if (chord in GLOBAL_CHORDS) return true') && mod.includes('return level >= 2 && chord in BILL_CHORDS'));
 check('emitted once per press, used up whole', mod.includes('if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {\n        instance?.emitShortcut('));
-for (const k of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'PAGE_UP', 'PAGE_DOWN', 'H', 'C', 'A', 'P', 'S']) {
+for (const k of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'PAGE_UP', 'PAGE_DOWN', 'H', 'B', 'C', 'A', 'P', 'S']) {
   check('reads KEYCODE_' + k, mod.includes('KeyEvent.KEYCODE_' + k + ' -> '));
 }
 check('modifier order is Ctrl, Shift, Alt as in JS', mod.includes('(if (ctrl) "Ctrl+" else "") + (if (shift) "Shift+" else "") + (if (alt) "Alt+" else "") + key'));
@@ -140,6 +140,11 @@ try {
   const native = [...plugin.BILL_CHORDS].sort();
   check('the native list is shared/src/shortcuts.ts exactly', JSON.stringify(js) === JSON.stringify(native),
     'js=' + js.join(',') + ' native=' + native.join(','));
+  const jsGlobal = shared.SHORTCUTS.filter((s) => s.global).map((s) => s.chord).sort();
+  const nativeGlobal = [...plugin.GLOBAL_CHORDS].sort();
+  check('the native global list is shared/src/shortcuts.ts exactly', JSON.stringify(jsGlobal) === JSON.stringify(nativeGlobal),
+    'js=' + jsGlobal.join(',') + ' native=' + nativeGlobal.join(','));
+  check('Alt+B, Alt+S and Ctrl+H are in the Kotlin (build 64)', ['Alt+B', 'Alt+S', 'Ctrl+H'].every((c) => mod.includes('"' + c + '"')));
   check('every chord is in the Kotlin', js.every((c) => mod.includes('"' + c + '"')));
   check('every key name the JS list uses is one the Kotlin can send',
     shared.SHORTCUTS.every((s) => mod.includes('-> "' + s.chord.split('+').pop() + '"')));

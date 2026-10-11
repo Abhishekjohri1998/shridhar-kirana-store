@@ -252,7 +252,7 @@ async function main() {
     eq('a typed total of 500 for 3 sums to 500', shared.billTotal(typed), 500);
     const row = shared.buildReceipt({ ...BILL, lines: typed, total: 500 }, SETTINGS).rows.find((r) => r.t === 'item' && r.no === '1');
     eq('and prints 500', row && row.amount, '500');
-    eq('at 166.67, unasked', row && row.note, '@ 166.67');
+    eq('at 166.667, unasked (rates show up to 3 decimals)', row && row.note, '@ 166.667');
     eq('a round rate prints no note unasked',
       shared.buildReceipt(BILL, SETTINGS).rows.filter((r) => r.t === 'item')[1].note, undefined);
   }
@@ -784,6 +784,12 @@ async function main() {
     eq('a note is saved, trimmed', withNote.body.note, 'Delivery Tuesday');
     eq('and reads back on the saved bill',
       (await call('/api/bills/' + withNote.body.no, { headers: auth })).body.note, 'Delivery Tuesday');
+
+    // Build 64: a rate is never cut to 2 decimals. 500 g at ₹0.056 a gram is ₹28, rate kept.
+    const perGram = await post('/api/bills', { lines: [{ itemId: 'g', nameEn: 'Saffron', qty: 500, rate: 0.056 }] });
+    eq('a 0.056 rate is saved exactly', perGram.body.lines && perGram.body.lines[0].rate, 0.056);
+    eq('and the line comes to 28', perGram.body.total, 28);
+    eq('and survives a reread', (await call('/api/bills/' + perGram.body.no, { headers: auth })).body.lines[0].rate, 0.056);
     // A note is a line or two. Unbounded, it is a way to print a hundred lines of paper.
     eq('an over-long note is rejected',
       (await post('/api/bills', { lines: LINES, note: 'x'.repeat(201) })).status, 400);

@@ -26,7 +26,8 @@
  *  5. Keyboard shortcuts (build 63): F1-F8, Ctrl+PageUp/PageDown, Alt+H/C, Ctrl+A/P/S and
  *     Ctrl+Shift+P go to JavaScript as `hwShortcut` events ({key, ctrl, shift, alt}) and are
  *     used up -- whatever has focus -- but only while JavaScript has switched them on
- *     (`setShortcuts`: 0 off, 1 F1 alone, 2 the whole bill-screen list). Any other screen or
+ *     (`setShortcuts`: 0 off, 1 the global ones -- F1, Alt+B, Alt+S (build 64) -- 2 those and
+ *     the whole bill-screen list, with Ctrl+H since build 64). Any other screen or
  *     key is untouched. While a bill line box has the cursor (setTakeEnter) and shortcuts are
  *     at 2, Up and Down are kept from the box too, so JavaScript can move between lines.
  *     The list is the same as shared/src/shortcuts.ts; plugintest checks that.
@@ -38,10 +39,13 @@ const MARK = 'ShridharNativeModule.onMotion';
 const PKG_MARK = 'ShridharNativePackage()';
 const KEY_MARK = 'ShridharNativeModule.onKey';
 
-/** The chords used up at shortcut level 2. F1 alone is level 1. Keep in step with SHORTCUTS. */
+/** The chords live from shortcut level 1 (every screen). Keep in step with SHORTCUTS' global ones. */
+const GLOBAL_CHORDS = ['F1', 'Alt+B', 'Alt+S'];
+
+/** The chords used up at shortcut level 2 only. Keep in step with SHORTCUTS. */
 const BILL_CHORDS = [
   'Ctrl+PageUp', 'Ctrl+PageDown', 'Alt+H', 'Alt+C', 'F2', 'Shift+F2', 'F3', 'F4', 'F5', 'F6',
-  'F7', 'F8', 'Ctrl+A', 'Ctrl+P', 'Ctrl+S', 'Ctrl+Shift+P',
+  'F7', 'F8', 'Ctrl+H', 'Ctrl+A', 'Ctrl+P', 'Ctrl+S', 'Ctrl+Shift+P',
 ];
 
 /** Adds lines just inside the class's closing brace. */
@@ -121,6 +125,7 @@ function addToMainApplication(src, appPackage) {
 
 function moduleSource(appPackage) {
   const chords = BILL_CHORDS.map((c) => '"' + c + '"').join(', ');
+  const globals = GLOBAL_CHORDS.map((c) => '"' + c + '"').join(', ');
   return `package ${appPackage}.stylus
 
 import android.content.ActivityNotFoundException
@@ -229,6 +234,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @Volatile private var takeEnter = false
     @Volatile private var shortcutLevel = 0
 
+    private val GLOBAL_CHORDS = setOf(${globals})
     private val BILL_CHORDS = setOf(${chords})
 
     /** The shortcut key's name, as shared/src/shortcuts.ts spells it, or null. */
@@ -245,6 +251,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
       KeyEvent.KEYCODE_PAGE_UP -> "PageUp"
       KeyEvent.KEYCODE_PAGE_DOWN -> "PageDown"
       KeyEvent.KEYCODE_H -> "H"
+      KeyEvent.KEYCODE_B -> "B"
       KeyEvent.KEYCODE_C -> "C"
       KeyEvent.KEYCODE_A -> "A"
       KeyEvent.KEYCODE_P -> "P"
@@ -261,7 +268,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @JvmStatic
     fun isShortcut(chord: String, level: Int): Boolean {
       if (level <= 0) return false
-      if (chord == "F1") return true
+      if (chord in GLOBAL_CHORDS) return true
       return level >= 2 && chord in BILL_CHORDS
     }
 
@@ -397,5 +404,6 @@ module.exports.addToMainActivity = addToMainActivity;
 module.exports.addToMainApplication = addToMainApplication;
 module.exports.KEY_MARK = KEY_MARK;
 module.exports.BILL_CHORDS = BILL_CHORDS;
+module.exports.GLOBAL_CHORDS = GLOBAL_CHORDS;
 module.exports.moduleSource = moduleSource;
 module.exports.packageSource = packageSource;

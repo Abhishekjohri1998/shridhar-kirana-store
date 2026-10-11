@@ -1,5 +1,6 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { money, pickLang } from '@shridhar/shared';
+import { useEffect } from 'react';
+import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { money, pickLang, shortcutFor } from '@shridhar/shared';
 import { SECTION_ICONS } from './components/Icons';
 import { Mark } from './components/Mark';
 import { PrintProvider } from './lib/usePrint';
@@ -19,6 +20,22 @@ const TABS = [
 
 export function App() {
   const shop = useShop();
+  const navigate = useNavigate();
+
+  // Alt+B and Alt+S (build 64): Bill and Settings from any page. By key position, as on the bill page.
+  useEffect(() => {
+    if (!shop.signedIn) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      const key = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : e.key;
+      const action = shortcutFor({ key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey }, false);
+      if (action !== 'bill' && action !== 'settings') return;
+      e.preventDefault();
+      navigate(action === 'bill' ? '/bill' : '/settings');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [shop.signedIn, navigate]);
 
   if (!shop.ready) {
     return <p className="page muted center">{shop.t('app.loading')}</p>;

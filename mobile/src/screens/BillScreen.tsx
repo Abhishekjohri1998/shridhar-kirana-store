@@ -9,6 +9,7 @@ import {
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
+  rateText,
 } from '@shridhar/shared';
 import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
@@ -718,9 +719,12 @@ export function BillScreen() {
       case 'prevBill':
       case 'nextBill': {
         const id = adjacentBill(shop.drafts.map((d) => d.id), shop.activeDraftId, action === 'prevBill' ? -1 : 1);
-        if (id) shop.switchBill(id);
+        // Ctrl+PageDown on the last bill starts a new one, as "+ New bill"; no wrapping round.
+        if (id === 'new') shop.newBill();
+        else if (id) shop.switchBill(id);
         return;
       }
+      case 'hideNames': shop.setHideNames(!shop.hideNames); return;
       case 'customer':
       case 'customerName':
       case 'customerNameKn':
@@ -1244,7 +1248,7 @@ export function BillScreen() {
                 {/* The box is the line total; the rate it comes from sits small underneath. */}
                 {line.rate > 0 && line.qty !== 1 ? (
                   <Text style={styles.lineAmount} numberOfLines={1} adjustsFontSizeToFit>
-                    {t('bill.each', { rate: money(line.rate) })}
+                    {t('bill.each', { rate: rateText(line.rate) })}
                   </Text>
                 ) : null}
                 </View>

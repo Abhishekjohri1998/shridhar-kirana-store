@@ -15,6 +15,9 @@ export type ShortcutAction =
   | 'prevBill'
   | 'nextBill'
   | 'history'
+  | 'bill'
+  | 'settings'
+  | 'hideNames'
   | 'customer'
   | 'customerName'
   | 'customerNameKn'
@@ -32,7 +35,7 @@ export type ShortcutAction =
 export interface Shortcut {
   chord: string;
   action: ShortcutAction;
-  /** Works on every screen, not only the bill (only F1). */
+  /** Works on every screen, not only the bill (F1, Alt+B, Alt+S). */
   global?: boolean;
   /** Its line in the help list. */
   labelKey: MsgKey;
@@ -42,7 +45,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { chord: 'F1', action: 'toggleApp', global: true, labelKey: 'keys.toggleApp' },
   { chord: 'Ctrl+PageUp', action: 'prevBill', labelKey: 'keys.prevBill' },
   { chord: 'Ctrl+PageDown', action: 'nextBill', labelKey: 'keys.nextBill' },
+  { chord: 'Alt+B', action: 'bill', global: true, labelKey: 'keys.bill' },
   { chord: 'Alt+H', action: 'history', labelKey: 'keys.history' },
+  { chord: 'Alt+S', action: 'settings', global: true, labelKey: 'keys.settings' },
   { chord: 'Alt+C', action: 'customer', labelKey: 'keys.customer' },
   { chord: 'F2', action: 'customerName', labelKey: 'keys.customerName' },
   { chord: 'Shift+F2', action: 'customerNameKn', labelKey: 'keys.customerNameKn' },
@@ -52,6 +57,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { chord: 'F6', action: 'lineUnit', labelKey: 'keys.lineUnit' },
   { chord: 'F7', action: 'linePrice', labelKey: 'keys.linePrice' },
   { chord: 'F8', action: 'lineTick', labelKey: 'keys.lineTick' },
+  { chord: 'Ctrl+H', action: 'hideNames', labelKey: 'keys.hideNames' },
   { chord: 'Ctrl+A', action: 'tickAll', labelKey: 'keys.tickAll' },
   { chord: 'Ctrl+P', action: 'preview', labelKey: 'keys.preview' },
   { chord: 'Ctrl+S', action: 'save', labelKey: 'keys.save' },
@@ -138,12 +144,17 @@ export function moveInColumn(
   return null;
 }
 
-/** The bill tab before or after the active one, wrapping round. Null with one bill or none. */
-export function adjacentBill(ids: readonly string[], active: string, delta: -1 | 1): string | null {
-  if (ids.length < 2) return null;
+/**
+ * The bill tab before or after the active one. No wrap: before the first stays put (null), and
+ * after the last is 'new' -- Ctrl+PageDown on the last bill starts a new one, as "+ New bill".
+ */
+export function adjacentBill(ids: readonly string[], active: string, delta: -1 | 1): string | 'new' | null {
   const at = ids.indexOf(active);
   const from = at < 0 ? 0 : at;
-  return ids[(from + delta + ids.length) % ids.length] ?? null;
+  const to = from + delta;
+  if (to < 0) return null;
+  if (to >= ids.length) return delta === 1 ? 'new' : null;
+  return ids[to] ?? null;
 }
 
 /** The customer box a shortcut puts the cursor in, or null for any other action. */
