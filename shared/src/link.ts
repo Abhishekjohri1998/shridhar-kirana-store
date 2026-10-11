@@ -1,6 +1,6 @@
 import { lineAmount, money } from './money';
 import { lineHasInk } from './drafts';
-import type { Bill } from './types';
+import type { Bill, BillLine } from './types';
 
 /*
  * The connection to the billing server, as both apps judge it, and the slimmed-down bill list.
@@ -73,6 +73,19 @@ export function liteBill(bill: Bill): Bill {
 /** The lines that go on paper and into the WhatsApp text: everything not hidden. */
 export function printedLines<L extends { hidden?: boolean }>(lines: L[]): L[] {
   return lines.filter((l) => l.hidden !== true);
+}
+
+/**
+ * The lines as the customer's copy shows them when the bill hides item descriptions
+ * (Bill.hideNames): no typed name, no handwriting, no stock name -- quantity, unit, rate and
+ * everything else kept. Unchanged when the bill shows names.
+ */
+export function namelessLines<L extends BillLine>(bill: { hideNames?: boolean }, lines: L[]): L[] {
+  if (bill.hideNames !== true) return lines;
+  return lines.map((l) => {
+    const { ink: _ink, moreInk: _more, stockItemId: _stock, hasInk: _has, ...rest } = l as L & { hasInk?: boolean };
+    return { ...rest, nameKn: '', nameEn: '' } as L;
+  });
 }
 
 /**

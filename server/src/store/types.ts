@@ -9,6 +9,8 @@ export type NewBill = {
   /** Cash taken. Defaults to the whole total, i.e. a fully paid bill. */
   paid?: number;
   showBalance?: boolean;
+  /** Leave the item descriptions off the customer's copy. See Bill.hideNames. */
+  hideNames?: boolean;
   /** Extra information about this sale, printed under the totals. */
   note?: string;
   /**
@@ -128,6 +130,11 @@ export type Repo = {
    * anyone needs. Three answers for the same reason deleteBill has three.
    */
   setLineGiven(no: number, index: number, given: boolean): Promise<'ok' | 'missing' | 'cancelled'>;
+  /**
+   * Turns the item descriptions on the customer's copy off or on (Bill.hideNames). Only that flag
+   * moves; nothing else on the bill, and no money. Null when there is no such bill.
+   */
+  setBillHideNames(no: number, hideNames: boolean): Promise<Bill | null>;
   /**
    * Empties the book: every bill, the numbering back to the start, and the customers too unless
    * they are spared.

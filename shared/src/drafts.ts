@@ -26,6 +26,8 @@ export type Draft = {
   printBalanceTouched: boolean;
   /** The bill's own note, which prints under the totals. Travels with the bill like the payment. */
   note: string;
+  /** Item descriptions left off the customer's copy (Bill.hideNames). Absent on older drafts. */
+  hideNames?: boolean;
   /**
    * What the stock app knows this bill by while it is being written.
    *

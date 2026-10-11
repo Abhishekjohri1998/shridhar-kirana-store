@@ -132,6 +132,12 @@ export type Bill = {
   /** Whether the paid and balance lines print. The shop wants this optional per bill. */
   showBalance: boolean;
   /**
+   * Leave each line's description (typed name or handwriting) off what the customer gets: the
+   * slip, the preview, the shared picture and the WhatsApp text. Quantity, unit, rate, amount and
+   * totals still print. The shop's own screens keep showing the names. Absent means shown.
+   */
+  hideNames?: boolean;
+  /**
    * A line of extra information about this sale, printed under the totals.
    *
    * "Delivery Tuesday", "2 bags returned" -- what was being written on the slip with a pen once

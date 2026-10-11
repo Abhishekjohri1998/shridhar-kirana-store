@@ -186,6 +186,11 @@ type Shop = {
   setPaidInput: (value: string) => void;
   setPrintBalance: (value: boolean, fromUser?: boolean) => void;
   setNote: (value: string) => void;
+  /** Item descriptions left off this bill's printout, preview and shares. */
+  hideNames: boolean;
+  setHideNames: (value: boolean) => void;
+  /** A saved bill's item descriptions left off, or put back on, its reprints and shares. */
+  setBillHideNames: (no: number, hideNames: boolean) => Promise<Bill>;
   customerDraft: { name: string; nameKn: string; phone: string };
   setCustomerDraft: (draft: { name: string; nameKn: string; phone: string }) => void;
 
@@ -265,6 +270,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const printBalance = active.printBalance;
   const printBalanceTouched = active.printBalanceTouched;
   const note = active.note;
+  const hideNames = active.hideNames === true;
 
   const setCart = useCallback(
     (next: BillLine[] | ((prev: BillLine[]) => BillLine[])) => {
@@ -302,6 +308,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   );
   const setNote = useCallback(
     (value: string) => patchActive((d) => (d.note === value ? d : { ...d, note: value })),
+    [patchActive],
+  );
+  const setHideNames = useCallback(
+    (value: boolean) => patchActive((d) => ((d.hideNames === true) === value ? d : { ...d, hideNames: value })),
     [patchActive],
   );
   const setPrintBalanceState = useCallback(
@@ -765,6 +775,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...(billTo ? { customerId: billTo.id } : {}),
         ...(options.paid == null ? {} : { paid: options.paid }),
         showBalance: Boolean(options.showBalance && billTo),
+        ...(hideNames ? { hideNames: true } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         // So stock can swap the live draft on its worker screen for this bill, ticks and all.
         ...(stockOn ? { draftId: active.draftId } : {}),
@@ -802,8 +813,19 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       if (bill.customer) setInactive((prev) => prev.filter((c) => c.id !== bill.customer?.id));
       return bill;
     },
-    [cart, customer, note, resetDraft, t, stockOn, active.draftId],
+    [cart, customer, note, hideNames, resetDraft, t, stockOn, active.draftId],
   );
+
+  const setBillHideNames = useCallback(async (no: number, hide: boolean) => {
+    const saved = await api.setBillHideNames(no, hide);
+    // Only the flag, so a lite bill in the list stays lite.
+    setBills((prev) => prev.map((b) => {
+      if (b.no !== no) return b;
+      const { hideNames: _old, ...rest } = b;
+      return saved.hideNames ? { ...rest, hideNames: true } : rest;
+    }));
+    return saved;
+  }, []);
 
   const saveCustomer = useCallback(async (input: {
     id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
@@ -829,7 +851,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     () => ({
       ready, signedIn, offline, settings, bills, today, cart,
       cartTotal: roundedCart, cartRoundOff: round2(roundedCart - billTotal(cart)), setLineHidden,
-      customer, inactive, paidInput, printBalance, printBalanceTouched, note,
+      customer, inactive, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
@@ -842,7 +864,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, signedIn, offline, settings, bills, today, cart, customer, inactive,
-      paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
+      paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,

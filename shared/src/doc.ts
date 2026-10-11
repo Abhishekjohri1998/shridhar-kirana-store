@@ -1,4 +1,4 @@
-import { printedLines } from './link';
+import { namelessLines, printedLines } from './link';
 import type { Bill, BillLine, Ink, Settings } from './types';
 import { lineAmount, money, qtyText, rateIsRound, round2 } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
@@ -217,7 +217,8 @@ export function buildReceipt(
   const lang = settings.language === 'kn' ? 'kn' : 'en';
   // A hidden line is still sold and still in the total; it is only left off the paper. Filtered
   // here, once, so all four renderers and the shared picture agree without knowing about it.
-  const lines = printedLines(bill.lines);
+  // Descriptions hidden: each line keeps its number, quantity, unit, rate and amount only.
+  const lines = namelessLines(bill, printedLines(bill.lines));
   const shopName = pickLang(settings.shopName, settings.shopNameKn, lang);
 
   const rows: Row[] = [
@@ -357,6 +358,12 @@ export function buildReceipt(
       if (typed.trim()) {
         rows.push({ t: 'item', no: '', amount: '', name: typed, note: shared.note });
       }
+    }
+    else if (bill.hideNames === true) {
+      // No description: the quantity and unit stand in its place, and the rate always prints, so
+      // "1.  2 kg  @ 50 ... 100" still explains itself.
+      const name = qtyText(line.qty) + (unit ? ' ' + unit : '');
+      rows.push({ t: 'item', name: line.given ? GIVEN_MARK + name : name, ...shared, note: '@ ' + money(line.rate) });
     }
     else {
       const name = typedAll;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Switch, Text, View } from 'react-native';
 import { buildReceipt, hiddenLinesText, type Bill } from '@shridhar/shared';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
@@ -7,6 +7,7 @@ import { Button, ErrorText, Notice } from './ui';
 import { api } from '../lib/api';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
+import { C } from '../theme';
 
 /**
  * One bill, as it printed -- with the option to print it again or cancel it.
@@ -50,7 +51,28 @@ export function BillDialog({
       .catch((e) => { if (alive) setError(t('hist.couldNotLoad') + ': ' + (e instanceof Error ? e.message : String(e))); });
     return () => { alive = false; };
   }, [listed]);
-  const bill = listed?.hasInk ? full : listed;
+  const loaded = listed?.hasInk ? full : listed;
+  /*
+   * Item descriptions on the customer's copy, as set here; null until touched, then the bill's
+   * own flag. Every reprint, share and the receipt go through `bill`, so they all agree.
+   */
+  const [hide, setHide] = useState<boolean | null>(null);
+  useEffect(() => setHide(null), [listed]);
+  const bill = useMemo(
+    () => (loaded && hide != null ? { ...loaded, hideNames: hide } : loaded),
+    [loaded, hide],
+  );
+  const toggleNames = async (next: boolean) => {
+    if (!listed) return;
+    setError(null);
+    setHide(next);
+    try {
+      await shop.setBillHideNames(listed.no, next);
+    } catch (e) {
+      setHide(!next);
+      setError(t('hist.couldNotSave') + ': ' + (e instanceof Error ? e.message : String(e)));
+    }
+  };
   const loading = listed != null && bill == null;
 
   const doc = useMemo(
@@ -239,6 +261,17 @@ export function BillDialog({
         </Notice>
       ) : null}
 
+      {bill && !bill.cancelled ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <Switch
+            value={bill.hideNames === true}
+            onValueChange={(v) => void toggleNames(v)}
+            trackColor={{ true: C.accent, false: C.line }}
+          />
+          <Text style={{ flex: 1, color: C.ink }}>{t('bill.hideNames')}</Text>
+        </View>
+      ) : null}
+      {bill?.hideNames ? <Notice>{t('bill.namesHidden')}</Notice> : null}
       {doc ? <ReceiptView doc={doc} /> : null}
       {loading ? <Notice>{t('hist.loading')}</Notice> : null}
       {/* Left off the paper, still in the total: said here so the arithmetic is explained. */}

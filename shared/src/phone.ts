@@ -52,7 +52,7 @@ export function whatsappNumber(c: { phone?: string; phones?: string[]; whatsapp?
  */
 export function billAsText(
   bill: {
-    no: number; at: string; total: number; paid: number; balance: number; showBalance: boolean;
+    no: number; at: string; total: number; paid: number; balance: number; showBalance: boolean; hideNames?: boolean;
     lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string; hidden?: boolean }[];
   },
   shopName: string,
@@ -61,10 +61,11 @@ export function billAsText(
   const rupees = (n: number) => '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
   const out = [shopName, labels.bill + bill.no + ' · ' + new Date(bill.at).toLocaleString('en-IN'), ''];
   // Hidden lines stay off the text as they stay off the paper; the total still counts them.
-  for (const l of bill.lines.filter((x) => x.hidden !== true)) {
-    const name = (l.nameKn || l.nameEn || '—').trim();
+  // Descriptions hidden: the line's number stands in for its name, everything else stays.
+  bill.lines.filter((x) => x.hidden !== true).forEach((l, i) => {
+    const name = bill.hideNames === true ? '#' + (i + 1) : (l.nameKn || l.nameEn || '—').trim();
     out.push(name + ' ' + l.qty + (l.unit ? ' ' + l.unit : '') + ' × ' + rupees(l.rate) + ' = ' + rupees(l.qty * l.rate));
-  }
+  });
   out.push('', labels.total + ': ' + rupees(bill.total));
   if (bill.showBalance) {
     out.push(labels.paid + ': ' + rupees(bill.paid), labels.balance + ': ' + rupees(bill.balance));

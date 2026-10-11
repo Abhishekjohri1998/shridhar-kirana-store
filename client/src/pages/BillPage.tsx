@@ -351,6 +351,7 @@ export function BillPage() {
     previousBalance: shop.customer ? shop.customer.balance : 0,
     previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
+    ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
     // The rounding, as the server will apply it, so the preview's TOTAL matches the paper.
     ...(shop.cartRoundOff !== 0 ? { roundOff: shop.cartRoundOff } : {}),
@@ -979,6 +980,16 @@ export function BillPage() {
             placeholder={t('bill.notePlaceholder')}
           />
         </label>
+        {/* Only the customer's copy loses the names; this screen keeps showing them. */}
+        <label className="row" style={{ marginTop: 8, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={shop.hideNames}
+            onChange={(e) => shop.setHideNames(e.target.checked)}
+          />
+          <span className="small">{t('bill.hideNames')}</span>
+        </label>
+        {shop.hideNames ? <p className="muted small" style={{ margin: '4px 0 0' }}>{t('bill.namesHidden')}</p> : null}
 
         <div className="cart-actions">
           <button className="btn plain" disabled={!hasSomething} onClick={() => setPreview(draft())}>

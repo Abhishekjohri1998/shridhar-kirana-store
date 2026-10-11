@@ -94,6 +94,8 @@ const billSchema = new Schema<Bill>(
     cancelled: { type: Boolean, required: false, default: false },
     cancelledAt: { type: String, required: false, default: null },
     showBalance: { type: Boolean, required: true, default: false },
+    // Optional, no default: absent means the names print. See Bill.hideNames.
+    hideNames: { type: Boolean, required: false },
     note: { type: String, required: false, default: '' },
     // The stock link's two fields. Optional, never `required` beside a default -- see above.
     draftId: { type: String, required: false },
@@ -348,7 +350,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return lastPriceOf({ ...ask, customerId: undefined }, await newest(base));
     },
 
-    async createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId, clientId }) {
+    async createBill({ lines, customerId, paid, showBalance, hideNames, note, roundTo, draftId, clientId }) {
       // A save already on file is answered with that bill, before any money moves.
       if (clientId && (await Bills.exists({ clientId }))) throw new DuplicateClientId(clientId);
       const exact = billTotal(lines);
@@ -434,6 +436,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         previousBalance,
         previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
         showBalance: showBalance ?? false,
+        ...(hideNames ? { hideNames: true } : {}),
         note: note ?? '',
         ...(roundOff !== 0 ? { roundOff } : {}),
         roundTo: roundTo ?? 0,
@@ -542,6 +545,16 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         { $set: { ['lines.' + index + '.given']: given } },
       );
       return 'ok';
+    },
+
+    async setBillHideNames(no, hideNames) {
+      // The one flag and nothing else, so a reprint setting cannot disturb the bill's figures.
+      const doc = await Bills.findOneAndUpdate(
+        { no },
+        hideNames ? { $set: { hideNames: true } } : { $unset: { hideNames: 1 } },
+        { new: true },
+      ).lean();
+      return doc ? strip(doc as unknown as Bill) : null;
     },
 
     async eraseAll(keepCustomers) {

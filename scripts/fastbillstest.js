@@ -83,6 +83,21 @@ function receipt() {
   check('and its total counts it', text.includes('₹150'), text);
   eq('History can say what was hidden', shared.hiddenLinesText(bill), '2. Secret ' + shared.money(40));
   eq('nothing hidden says nothing', shared.hiddenLinesText({ lines: [bill.lines[0]] }), '');
+  {
+    const nb = { ...bill, hideNames: true, lines: [{ ...bill.lines[0], qty: 2, rate: 50, unit: 'kg', ink: INK }, bill.lines[1], bill.lines[2]] };
+    const nd = shared.buildReceipt(nb, settings);
+    const s = JSON.stringify(nd);
+    check('hideNames: no names on the slip', !s.includes('Rice') && !s.includes('Salt') && !s.includes('Secret'), s);
+    check('hideNames: no handwriting on the slip', !nd.rows.some((r) => r.t === 'ink'));
+    const its = nd.rows.filter((r) => r.t === 'item' && r.no !== shared.EN_RECEIPT_LABELS.no);
+    eq('hideNames: lines keep number, qty+unit, rate and amount', its.map((r) => [r.no, r.name, r.note, r.amount]),
+      [['1', '2 kg', '@ ' + shared.money(50), shared.money(100)], ['2', '1', '@ ' + shared.money(10), shared.money(10)]]);
+    const totalRow2 = nd.rows.find((r) => r.t === 'kv' && r.left === shared.EN_RECEIPT_LABELS.total);
+    eq('hideNames: TOTAL unchanged', totalRow2 && totalRow2.right, shared.money(150));
+    const t2 = shared.billAsText(nb, 'Shop', { bill: 'Bill ', total: 'Total', paid: 'Paid', balance: 'Balance' });
+    check('hideNames: WhatsApp text has numbers, not names', t2.includes('#1 2 kg') && t2.includes('#2 1') && !t2.includes('Rice'), t2);
+    check('hideNames off: names still print', JSON.stringify(shared.buildReceipt({ ...nb, hideNames: false }, settings)).includes('Salt'));
+  }
   eq('printedLines drops only hidden ones', shared.printedLines(bill.lines).map((l) => l.itemId), ['a', 'c']);
 }
 
@@ -216,6 +231,19 @@ async function main() {
     eq('since the newest: nothing new', (await call('/bills?lite=1&since=' + lastNo)).body, []);
     eq('since also works without lite', (await call('/bills?since=' + (lastNo - 1))).body[0].lines.length > 0, true);
     eq('a bad since is refused', (await call('/bills?since=abc')).status, 400);
+
+    console.log('\nItem descriptions hidden on the customer copy (hideNames)');
+    const hn = (await call('/bills', 'POST', { lines: [{ itemId: 'x', nameEn: 'Rice', qty: 2, rate: 50 }], hideNames: true })).body;
+    eq('a new bill keeps hideNames', hn.hideNames, true);
+    const plain = (await call('/bills', 'POST', { lines: [{ itemId: 'x', nameEn: 'Rice', qty: 2, rate: 50 }] })).body;
+    eq('and leaves it off when not asked', plain.hideNames, undefined);
+    const on = await call('/bills/' + plain.no, 'PATCH', { hideNames: true });
+    eq('PATCH turns it on', on.body.hideNames, true);
+    eq('and moves nothing else', [on.body.total, on.body.paid, on.body.lines[0].nameEn], [plain.total, plain.paid, 'Rice']);
+    eq('it is saved', (await call('/bills/' + plain.no)).body.hideNames, true);
+    eq('PATCH turns it off', (await call('/bills/' + plain.no, 'PATCH', { hideNames: false })).body.hideNames, undefined);
+    eq('other fields are refused', (await call('/bills/' + plain.no, 'PATCH', { hideNames: true, total: 1 })).status, 400);
+    eq('a missing bill is 404', (await call('/bills/999999', 'PATCH', { hideNames: true })).status, 404);
   } finally {
     child.kill();
     await sleep(300);

@@ -272,10 +272,13 @@ export const api = {
   createBill: (
     payload: {
       lines: BillLine[]; customerId?: string; paid?: number; showBalance?: boolean; note?: string;
-      draftId?: string; clientId?: string;
+      hideNames?: boolean; draftId?: string; clientId?: string;
     },
   ) =>
     request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }, SAVE_TIMEOUT_MS),
+  /** Leaves the item descriptions off a saved bill's reprints and shares, or puts them back. */
+  setBillHideNames: (no: number, hideNames: boolean) =>
+    request<Bill>('/bills/' + no, { method: 'PATCH', body: JSON.stringify({ hideNames }) }),
   /** Marks a bill cancelled and takes it out of the customer's totals. Not a delete. */
   cancelBill: (no: number) => request<Bill>('/bills/' + no + '/cancel', { method: 'POST' }),
   /**

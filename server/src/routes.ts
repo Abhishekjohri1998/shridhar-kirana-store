@@ -382,6 +382,18 @@ api.patch('/bills/:no/lines/:i/given', handler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/*
+ * The item descriptions left off, or put back on, the customer's copy of a saved bill: History's
+ * reprint and share. Only that flag moves -- strict, so nothing else can ride along.
+ */
+api.patch('/bills/:no', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const { hideNames } = z.object({ hideNames: z.boolean() }).strict().parse(req.body);
+  const bill = await getRepo().setBillHideNames(no, hideNames);
+  if (!bill) throw new HttpError(404, 'No such bill');
+  res.json(bill);
+}));
+
 /* Cancelled, not deleted: see Repo.cancelBill. A POST rather than a DELETE because the bill is
    still there afterwards -- it is a state change, not a removal. */
 api.post('/bills/:no/cancel', handler(async (req, res) => {
@@ -460,6 +472,7 @@ api.post('/bills', handler(async (req, res) => {
       customerId: z.string().trim().min(1).max(80).optional(),
       paid: z.coerce.number().finite().nonnegative().max(10_000_000).optional(),
       showBalance: z.boolean().optional(),
+      hideNames: z.boolean().optional(),
       // Capped because a note is a line or two. Unbounded, it is a way to fill the database and
       // a way to print a hundred lines of paper by one leaning tablet.
       note: z.string().trim().max(200).optional(),
@@ -521,6 +534,7 @@ api.post('/bills', handler(async (req, res) => {
       ...(body.customerId ? { customerId: body.customerId } : {}),
       ...(body.paid == null ? {} : { paid: body.paid }),
       showBalance: body.showBalance ?? false,
+      ...(body.hideNames ? { hideNames: true } : {}),
       ...(body.note ? { note: body.note } : {}),
       ...(body.draftId ? { draftId: body.draftId } : {}),
       ...(body.clientId ? { clientId: body.clientId } : {}),

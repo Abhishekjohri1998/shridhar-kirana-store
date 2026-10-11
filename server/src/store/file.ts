@@ -115,7 +115,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return lastPriceOf(ask, db.bills);
     },
 
-    createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId, clientId }: NewBill) {
+    createBill({ lines, customerId, paid, showBalance, hideNames, note, roundTo, draftId, clientId }: NewBill) {
       return serial(async () => {
         // Checked inside the queue, so two copies of one save racing each other cannot both pass.
         if (clientId && db.bills.some((b) => b.clientId === clientId)) throw new DuplicateClientId(clientId);
@@ -166,6 +166,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           previousBalance,
           previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
           showBalance: showBalance ?? false,
+          ...(hideNames ? { hideNames: true } : {}),
           note: note ?? '',
           ...(roundOff !== 0 ? { roundOff } : {}),
           roundTo: roundTo ?? 0,
@@ -241,6 +242,19 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           await flush();
         }
         return 'ok' as const;
+      });
+    },
+
+    setBillHideNames(no, hideNames) {
+      return serial(async () => {
+        const bill = db.bills.find((b) => b.no === no);
+        if (!bill) return null;
+        if ((bill.hideNames ?? false) !== hideNames) {
+          if (hideNames) bill.hideNames = true;
+          else delete bill.hideNames;
+          await flush();
+        }
+        return { ...bill };
       });
     },
 

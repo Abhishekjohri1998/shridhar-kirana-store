@@ -475,6 +475,7 @@ export function BillScreen() {
     previousBalance: shop.customer ? shop.customer.balance : 0,
     previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
+    ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
     // The rounding, as the server will apply it, so the preview's TOTAL matches the paper.
     ...(shop.cartRoundOff !== 0 ? { roundOff: shop.cartRoundOff } : {}),
@@ -1195,6 +1196,16 @@ export function BillScreen() {
             onChangeText={shop.setNote}
           />
         </View>
+        {/* Only the customer's copy loses the names; this screen keeps showing them. */}
+        <View style={styles.switchRow}>
+          <Switch
+            value={shop.hideNames}
+            onValueChange={(v) => shop.setHideNames(v)}
+            trackColor={{ true: C.accent, false: C.line }}
+          />
+          <Text style={styles.switchLabel}>{t('bill.hideNames')}</Text>
+        </View>
+        {shop.hideNames ? <Text style={styles.hiddenTag}>{t('bill.namesHidden')}</Text> : null}
 
         {/* Without this line a TOTAL larger than the lines above has nothing explaining it. */}
         {carried > 0 ? (

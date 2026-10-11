@@ -52,7 +52,23 @@ export function BillDialog({
   }, [listed]);
   // Until the whole bill arrives the lite one stands in for the title and the cancel buttons;
   // printing, sharing and the receipt wait for `loading` to clear.
-  const bill: Bill = (listed.hasInk ? full : null) ?? listed;
+  const loaded: Bill = (listed.hasInk ? full : null) ?? listed;
+  /*
+   * Item descriptions on the customer's copy, as set here; null until touched, then the bill's
+   * own flag. Every reprint, share and the receipt below go through `bill`, so they all agree.
+   */
+  const [hide, setHide] = useState<boolean | null>(null);
+  const bill: Bill = hide == null ? loaded : { ...loaded, hideNames: hide };
+  const toggleNames = async (next: boolean) => {
+    setError(null);
+    setHide(next);
+    try {
+      await shop.setBillHideNames(listed.no, next);
+    } catch (e) {
+      setHide(!next);
+      setError(t('hist.couldNotSave') + ': ' + (e instanceof Error ? e.message : String(e)));
+    }
+  };
   const loading = listed.hasInk === true && full == null;
 
   /* WhatsApp from the website: wa.me with the bill as text, in the customer's chat when we
@@ -189,6 +205,13 @@ export function BillDialog({
         </p>
       ) : null}
 
+      {!bill.cancelled ? (
+        <label className="row" style={{ marginBottom: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={bill.hideNames === true} onChange={(e) => void toggleNames(e.target.checked)} />
+          <span className="small">{t('bill.hideNames')}</span>
+        </label>
+      ) : null}
+      {bill.hideNames ? <p className="muted small" style={{ margin: '0 0 8px' }}>{t('bill.namesHidden')}</p> : null}
       {loading
         ? <p className="notice">{t('hist.loading')}</p>
         : <ReceiptView doc={buildReceipt(bill, shop.settings, shop.receiptLabels)} inkAlt={t('ink.alt')} />}
