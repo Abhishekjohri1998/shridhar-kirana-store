@@ -37,7 +37,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- the fake stock server
 /** What the fake was last sent, and what it is set to answer. */
-const fake = { drafts: [], roundTo: 0, ticks: {}, keyMisses: 0 };
+// Stock's old rounding step is 5 when the billing servers first start, so the one-time copy into
+// billing's own settings has something to copy.
+const fake = { drafts: [], roundTo: 5, ticks: {}, keyMisses: 0 };
 
 const PARLE = {
   id: 'it_parle', nameEn: 'Parle-G', nameKn: 'ಪಾರ್ಲೆ-ಜಿ',
@@ -165,6 +167,13 @@ function startBilling(port, dataDir, extraEnv) {
   };
   api.post = (p, body) => api.call(p, { method: 'POST', body: JSON.stringify(body) });
   api.patch = (p, body) => api.call(p, { method: 'PATCH', body: JSON.stringify(body) });
+  api.put = (p, body) => api.call(p, { method: 'PUT', body: JSON.stringify(body) });
+  /** Billing's settings, once the start-up copy of stock's rounding has had its chance. */
+  api.settledSettings = async () => {
+    let s = (await api.call('/settings')).body;
+    for (let i = 0; i < 30 && s.roundTo == null; i++) { await sleep(100); s = (await api.call('/settings')).body; }
+    return s;
+  };
   api.ready = async () => {
     for (let i = 0; i < 180; i++) {
       await sleep(500);
@@ -204,13 +213,28 @@ async function main() {
       up.map((u, i) => (u ? '' : ['off', 'on', 'wrong'][i] + ': ' + [off, on, wrong][i].log().slice(-300))).join(' '));
     if (!up.every(Boolean)) return;
 
+    console.log('\nRounding moves into billing: the one-time copy');
+    eq('on: stock\'s step of 5 is copied into billing\'s settings', (await on.settledSettings()).roundTo, 5);
+    eq('off: there is nothing to copy, so 0', (await off.settledSettings()).roundTo, 0);
+    await sleep(500);
+    eq('stock refusing the key: nothing is stored yet, to try again',
+      (await wrong.call('/settings')).body.roundTo, undefined);
+    fake.roundTo = 10;
+    const afterCopy = await on.post('/bills', { lines: [{ itemId: 'm1', qty: 1, rate: 152 }] });
+    eq('once copied, stock changing its step changes nothing', afterCopy.body.total, 150);
+    eq('the bill records the step it used', afterCopy.body.roundTo, 5);
+    eq('and billing\'s setting is still 5', (await on.call('/settings')).body.roundTo, 5);
+    await on.put('/settings', { roundTo: 0 });
+    fake.roundTo = 0;
+    // The wrong-key server's start-up copy knocked on stock with its bad key; not counted below.
+    fake.keyMisses = 0;
+
     console.log('\nThe switch: a stock address with no key is off');
     eq('status says off', (await off.call('/stock/status')).body.on, false);
     eq('item search answers empty', JSON.stringify((await off.call('/stock/items?q=parle')).body.items), '[]');
     eq('a quote is quietly unavailable', (await off.call('/stock/quote?item=it_parle&unit=pack&qty=2')).status, 503);
     const offDraft = await off.post('/stock/draft', { draftId: 'd_off', lines: [] });
     eq('a draft goes nowhere and answers no ticks', JSON.stringify(offDraft.body), '{"ticks":{}}');
-    fake.roundTo = 5;
     const offBill = await off.post('/bills', { lines: LINES });
     eq('a bill saves', offBill.status, 201);
     eq('unrounded, with the link off', offBill.body.total, 253);
@@ -305,7 +329,8 @@ async function main() {
     fake.ticks = {};
 
     console.log('\nSaving: round-off, units and the draft id');
-    fake.roundTo = 5;
+    // Billing's own setting now; what stock says is no longer asked.
+    await on.put('/settings', { roundTo: 5 });
     const saved = await on.post('/bills', { lines: LINES, draftId: 'd_live' });
     eq('a bill saves', saved.status, 201);
     eq('the total lands on the step of five', saved.body.total, 255);
@@ -319,21 +344,21 @@ async function main() {
     eq('an over-long unit is refused',
       (await on.post('/bills', { lines: [{ ...LINES[0], unit: 'x'.repeat(25) }] })).status, 400);
 
-    fake.roundTo = 10;
+    await on.put('/settings', { roundTo: 10 });
     const down = await on.post('/bills', { lines: [{ itemId: 'd1', qty: 1, rate: 1364 }] });
     eq('to ten, 1364 rounds down', down.body.total, 1360);
     eq('and records a negative round-off', down.body.roundOff, -4);
-    fake.roundTo = 0;
+    await on.put('/settings', { roundTo: 0 });
     const none = await on.post('/bills', { lines: [{ itemId: 'n1', qty: 1, rate: 1364 }] });
     eq('no step, no rounding', none.body.total, 1364);
     eq('and no round-off recorded', none.body.roundOff, undefined);
 
-    fake.roundTo = 5;
+    await on.put('/settings', { roundTo: 5 });
     const cust = await on.post('/customers', { name: 'Rounded Customer', phone: '9000000777' });
     const credit = await on.post('/bills', { lines: LINES, customerId: cust.body.id, paid: 0, showBalance: true });
     eq('the customer owes the rounded total', credit.body.balance, 255);
     eq('and their record says the same', (await on.call('/customers/' + cust.body.id)).body.customer.balance, 255);
-    fake.roundTo = 0;
+    await on.put('/settings', { roundTo: 0 });
 
     console.log('\nA worker\'s tick on a saved bill');
     const no = saved.body.no;

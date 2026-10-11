@@ -87,6 +87,17 @@ export type BillLine = {
   unit?: string;
   /** The stock app's id for the item picked, so stock can match the line exactly. */
   stockItemId?: string;
+  /**
+   * Left off the printed slip, the WhatsApp text and the shared picture, at the shop's asking --
+   * but still sold: it counts in the total, in the customer's balance and in stock. Absent on
+   * every line written before this existed, which prints as before.
+   */
+  hidden?: boolean;
+  /**
+   * Only on a bill from a `lite` list, which leaves the handwriting out: true when this line
+   * carried ink or extra strips of it. Fetch `GET /bills/:no` for the strokes themselves.
+   */
+  hasInk?: boolean;
 };
 
 export type BillCustomer = {
@@ -151,7 +162,23 @@ export type Bill = {
    * Absent or 0 when nothing was rounded, which prints no line.
    */
   roundOff?: number;
+  /**
+   * The rounding step (0, 1, 5 or 10 rupees) billing's settings asked for when the bill was
+   * saved. Absent on bills saved before rounding moved into billing.
+   */
+  roundTo?: number;
+  /**
+   * The device's own id for this bill while it was being written (its draft id). A save that
+   * is sent twice -- a retry after a timeout, a double tap -- carries the same one, and the
+   * server answers the second with the first bill rather than recording it again.
+   */
+  clientId?: string;
+  /** Only on a bill from a `lite` list: whether any line carried handwriting. */
+  hasInk?: boolean;
 };
+
+/** The rounding steps the shop can pick, in rupees. 0 is no rounding. */
+export const ROUND_STEPS = [0, 1, 5, 10] as const;
 
 /** A customer, plus the running figures the shop asked to see for each of them. */
 export type Customer = {
@@ -206,6 +233,12 @@ export type Settings = {
   showRate: boolean;
   /** A customer quiet for this many days is flagged as needing a nudge. */
   inactiveAfterDays: number;
+  /**
+   * Round each bill's total to this many rupees: 0 (none), 1, 5 or 10. Absent until it is set
+   * once -- on a server that predates it, the first start copies stock's old setting across --
+   * and absent reads as 0. Deliberately not in DEFAULT_SETTINGS, so "never set" stays visible.
+   */
+  roundTo?: number;
 };
 
 export const DEFAULT_SETTINGS: Settings = {

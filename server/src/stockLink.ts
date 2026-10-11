@@ -76,14 +76,16 @@ export async function stockDraft(body: unknown): Promise<StockTicks> {
 }
 
 /**
- * The rounding step stock's settings ask for: 0 (none), 1, 5 or 10 rupees.
+ * The rounding step stock's settings used to hold: 0 (none), 1, 5 or 10 rupees.
  *
- * 0 for anything else, including off and failed -- a bill saved while stock is down is simply
- * not rounded, which is how every bill was before the link existed.
+ * Rounding is billing's own setting now. This is asked once, by the migration in roundTo.ts, to
+ * carry the shop's old choice across; `null` means stock did not answer, so the copy is tried
+ * again later rather than settling on 0 for good.
  */
-export async function stockRoundTo(): Promise<number> {
+export async function stockRoundTo(): Promise<number | null> {
   const got = await ask<{ roundTo?: unknown }>('/settings');
-  const step = isObj(got) ? Number(got.roundTo) : 0;
+  if (!isObj(got)) return null;
+  const step = Number(got.roundTo);
   return step === 1 || step === 5 || step === 10 ? step : 0;
 }
 

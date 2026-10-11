@@ -352,6 +352,9 @@ export function BillPage() {
     previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
     note: shop.note,
+    // The rounding, as the server will apply it, so the preview's TOTAL matches the paper.
+    ...(shop.cartRoundOff !== 0 ? { roundOff: shop.cartRoundOff } : {}),
+    roundTo: shop.settings.roundTo ?? 0,
   });
 
   /**
@@ -432,7 +435,15 @@ export function BillPage() {
   };
 
   const onPrint = async () => {
-    const bill = await commitCurrentBill();
+    // The same guard as Save: a second click while the first is still saving must not save twice.
+    if (saving) return;
+    setSaving(true);
+    let bill: Bill | null;
+    try {
+      bill = await commitCurrentBill();
+    } finally {
+      setSaving(false);
+    }
     if (!bill) return;
     try {
       await printer.printBill(bill, shop.settings);
@@ -544,7 +555,7 @@ export function BillPage() {
               const isWriting = writing[line.itemId] ?? line.lastMode !== 'text';
               return (
                 <li
-                  className="slip-line"
+                  className={line.hidden ? 'slip-line slip-hidden' : 'slip-line'}
                   key={line.itemId}
                   ref={(el) => { rows.current[line.itemId] = el; }}
                 >
@@ -831,6 +842,19 @@ export function BillPage() {
                     </span>
                   ) : null}
 
+                  {/* Left off the printout, still counted: dims the line and says so. */}
+                  {!blank ? (
+                    <button
+                      className="slip-undo slip-eye"
+                      aria-pressed={line.hidden === true}
+                      aria-label={t('bill.hideLine', { n: index + 1 })}
+                      title={t('bill.hideLine', { n: index + 1 })}
+                      onClick={() => shop.setLineHidden(index, !line.hidden)}
+                    >
+                      👁{line.hidden ? <span className="muted small"> {t('bill.hiddenTag')}</span> : null}
+                    </button>
+                  ) : null}
+
                   {/* Swaps this one line between writing and typing. */}
                   <button
                     className="slip-undo"
@@ -879,6 +903,14 @@ export function BillPage() {
               {shop.customerBalanceAt ? '  ' + dateStamp(shop.customerBalanceAt) : ''}
             </span>
             <strong>{money(carried)}</strong>
+          </div>
+        ) : null}
+
+        {/* What rounding moved the lines by, so the TOTAL under it still adds up. */}
+        {shop.cartRoundOff !== 0 ? (
+          <div className="carried-row">
+            <span className="muted small">{t('bill.roundOff')}</span>
+            <strong>{(shop.cartRoundOff > 0 ? '+' : '') + money(shop.cartRoundOff)}</strong>
           </div>
         ) : null}
 
@@ -958,7 +990,7 @@ export function BillPage() {
           </button>
           <button
             className={printer.busy ? 'btn busy' : 'btn'}
-            disabled={!hasSomething || printer.busy}
+            disabled={!hasSomething || printer.busy || saving}
             onClick={onPrint}
           >
             🖨️ {printer.busy ? t('bill.printing') : t('bill.print')}

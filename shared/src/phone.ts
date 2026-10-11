@@ -53,14 +53,15 @@ export function whatsappNumber(c: { phone?: string; phones?: string[]; whatsapp?
 export function billAsText(
   bill: {
     no: number; at: string; total: number; paid: number; balance: number; showBalance: boolean;
-    lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string }[];
+    lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string; hidden?: boolean }[];
   },
   shopName: string,
   labels: { bill: string; total: string; paid: string; balance: string },
 ): string {
   const rupees = (n: number) => '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
   const out = [shopName, labels.bill + bill.no + ' · ' + new Date(bill.at).toLocaleString('en-IN'), ''];
-  for (const l of bill.lines) {
+  // Hidden lines stay off the text as they stay off the paper; the total still counts them.
+  for (const l of bill.lines.filter((x) => x.hidden !== true)) {
     const name = (l.nameKn || l.nameEn || '—').trim();
     out.push(name + ' ' + l.qty + (l.unit ? ' ' + l.unit : '') + ' × ' + rupees(l.rate) + ' = ' + rupees(l.qty * l.rate));
   }

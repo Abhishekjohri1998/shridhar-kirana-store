@@ -1,3 +1,4 @@
+import { printedLines } from './link';
 import type { Bill, BillLine, Ink, Settings } from './types';
 import { lineAmount, money, qtyText, rateIsRound, round2 } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
@@ -214,6 +215,9 @@ export function buildReceipt(
    * name yet still gets its English one on the paper rather than a blank line.
    */
   const lang = settings.language === 'kn' ? 'kn' : 'en';
+  // A hidden line is still sold and still in the total; it is only left off the paper. Filtered
+  // here, once, so all four renderers and the shared picture agree without knowing about it.
+  const lines = printedLines(bill.lines);
   const shopName = pickLang(settings.shopName, settings.shopNameKn, lang);
 
   const rows: Row[] = [
@@ -270,7 +274,7 @@ export function buildReceipt(
    * figure, so a bill with short prices and no ticks prints exactly as it did.
    */
   const dots = paperProfile(settings.paper).dots;
-  const written = bill.lines.filter((l) => inkStrips(l).length > 0);
+  const written = lines.filter((l) => inkStrips(l).length > 0);
   const widestAmount = written.reduce(
     (w, l) => Math.max(w, amountWidthEstimate(money(lineAmount(l.qty, l.rate)))), 0);
   const tickSlot = written.some((l) => l.given === true) ? INK_MARK_W : 0;
@@ -289,7 +293,7 @@ export function buildReceipt(
     allStrips.map((s) => s.rows),
   );
 
-  bill.lines.forEach((line, index) => {
+  lines.forEach((line, index) => {
     const shared = {
       // The line's place on the slip, not its quantity. Quantity is part of what the shopkeeper
       // writes by hand -- "2 kg rice" -- so a separate column of ones told nobody anything, while
@@ -378,7 +382,7 @@ export function buildReceipt(
       t: 'item',
       // Carries on from the written lines: the column is a line's place on the paper, and a gap
       // or a dash there reads as a printing fault.
-      no: String(bill.lines.length + 1),
+      no: String(lines.length + 1),
       name: bill.previousBalanceAt
         ? labels.oldBalance + ' ' + dateStamp(bill.previousBalanceAt)
         : labels.oldBalance,

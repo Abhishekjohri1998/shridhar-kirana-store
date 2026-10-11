@@ -1,11 +1,13 @@
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
+  LINK_RETRY_MS, createLinkWatch, roundToStep,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -14,7 +16,7 @@ import {
 /** A line filled from stock, or -- with no stockItemId -- a typed name stock does not know, in NOS. */
 export type StockPick = { nameEn: string; nameKn: string; unit: string; stockItemId?: string; rate: number };
 import {
-  ApiError, api, checkStoredPin, forgetPin, getBaseUrl, getToken, loadPerson, loadStoredConfig,
+  ApiError, api, checkStoredPin, onLink, forgetPin, getBaseUrl, getToken, loadPerson, loadStoredConfig,
   markStockSignOut, rememberPin, savePerson, setServerUrl, setToken,
   type CustomerInput, type StoredPerson,
 } from './api';
@@ -84,13 +86,22 @@ type Shop = {
   signedIn: boolean;
   /** Signed in, but the PIN has not been given since the app was last opened. */
   locked: boolean;
+  /**
+   * The server has missed two answers in a row. Cleared by the next answer of any kind; while it
+   * is set the app knocks again every 15 s (and when it comes back to the front).
+   */
   offline: boolean;
 
   settings: Settings;
   bills: Bill[];
   today: TodaySummary;
   cart: BillLine[];
+  /** The bill's total as it will be saved: the lines, rounded to settings.roundTo. */
   cartTotal: number;
+  /** What rounding moved the lines' sum by, signed; 0 when nothing was rounded. */
+  cartRoundOff: number;
+  /** Leave a line off the printout (still counted). */
+  setLineHidden: (index: number, hidden: boolean) => void;
   customer: Customer | null;
   inactive: Customer[];
   paidInput: string;
@@ -206,6 +217,15 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [pinMode, setPinMode] = useState(false);
   const stockOnly = person != null && person.role !== 'admin' && stockToken != null;
   const [offline, setOffline] = useState(false);
+  /*
+   * Fed by every request the app makes (api.ts's onLink), not by the start-up load alone. It used
+   * to be set by one slow load and cleared only by a full reload that worked, so a shop on a
+   * working connection read "cannot reach the server" all day. See createLinkWatch.
+   */
+  useEffect(() => {
+    const watch = createLinkWatch(setOffline);
+    return onLink((ok) => (ok ? watch.ok() : watch.fail()));
+  }, []);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [bills, setBills] = useState<Bill[]>([]);
   const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
@@ -471,7 +491,6 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     setSettings(loadedSettings);
     setBills(loadedBills);
     setToday(loadedToday);
-    setOffline(false);
     setSignedIn(true);
     try {
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ settings: loadedSettings }));
@@ -490,9 +509,19 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       await loadEverything();
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) setSignedIn(false);
-      else setOffline(true);
+      /* the link watch has heard about it */
     }
   }, [loadEverything]);
+
+  /* While the server is missing, knock every 15 s, and load everything again once it answers. */
+  useEffect(() => {
+    if (!offline) return;
+    const knock = () => void api.health().then(() => reload()).catch(() => undefined);
+    const timer = setInterval(knock, LINK_RETRY_MS);
+    // Coming back to the app is a good moment to try: the tablet may have slept through it.
+    const sub = AppState.addEventListener('change', (state) => { if (state === 'active') knock(); });
+    return () => { clearInterval(timer); sub.remove(); };
+  }, [offline, reload]);
 
   const [dataVersion, setDataVersion] = useState(0);
 
@@ -543,7 +572,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         } catch (e) {
           if (!alive) return;
           if (e instanceof ApiError && e.status === 401) setSignedIn(false);
-          else setOffline(true);
+          /* the link watch has heard about it */
         }
       }
       if (alive) setReady(true);
@@ -826,6 +855,16 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     });
   }, [patchActive]);
 
+  /** Left off the printout and the WhatsApp text, still counted in the total and in stock. */
+  const setLineHidden = useCallback((index: number, hidden: boolean) => {
+    updateLine(index, (l) => {
+      if ((l.hidden ?? false) === hidden) return l;
+      if (hidden) return { ...l, hidden: true };
+      const { hidden: _shown, ...rest } = l;
+      return rest;
+    });
+  }, [updateLine]);
+
   /** Every line at once, for the common case where the whole bag went over the counter. */
   const setAllGiven = useCallback((given: boolean) => {
     patchActive((d) => {
@@ -884,7 +923,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       });
       if (lines.length === 0) throw new Error(t('bill.nothingYet'));
       const billTo = options.customer !== undefined ? options.customer : customer;
-      const bill = await api.createBill({
+      const payload = {
         lines,
         ...(billTo ? { customerId: billTo.id } : {}),
         ...(options.paid == null ? {} : { paid: options.paid }),
@@ -892,7 +931,19 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...(note.trim() ? { note: note.trim() } : {}),
         // So stock can swap the live draft on its worker screen for this bill, ticks and all.
         ...(stockOn ? { draftId: active.draftId } : {}),
-      });
+        // This bill's own id. The server answers a second save carrying it with the first bill,
+        // so a retry -- here, or the shopkeeper tapping again -- never records it twice.
+        clientId: active.draftId,
+      };
+      let bill: Bill;
+      try {
+        bill = await api.createBill(payload);
+      } catch (e) {
+        // No answer is not "not saved": the server may have saved it and the answer got lost.
+        // One more try, same id -- it either saves now or hands back the bill already saved.
+        if (!(e instanceof ApiError) || e.status !== 0) throw e;
+        bill = await api.createBill(payload);
+      }
       stockSaved.current.add(active.draftId);
       stockSent.current.delete(active.draftId);
       /*
@@ -936,10 +987,13 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     [refreshInactive],
   );
 
+  // What the bill will be saved at, shown live: billing's own rounding step on the lines' sum.
+  const roundedCart = roundToStep(billTotal(cart), settings.roundTo ?? 0);
+
   const value = useMemo<Shop>(
     () => ({
       ready, serverUrl, signedIn, locked, offline,
-      settings, bills, today, cart, cartTotal: billTotal(cart),
+      settings, bills, today, cart, cartTotal: roundedCart, cartRoundOff: round2(roundedCart - billTotal(cart)), setLineHidden,
       customer, inactive, paidInput, printBalance, printBalanceTouched, note,
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
@@ -958,7 +1012,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
       person, stockToken, stockOnly, signInPerson, switchUser, pinMode,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
-      setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
+      setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft, saveSettings,

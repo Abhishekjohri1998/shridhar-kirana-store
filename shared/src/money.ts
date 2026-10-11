@@ -6,8 +6,8 @@ export function round2(n: number): number {
 
 /**
  * A total moved to the nearest multiple of `step` rupees, half up: 152.50 to 155 on a step of
- * five, 152.49 to 150. A step of 0 leaves it alone. Which step the shop uses is the stock app's
- * setting; this is only the arithmetic, so both stores and the tests agree on it.
+ * five, 152.49 to 150. A step of 0 leaves it alone. Which step the shop uses is billing's own
+ * `roundTo` setting; this is only the arithmetic, so both stores and the tests agree on it.
  */
 export function roundToStep(total: number, step: number): number {
   if (!(step > 0)) return round2(total);

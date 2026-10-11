@@ -6,7 +6,9 @@ import { env } from './env';
 import { HttpError, handler } from './http';
 import { checkSignInBrake, noteSignInFailure } from './rateLimit';
 import { getRepo } from './store';
-import { stockAuth, stockDraft, stockItems, stockLinkOn, stockQuote, stockRoundTo } from './stockLink';
+import { stockAuth, stockDraft, stockItems, stockLinkOn, stockQuote } from './stockLink';
+import { ensureRoundTo } from './roundTo';
+import { DuplicateClientId } from './store/types';
 
 
 /** Handwriting arrives as pen paths. Capped so one bill cannot carry a megabyte of scribble. */
@@ -46,6 +48,8 @@ const lineBody = z.object({
   // lets stock match the line exactly. Short and bounded, like every other field here.
   unit: z.string().trim().max(24).optional(),
   stockItemId: z.string().trim().max(80).optional(),
+  // Left off the paper and the WhatsApp text; still counted.
+  hidden: z.boolean().optional(),
 });
 
 /**
@@ -90,6 +94,10 @@ const settingsBody = z.object({
   showRate: z.boolean().optional(),
   showGstin: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
+  // Each bill's total lands on this many rupees: 0 (none), 1, 5 or 10.
+  roundTo: z.coerce.number().refine((v) => v === 0 || v === 1 || v === 5 || v === 10, {
+    message: 'Round to 0, 1, 5 or 10',
+  }).optional(),
 });
 
 const customerBody = z.object({
@@ -325,10 +333,19 @@ api.delete('/customers/:id', handler(async (req, res) => {
 
 // ---------------------------------------------------------------------------- bills
 
+/*
+ * Newest first. Two options, both off by default so an older app gets exactly what it always did:
+ *  - `lite=1` leaves the handwriting out. Each bill and each written line says `hasInk: true`
+ *    instead; `GET /bills/:no` has the strokes. The full list was 880 KB and eight seconds.
+ *  - `since=<no>` only bills numbered above it: the `limit` just after it, newest first. For the
+ *    stock app catching up without reading the whole book every few seconds.
+ */
 api.get('/bills', handler(async (req, res) => {
   const limit = z.coerce.number().int().min(1).max(500).default(100).parse(req.query.limit ?? 100);
   const customerId = z.string().trim().min(1).max(80).optional().parse(req.query.customerId || undefined);
-  res.json(await getRepo().listBills(limit, customerId));
+  const lite = req.query.lite === '1' || req.query.lite === 'true';
+  const since = z.coerce.number().int().nonnegative().optional().parse(req.query.since || undefined);
+  res.json(await getRepo().listBills(limit, customerId, { lite, ...(since != null ? { since } : {}) }));
 }));
 
 /*
@@ -448,8 +465,23 @@ api.post('/bills', handler(async (req, res) => {
       note: z.string().trim().max(200).optional(),
       // The id the stock app knew this bill by while it was being written.
       draftId: z.string().trim().min(1).max(80).optional(),
+      // The device's id for this save. Sent again on a retry, it gets the first bill back.
+      clientId: z.string().trim().min(1).max(80).optional(),
     })
     .parse(req.body);
+
+  /*
+   * Already saved: a retry after a timeout, or a second tap. Answered with the bill that exists,
+   * 200 rather than 201, and nothing is recorded again -- the server may well have saved the
+   * first copy while the tablet gave up waiting for the answer.
+   */
+  const already = async (): Promise<boolean> => {
+    if (!body.clientId) return false;
+    const had = await getRepo().getBillByClientId(body.clientId);
+    if (had) res.status(200).json(had);
+    return had != null;
+  };
+  if (await already()) return;
 
   if (body.customerId && !(await getRepo().getCustomer(body.customerId))) {
     throw new HttpError(400, 'That customer is not on file');
@@ -460,34 +492,45 @@ api.post('/bills', handler(async (req, res) => {
 
   // The number, the total and the balance are the server's to decide. A browser that sends its
   // own figures, whether by bug or by hand, cannot change what gets recorded.
-  const bill = await getRepo().createBill({
-    lines: body.lines.map((l) => ({
-      itemId: l.itemId,
-      nameKn: l.nameKn || l.nameEn,
-      nameEn: l.nameEn || l.nameKn,
-      ...(l.ink && l.ink.strokes.length > 0 ? { ink: l.ink } : {}),
-      // Named here like every field -- a copy that forgets one drops it silently.
-      ...(l.moreInk && l.moreInk.some((i) => i.strokes.length > 0)
-        ? { moreInk: l.moreInk.filter((i) => i.strokes.length > 0) } : {}),
-      ...(l.lastMode ? { lastMode: l.lastMode } : {}),
-      qty: l.qty,
-      rate: l.rate,
-      given: l.given,
-      // Copied field by field, so every new field has to be named here -- `given` was once lost
-      // exactly this way.
-      ...(l.inkRows === 2 ? { inkRows: 2 } : {}),
-      ...(l.unit ? { unit: l.unit } : {}),
-      ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
-    })),
-    ...(body.customerId ? { customerId: body.customerId } : {}),
-    ...(body.paid == null ? {} : { paid: body.paid }),
-    showBalance: body.showBalance ?? false,
-    ...(body.note ? { note: body.note } : {}),
-    ...(body.draftId ? { draftId: body.draftId } : {}),
-    // Stock's rounding step, asked for at the moment of saving. 0 when the link is off or stock
-    // does not answer in time, so a bill is never held up -- it is simply not rounded.
-    roundTo: await stockRoundTo(),
-  });
+  // Billing's own rounding step. Never set on a server that predates it: then stock's old setting
+  // is copied across once (see roundTo.ts), and until that works the bill is simply not rounded.
+  const roundTo = await ensureRoundTo();
+
+  let bill;
+  try {
+    bill = await getRepo().createBill({
+      lines: body.lines.map((l) => ({
+        itemId: l.itemId,
+        nameKn: l.nameKn || l.nameEn,
+        nameEn: l.nameEn || l.nameKn,
+        ...(l.ink && l.ink.strokes.length > 0 ? { ink: l.ink } : {}),
+        // Named here like every field -- a copy that forgets one drops it silently.
+        ...(l.moreInk && l.moreInk.some((i) => i.strokes.length > 0)
+          ? { moreInk: l.moreInk.filter((i) => i.strokes.length > 0) } : {}),
+        ...(l.lastMode ? { lastMode: l.lastMode } : {}),
+        qty: l.qty,
+        rate: l.rate,
+        given: l.given,
+        // Copied field by field, so every new field has to be named here -- `given` was once lost
+        // exactly this way.
+        ...(l.inkRows === 2 ? { inkRows: 2 } : {}),
+        ...(l.unit ? { unit: l.unit } : {}),
+        ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
+        ...(l.hidden ? { hidden: true } : {}),
+      })),
+      ...(body.customerId ? { customerId: body.customerId } : {}),
+      ...(body.paid == null ? {} : { paid: body.paid }),
+      showBalance: body.showBalance ?? false,
+      ...(body.note ? { note: body.note } : {}),
+      ...(body.draftId ? { draftId: body.draftId } : {}),
+      ...(body.clientId ? { clientId: body.clientId } : {}),
+      roundTo,
+    });
+  } catch (err) {
+    // The same save, raced in twice: the store refused the second copy.
+    if (err instanceof DuplicateClientId && (await already())) return;
+    throw err;
+  }
 
   res.status(201).json(bill);
 }));

@@ -1,11 +1,11 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, lastPriceOf, round2, roundToStep,
+  DEFAULT_SETTINGS, billTotal, liteBill, customerMatches, lastPriceOf, round2, roundToStep,
   type Bill, type Customer, type Item, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId,
+  DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId,
   type NewBill, type Repo,
 } from './types';
 
@@ -94,23 +94,31 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       });
     },
 
-    async listBills(limit, customerId) {
-      return [...db.bills]
-        .filter((b) => (customerId ? b.customer?.id === customerId : true))
-        .sort((a, b) => b.no - a.no)
-        .slice(0, limit);
+    async listBills(limit, customerId, options = {}) {
+      const { since, lite } = options;
+      const mine = db.bills.filter((b) => (customerId ? b.customer?.id === customerId : true));
+      const picked = since != null
+        ? mine.filter((b) => b.no > since).sort((a, b) => a.no - b.no).slice(0, limit).reverse()
+        : mine.sort((a, b) => b.no - a.no).slice(0, limit);
+      return lite ? picked.map(liteBill) : picked;
     },
 
     async getBill(no) {
       return db.bills.find((b) => b.no === no) ?? null;
     },
 
+    async getBillByClientId(clientId) {
+      return db.bills.find((b) => b.clientId === clientId) ?? null;
+    },
+
     async lastPrice(ask) {
       return lastPriceOf(ask, db.bills);
     },
 
-    createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId }: NewBill) {
+    createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId, clientId }: NewBill) {
       return serial(async () => {
+        // Checked inside the queue, so two copies of one save racing each other cannot both pass.
+        if (clientId && db.bills.some((b) => b.clientId === clientId)) throw new DuplicateClientId(clientId);
         const exact = billTotal(lines);
         const total = roundToStep(exact, roundTo ?? 0);
         const roundOff = round2(total - exact);
@@ -160,7 +168,9 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           showBalance: showBalance ?? false,
           note: note ?? '',
           ...(roundOff !== 0 ? { roundOff } : {}),
+          roundTo: roundTo ?? 0,
           ...(draftId ? { draftId } : {}),
+          ...(clientId ? { clientId } : {}),
         };
         db.bills.push(bill);
         await flush();

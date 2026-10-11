@@ -4,11 +4,14 @@ import express from 'express';
 import { env, warnAboutDefaults } from './env';
 import { errorMiddleware } from './http';
 import { api } from './routes';
+import { ensureRoundTo } from './roundTo';
 import { initRepo } from './store';
 
 async function main(): Promise<void> {
   warnAboutDefaults();
   await initRepo();
+  // The one-time copy of stock's rounding step. Never holds the start up: a failure retries later.
+  void ensureRoundTo().catch((err) => console.warn('[settings] rounding not copied yet:', err));
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));

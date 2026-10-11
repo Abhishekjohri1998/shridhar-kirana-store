@@ -18,7 +18,28 @@ export type NewBill = {
   roundTo?: number;
   /** The id the bill had while being written, for the stock app to swap its draft for this. */
   draftId?: string;
+  /** The device's id for this bill; a second save carrying it is the same bill. See Bill.clientId. */
+  clientId?: string;
 };
+
+/** How a bill list is asked for. */
+export type BillListOptions = {
+  /** Leave the handwriting out (see liteBill); each bill and written line says `hasInk`. */
+  lite?: boolean;
+  /**
+   * Only bills numbered above this. The `limit` bills just after it are taken -- the oldest
+   * first, so a reader catching up in pages never skips one -- and returned newest first like
+   * every other list.
+   */
+  since?: number;
+};
+
+/** A save that carries a clientId already on file: the bill exists, and is not made again. */
+export class DuplicateClientId extends Error {
+  constructor(readonly clientId: string) {
+    super('A bill with this client id is already saved');
+  }
+}
 
 export type CustomerInput = {
   id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
@@ -64,8 +85,10 @@ export type Repo = {
   getSettings(): Promise<Settings>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
 
-  listBills(limit: number, customerId?: string): Promise<Bill[]>;
+  listBills(limit: number, customerId?: string, options?: BillListOptions): Promise<Bill[]>;
   getBill(no: number): Promise<Bill | null>;
+  /** The bill saved under this device id, if any. */
+  getBillByClientId(clientId: string): Promise<Bill | null>;
   /**
    * The rate an item last sold at -- this customer's last bill with it first, else anyone's --
    * for a typed line to start from. See lastPriceOf in shared, which both stores answer through.

@@ -476,6 +476,9 @@ export function BillScreen() {
     previousBalanceAt: shop.customerBalanceAt,
     showBalance: showBalance && shop.customer != null,
     note: shop.note,
+    // The rounding, as the server will apply it, so the preview's TOTAL matches the paper.
+    ...(shop.cartRoundOff !== 0 ? { roundOff: shop.cartRoundOff } : {}),
+    roundTo: shop.settings.roundTo ?? 0,
   });
 
   /**
@@ -570,7 +573,15 @@ export function BillScreen() {
   };
 
   const onPrint = async () => {
-    const bill = await commitCurrentBill();
+    // The same guard as Save: a second tap while the first is still saving must not save twice.
+    if (saving) return;
+    setSaving(true);
+    let bill: Bill | null;
+    try {
+      bill = await commitCurrentBill();
+    } finally {
+      setSaving(false);
+    }
     if (!bill) return;
     try {
       await printer.printBill(bill, shop.settings);
@@ -776,7 +787,10 @@ export function BillScreen() {
                   </Text>
                 </Pressable>
 
-                <View style={[styles.slipWrite, { maxWidth: stripH * stripAspect * STRIP_LONG + MORE_SLOT }]}>
+                <View style={[
+                  styles.slipWrite, { maxWidth: stripH * stripAspect * STRIP_LONG + MORE_SLOT },
+                  line.hidden && styles.slipHidden,
+                ]}>
                   {isWriting ? (
                     <>
                       <View style={styles.stripRow}>
@@ -1060,6 +1074,20 @@ export function BillScreen() {
                 ) : null}
                 </View>
 
+                {/* Left off the printout, still counted: dims the line and says so. */}
+                {!blank ? (
+                  <Pressable
+                    style={styles.colIcon}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: line.hidden === true }}
+                    accessibilityLabel={t('bill.hideLine', { n: index + 1 })}
+                    onPress={() => shop.setLineHidden(index, !line.hidden)}
+                  >
+                    <Text style={[styles.slipUndo, line.hidden && styles.slipHidden]}>{'👁'}</Text>
+                    {line.hidden ? <Text style={styles.hiddenTag}>{t('bill.hiddenTag')}</Text> : null}
+                  </Pressable>
+                ) : null}
+
                 {/* Swaps this one line between writing and typing, and says which way it will go. */}
                 <Pressable
                   style={styles.colIcon}
@@ -1179,6 +1207,16 @@ export function BillScreen() {
           </View>
         ) : null}
 
+        {/* What rounding moved the lines by, so the TOTAL under it still adds up. */}
+        {shop.cartRoundOff !== 0 ? (
+          <View style={styles.carriedRow}>
+            <Text style={styles.carriedLabel}>{t('bill.roundOff')}</Text>
+            <Text style={styles.carriedValue}>
+              {(shop.cartRoundOff > 0 ? '+' : '') + money(shop.cartRoundOff)}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>{t('bill.total')}</Text>
           <Text style={styles.totalValue}>{money(grandTotal)}</Text>
@@ -1203,7 +1241,7 @@ export function BillScreen() {
           />
           <Button
             label={'🖨️ ' + (printer.busy ? t('bill.printing') : t('bill.print'))}
-            disabled={!hasSomething || printer.busy}
+            disabled={!hasSomething || printer.busy || saving}
             style={{ flex: 1.4 }}
             onPress={() => void onPrint()}
           />
@@ -1396,6 +1434,9 @@ const styles = StyleSheet.create({
   slipUndo: { fontSize: 19, color: C.accent },
   slipRemove: { fontSize: 20, color: C.faint },
   slipRemoveOff: { opacity: 0.25 },
+  /* A line left off the printout: still on the bill, quieter. */
+  slipHidden: { opacity: 0.4 },
+  hiddenTag: { fontSize: 10, color: C.soft },
 
   /* The stock app's suggestions under a typed name, and the quantity of a picked line. Quiet on
      purpose: they help the typing and must not compete with the slip. */

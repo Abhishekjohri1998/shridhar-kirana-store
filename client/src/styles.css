@@ -528,6 +528,9 @@ button, input, select, textarea {
 .slip-undo.on { background: var(--brand-wash); border-radius: var(--r-sm); }
 
 .slip-line:last-child { border-bottom: 0; }
+/* A line left off the printout: still on the bill, quieter. */
+.slip-hidden .slip-write, .slip-hidden .slip-price-cell { opacity: 0.4; }
+.slip-eye { white-space: nowrap; }
 
 /* On a narrow screen the row becomes two.
    The number, price box and both buttons are fixed width, and together with their gaps they

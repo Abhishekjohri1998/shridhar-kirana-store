@@ -1,3 +1,4 @@
+import { LOAD_TIMEOUT_MS, SAVE_TIMEOUT_MS } from '@shridhar/shared';
 import type { Bill, BillLine, Customer, Item, Payment, Settings, TodaySummary } from '@shridhar/shared';
 import type { StockItem, StockQuote, StockTicks, draftForStock } from '@shridhar/shared';
 
@@ -26,12 +27,28 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/*
+ * Whether the server is answering, told to whoever listens (useShop's offline flag). Any answer
+ * at all counts; only no answer, or none in time, counts against it. See createLinkWatch.
+ */
+type LinkListener = (ok: boolean) => void;
+const linkListeners = new Set<LinkListener>();
+export function onLink(fn: LinkListener): () => void {
+  linkListeners.add(fn);
+  return () => { linkListeners.delete(fn); };
+}
+const tellLink = (ok: boolean) => linkListeners.forEach((fn) => fn(ok));
+
+/* Reads get 15 s and a save 20 s: a slow connection is not a missing one. */
+async function request<T>(path: string, init: RequestInit = {}, timeoutMs = LOAD_TIMEOUT_MS): Promise<T> {
   const token = getToken();
   let res: Response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     res = await fetch('/api' + path, {
       ...init,
+      signal: controller.signal,
       headers: {
         ...(init.body ? { 'content-type': 'application/json' } : {}),
         ...(token ? { authorization: 'Bearer ' + token } : {}),
@@ -40,8 +57,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     });
   } catch {
     // The counter loses wifi more often than anything else goes wrong, so name that first.
+    tellLink(false);
     throw new ApiError(0, 'Cannot reach the server. Check the network and try again.');
+  } finally {
+    clearTimeout(timer);
   }
+  tellLink(true);
 
   // A 401 from the login route means the PIN was wrong, not that a session lapsed -- telling a
   // shopkeeper who mistyped their PIN that their session expired sends them looking for a
@@ -72,14 +93,18 @@ export const api = {
   updateSettings: (patch: Partial<Settings>) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(patch) }),
 
-  listBills: (limit = 100) => request<Bill[]>('/bills?limit=' + limit),
+  /** Without the handwriting (`lite`): a written bill says `hasInk`, and getBill has the strokes. */
+  listBills: (limit = 100) => request<Bill[]>('/bills?lite=1&limit=' + limit),
+  /** One bill in full, handwriting included -- for showing or reprinting one from a lite list. */
+  getBill: (no: number) => request<Bill>('/bills/' + no),
+  /** `clientId` is the draft's id: the same save sent twice gets the first bill back. */
   createBill: (
     payload: {
       lines: BillLine[]; customerId?: string; paid?: number; showBalance?: boolean; note?: string;
-      draftId?: string;
+      draftId?: string; clientId?: string;
     },
   ) =>
-    request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }),
+    request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }, SAVE_TIMEOUT_MS),
   /** Marks a bill cancelled and takes it out of the customer's totals. Not a delete. */
   cancelBill: (no: number) => request<Bill>('/bills/' + no + '/cancel', { method: 'POST' }),
   /**

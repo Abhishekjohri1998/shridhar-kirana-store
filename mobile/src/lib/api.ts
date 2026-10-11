@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import {
-  normaliseServerUrl, pinDigest, type Bill, type BillLine, type Customer, type Item, type Payment,
+  LOAD_TIMEOUT_MS, SAVE_TIMEOUT_MS, normaliseServerUrl, pinDigest, type Bill, type BillLine, type Customer, type Item, type Payment,
   type Person, type PersonRole, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import type { StockItem, StockQuote, StockTicks, draftForStock } from '@shridhar/shared';
@@ -175,14 +175,28 @@ export class ApiError extends Error {
   }
 }
 
-/** Anything slower than this on a shop wifi is a wrong address, not a slow server. */
-const TIMEOUT_MS = 8000;
+/*
+ * Whether the server is answering, told to whoever listens (useShop's offline flag). Any answer
+ * at all counts -- a 404 or a 500 is still a server that is there -- and only no answer, or none
+ * in time, counts against it. See createLinkWatch in shared for what is made of these.
+ */
+type LinkListener = (ok: boolean) => void;
+const linkListeners = new Set<LinkListener>();
+export function onLink(fn: LinkListener): () => void {
+  linkListeners.add(fn);
+  return () => { linkListeners.delete(fn); };
+}
+const tellLink = (ok: boolean) => linkListeners.forEach((fn) => fn(ok));
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/*
+ * How long to wait. It was 8 s for everything, which the shop's 4G missed often enough that the
+ * app spent the day saying the server could not be reached: reads now get 15 s, a save 20 s.
+ */
+async function request<T>(path: string, init: RequestInit = {}, timeoutMs = LOAD_TIMEOUT_MS): Promise<T> {
   if (!baseUrl) throw new ApiError(0, 'No server address set yet.');
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(baseUrl + '/api' + path, {
@@ -198,6 +212,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     // On a phone this is nearly always the address or the wifi, so say that rather than
     // repeating the browser's wording about a failed fetch.
     const aborted = e instanceof Error && e.name === 'AbortError';
+    tellLink(false);
     throw new ApiError(
       0,
       aborted
@@ -207,6 +222,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   } finally {
     clearTimeout(timer);
   }
+  tellLink(true);
 
   // A 401 from the login route means the PIN was wrong, not that a session lapsed.
   if (res.status === 401 && path !== '/auth/login' && path !== '/auth/person') {
@@ -245,14 +261,21 @@ export const api = {
   updateSettings: (patch: Partial<Settings>) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(patch) }),
 
-  listBills: (limit = 100) => request<Bill[]>('/bills?limit=' + limit),
+  /** Without the handwriting (`lite`): a written bill says `hasInk`, and getBill has the strokes. */
+  listBills: (limit = 100) => request<Bill[]>('/bills?lite=1&limit=' + limit),
+  /** One bill in full, handwriting included -- for showing or reprinting one from a lite list. */
+  getBill: (no: number) => request<Bill>('/bills/' + no),
+  /**
+   * `clientId` is the draft's id. The same save sent twice -- a retry after a timeout, a second
+   * tap -- is answered with the first bill, not recorded again.
+   */
   createBill: (
     payload: {
       lines: BillLine[]; customerId?: string; paid?: number; showBalance?: boolean; note?: string;
-      draftId?: string;
+      draftId?: string; clientId?: string;
     },
   ) =>
-    request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }),
+    request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }, SAVE_TIMEOUT_MS),
   /** Marks a bill cancelled and takes it out of the customer's totals. Not a delete. */
   cancelBill: (no: number) => request<Bill>('/bills/' + no + '/cancel', { method: 'POST' }),
   /**

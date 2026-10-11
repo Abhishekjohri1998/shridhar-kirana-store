@@ -4,7 +4,7 @@ import {
   type Bill, type BillLine, type Customer, type Ink, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId, upsertDoc,
+  DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId, upsertDoc,
   type CustomerInput, type NewBill, type Repo,
 } from './types';
 
@@ -60,6 +60,8 @@ const lineSchema = new Schema<BillLine>(
     // typed freely or written by hand, and that must stay distinguishable from an empty unit.
     unit: { type: String, required: false },
     stockItemId: { type: String, required: false },
+    // Left off the paper, still in the total. Optional, no default: absent prints as before.
+    hidden: { type: Boolean, required: false },
   },
   { _id: false, versionKey: false },
 );
@@ -96,6 +98,9 @@ const billSchema = new Schema<Bill>(
     // The stock link's two fields. Optional, never `required` beside a default -- see above.
     draftId: { type: String, required: false },
     roundOff: { type: Number, required: false },
+    // The step that was asked for, and the device's id for the save. Optional, no defaults.
+    roundTo: { type: Number, required: false },
+    clientId: { type: String, required: false },
   },
   { versionKey: false },
 );
@@ -106,6 +111,10 @@ billSchema.index({ 'customer.id': 1, no: -1 });
 billSchema.index({ 'lines.stockItemId': 1, no: -1 });
 billSchema.index({ 'lines.nameEn': 1, no: -1 });
 billSchema.index({ 'lines.nameKn': 1, no: -1 });
+// One bill per device save: a retried POST finds the first by this and is answered with it.
+// Sparse, because every bill from before this existed has none.
+billSchema.index({ clientId: 1 }, { unique: true, sparse: true });
+// The list itself, newest first and `since` a number, rides the unique index on `no`.
 
 /** Mongo's "that key is taken" -- error 11000, however the driver happens to wrap it. */
 function isDuplicateKey(err: unknown): boolean {
@@ -166,6 +175,8 @@ const settingsSchema = new Schema<SettingsDoc>(
     showRate: { type: Boolean, required: true },
     showGstin: { type: Boolean, required: false, default: true },
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
+    // No default on purpose: absent means "never set", which the first start fills from stock.
+    roundTo: { type: Number, required: false },
   },
   { versionKey: false },
 );
@@ -242,14 +253,76 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return { ...DEFAULT_SETTINGS, ...rest };
     },
 
-    async listBills(limit, customerId) {
-      const filter = customerId ? { 'customer.id': customerId } : {};
-      const docs = await Bills.find(filter).sort({ no: -1 }).limit(limit).lean();
-      return docs.map((d) => strip(d as unknown as Bill));
+    async listBills(limit, customerId, options = {}) {
+      const { since, lite } = options;
+      const filter: Record<string, unknown> = customerId ? { 'customer.id': customerId } : {};
+      if (since != null) filter.no = { $gt: since };
+      // Catching up takes the bills just after `since`, oldest first, then hands them back newest
+      // first like every list -- so a reader paging forward never skips one.
+      const order = since != null ? 1 : -1;
+      if (!lite) {
+        const docs = await Bills.find(filter).sort({ no: order }).limit(limit).lean();
+        const bills = docs.map((d) => strip(d as unknown as Bill));
+        return since != null ? bills.reverse() : bills;
+      }
+      /*
+       * Without the handwriting, which is nearly all of a bill's weight: the list that took eight
+       * seconds and 880 KB was pen strokes. Done in the database, so the strokes never leave it.
+       * Each line loses `ink` and `moreInk` and gains `hasInk` when it had any; the bill gains
+       * `hasInk` when any line did. The same shape liteBill gives the file store.
+       */
+      const hadInk = {
+        $or: [
+          { $gt: [{ $size: { $ifNull: ['$$l.ink.strokes', []] } }, 0] },
+          { $gt: [{ $size: { $ifNull: ['$$l.moreInk', []] } }, 0] },
+        ],
+      };
+      const docs = await Bills.aggregate([
+        { $match: filter },
+        { $sort: { no: order } },
+        { $limit: limit },
+        { $sort: { no: -1 } },
+        {
+          $addFields: {
+            lines: {
+              $map: {
+                input: '$lines',
+                as: 'l',
+                in: {
+                  $mergeObjects: [
+                    {
+                      $arrayToObject: {
+                        $filter: {
+                          input: { $objectToArray: '$$l' },
+                          as: 'f',
+                          cond: { $not: [{ $in: ['$$f.k', ['ink', 'moreInk']] }] },
+                        },
+                      },
+                    },
+                    { $cond: [hadInk, { hasInk: true }, {}] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            hasInk: { $anyElementTrue: [{ $map: { input: '$lines', as: 'l', in: { $eq: ['$$l.hasInk', true] } } }] },
+          },
+        },
+        { $project: { _id: 0, __v: 0 } },
+      ]);
+      return docs as Bill[];
     },
 
     async getBill(no) {
       const doc = await Bills.findOne({ no }).lean();
+      return doc ? strip(doc as unknown as Bill) : null;
+    },
+
+    async getBillByClientId(clientId) {
+      const doc = await Bills.findOne({ clientId }).lean();
       return doc ? strip(doc as unknown as Bill) : null;
     },
 
@@ -275,7 +348,9 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return lastPriceOf({ ...ask, customerId: undefined }, await newest(base));
     },
 
-    async createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId }) {
+    async createBill({ lines, customerId, paid, showBalance, note, roundTo, draftId, clientId }) {
+      // A save already on file is answered with that bill, before any money moves.
+      if (clientId && (await Bills.exists({ clientId }))) throw new DuplicateClientId(clientId);
       const exact = billTotal(lines);
       // Rounded before anything moves, so the customer's figures move by the printed total.
       const total = roundToStep(exact, roundTo ?? 0);
@@ -361,7 +436,9 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         showBalance: showBalance ?? false,
         note: note ?? '',
         ...(roundOff !== 0 ? { roundOff } : {}),
+        roundTo: roundTo ?? 0,
         ...(draftId ? { draftId } : {}),
+        ...(clientId ? { clientId } : {}),
       };
 
       try {
@@ -383,6 +460,11 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         // safe outcome.
         await Counters.updateOne({ key: 'billNo', value: no }, { $inc: { value: -1 } })
           .catch(() => undefined);
+        // Two copies of one save racing past the check above: the unique index stopped the
+        // second, and it is the first bill's answer, not an error.
+        if (clientId && isDuplicateKey(err) && /clientId/.test(String((err as Error).message))) {
+          throw new DuplicateClientId(clientId);
+        }
         throw err;
       }
 

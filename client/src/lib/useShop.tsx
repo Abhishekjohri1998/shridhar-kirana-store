@@ -3,6 +3,7 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
+  LINK_RETRY_MS, createLinkWatch, roundToStep,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -10,7 +11,7 @@ import {
 /** What a stock suggestion fills a line with. */
 /** A line filled from stock, or -- with no stockItemId -- a typed name stock does not know, in NOS. */
 export type StockPick = { nameEn: string; nameKn: string; unit: string; stockItemId?: string; rate: number };
-import { ApiError, api, getToken, setToken } from './api';
+import { ApiError, api, getToken, onLink, setToken } from './api';
 
 const CACHE_KEY = 'shridhar.cache';
 /* One key per parked bill, and a small index saying which exist and which is showing.
@@ -92,12 +93,21 @@ export type CommitOptions = { paid?: number; showBalance?: boolean; customer?: C
 type Shop = {
   ready: boolean;
   signedIn: boolean;
+  /**
+   * The server has missed two answers in a row. Cleared by the next answer of any kind; while it
+   * is set the app knocks again every 15 s (and when it comes back to the front).
+   */
   offline: boolean;
   settings: Settings;
   bills: Bill[];
   today: TodaySummary;
   cart: BillLine[];
+  /** The bill's total as it will be saved: the lines, rounded to settings.roundTo. */
   cartTotal: number;
+  /** What rounding moved the lines' sum by, signed; 0 when nothing was rounded. */
+  cartRoundOff: number;
+  /** Leave a line off the printout (still counted). */
+  setLineHidden: (index: number, hidden: boolean) => void;
   /** The customer this bill is for, if any. Their details print at the top of the slip. */
   customer: Customer | null;
   /** Cash taken, as typed. Blank means the whole total. */
@@ -189,6 +199,15 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(() => getToken() != null);
   const [offline, setOffline] = useState(false);
+  /*
+   * Fed by every request the app makes (api.ts's onLink), not by the start-up load alone. It used
+   * to be set by one slow load and cleared only by a full reload that worked, so a shop on a
+   * working connection read "cannot reach the server" all day. See createLinkWatch.
+   */
+  useEffect(() => {
+    const watch = createLinkWatch(setOffline);
+    return onLink((ok) => (ok ? watch.ok() : watch.fail()));
+  }, []);
   const [settings, setSettings] = useState<Settings>(cached?.settings ?? DEFAULT_SETTINGS);
   const [bills, setBills] = useState<Bill[]>([]);
   const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
@@ -427,7 +446,6 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setSettings(loadedSettings);
       setBills(loadedBills);
       setToday(loadedToday);
-      setOffline(false);
       setSignedIn(true);
       writeCache({ settings: loadedSettings });
       void refreshInactive();
@@ -435,13 +453,29 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       if (e instanceof ApiError && e.status === 401) {
         setSignedIn(false);
       } else {
-        // Keep whatever the cache gave us and say so, rather than showing an empty shop.
-        setOffline(true);
+        // Keep whatever the cache gave us. Whether to say the server is gone is the link
+        // watch's call, from this and every other request.
       }
     } finally {
       setReady(true);
     }
   }, [refreshInactive]);
+
+  /* While the server is missing, knock every 15 s, and load everything again once it answers. */
+  useEffect(() => {
+    if (!offline) return;
+    const knock = () => void api.health().then(() => reload()).catch(() => undefined);
+    const timer = setInterval(knock, LINK_RETRY_MS);
+    // The browser says when the network or the tab comes back; both are good moments to try.
+    const onVisible = () => { if (document.visibilityState === 'visible') knock(); };
+    window.addEventListener('online', knock);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('online', knock);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [offline, reload]);
 
   const [dataVersion, setDataVersion] = useState(0);
 
@@ -648,6 +682,16 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     });
   }, [patchActive]);
 
+  /** Left off the printout and the WhatsApp text, still counted in the total and in stock. */
+  const setLineHidden = useCallback((index: number, hidden: boolean) => {
+    updateLine(index, (l) => {
+      if ((l.hidden ?? false) === hidden) return l;
+      if (hidden) return { ...l, hidden: true };
+      const { hidden: _shown, ...rest } = l;
+      return rest;
+    });
+  }, [updateLine]);
+
   /** Every line at once, for the common case where the whole bag went over the counter. */
   const setAllGiven = useCallback((given: boolean) => {
     patchActive((d) => {
@@ -716,7 +760,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       });
       if (lines.length === 0) throw new Error(t('bill.nothingYet'));
       const billTo = options.customer !== undefined ? options.customer : customer;
-      const bill = await api.createBill({
+      const payload = {
         lines,
         ...(billTo ? { customerId: billTo.id } : {}),
         ...(options.paid == null ? {} : { paid: options.paid }),
@@ -724,7 +768,19 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...(note.trim() ? { note: note.trim() } : {}),
         // So stock can swap the live draft on its worker screen for this bill, ticks and all.
         ...(stockOn ? { draftId: active.draftId } : {}),
-      });
+        // This bill's own id. The server answers a second save carrying it with the first bill,
+        // so a retry -- here, or the shopkeeper tapping again -- never records it twice.
+        clientId: active.draftId,
+      };
+      let bill: Bill;
+      try {
+        bill = await api.createBill(payload);
+      } catch (e) {
+        // No answer is not "not saved": the server may have saved it and the answer got lost.
+        // One more try, same id -- it either saves now or hands back the bill already saved.
+        if (!(e instanceof ApiError) || e.status !== 0) throw e;
+        bill = await api.createBill(payload);
+      }
       stockSaved.current.add(active.draftId);
       stockSent.current.delete(active.draftId);
       /*
@@ -766,10 +822,13 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     if (patch.inactiveAfterDays != null) void refreshInactive();
   }, [refreshInactive]);
 
+  // What the bill will be saved at, shown live: billing's own rounding step on the lines' sum.
+  const roundedCart = roundToStep(billTotal(cart), settings.roundTo ?? 0);
+
   const value = useMemo<Shop>(
     () => ({
       ready, signedIn, offline, settings, bills, today, cart,
-      cartTotal: billTotal(cart),
+      cartTotal: roundedCart, cartRoundOff: round2(roundedCart - billTotal(cart)), setLineHidden,
       customer, inactive, paidInput, printBalance, printBalanceTouched, note,
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
@@ -786,7 +845,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       paidInput, printBalance, printBalanceTouched, note, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
-      setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
+      setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,

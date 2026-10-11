@@ -9,6 +9,7 @@ import {
   paperProfile,
   PAPERS,
   parseQuietDays,
+  ROUND_STEPS,
   type Bill,
   type Lang,
   type PaperKey,
@@ -372,6 +373,27 @@ export function SettingsPage() {
         <p className="muted small" style={{ margin: 0 }}>
           {t('set.paperNote', { mm: paper.printableMm, dots: paper.dots })}
         </p>
+      </section>
+
+      {/* Billing's own now; it used to live in the stock app's settings. */}
+      <section className="card stack">
+        <h2 className="section-title">{t('set.roundSection')}</h2>
+        <div className="field">
+          <select
+            id="s-round"
+            className="input"
+            aria-label={t('set.roundSection')}
+            value={String(shop.settings.roundTo ?? 0)}
+            onChange={(e) => void save({ roundTo: Number(e.target.value) }, 'set.savedRound')}
+          >
+            {ROUND_STEPS.map((step) => (
+              <option key={step} value={step}>
+                {step === 0 ? t('set.roundNone') : t('set.roundTo', { n: step })}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>{t('set.roundNote')}</p>
       </section>
 
       <section className="card stack">

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { billAsText, buildReceipt, pickLang, whatsappNumber, type Bill } from '@shridhar/shared';
+import { useEffect, useState } from 'react';
+import { billAsText, buildReceipt, hiddenLinesText, pickLang, whatsappNumber, type Bill } from '@shridhar/shared';
 import { api as billingApi } from '../lib/api';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
@@ -18,7 +18,7 @@ import { useShop } from '../lib/useShop';
  * cannot.
  */
 export function BillDialog({
-  bill, onClose, onCancelled, onDeleted,
+  bill: listed, onClose, onCancelled, onDeleted,
 }: {
   bill: Bill;
   onClose: () => void;
@@ -34,6 +34,26 @@ export function BillDialog({
   /** Which question the footer is asking, if any: cancelling it, or removing it for good. */
   const [asking, setAsking] = useState<'cancel' | 'delete' | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /*
+   * A bill from the list comes without its handwriting (`lite`). The receipt, a reprint and the
+   * shared picture all need the strokes, so a written bill is fetched whole before anything is
+   * drawn; until it arrives the buttons wait.
+   */
+  const [full, setFull] = useState<Bill | null>(null);
+  useEffect(() => {
+    setFull(null);
+    if (!listed?.hasInk) return;
+    let alive = true;
+    void api.getBill(listed.no)
+      .then((b) => { if (alive) setFull(b); })
+      .catch((e) => { if (alive) setError(t('hist.couldNotLoad') + ': ' + (e instanceof Error ? e.message : String(e))); });
+    return () => { alive = false; };
+  }, [listed]);
+  // Until the whole bill arrives the lite one stands in for the title and the cancel buttons;
+  // printing, sharing and the receipt wait for `loading` to clear.
+  const bill: Bill = (listed.hasInk ? full : null) ?? listed;
+  const loading = listed.hasInk === true && full == null;
 
   /* WhatsApp from the website: wa.me with the bill as text, in the customer's chat when we
      know their number. The tablet sends the picture instead. */
@@ -144,11 +164,11 @@ export function BillDialog({
       <button className="btn plain" onClick={onClose}>{t('common.close')}</button>
       {/* A picture of the slip, for a customer who wants a copy on their phone. Offered for a
           cancelled bill too: what it said is still what it said. */}
-      <button className="btn plain" disabled={printer.busy} onClick={() => void share()}>
+      <button className="btn plain" disabled={printer.busy || loading} onClick={() => void share()}>
         {printer.busy ? t('hist.sharing') : t('hist.share')}
       </button>
-      <button className="btn plain" onClick={() => void whatsapp()}>{t('wa.send')}</button>
-      <button className="btn" disabled={printer.busy || bill.cancelled} onClick={() => void reprint()}>
+      <button className="btn plain" disabled={loading} onClick={() => void whatsapp()}>{t('wa.send')}</button>
+      <button className="btn" disabled={printer.busy || loading || bill.cancelled} onClick={() => void reprint()}>
         {printer.busy ? t('hist.printing') : t('hist.printAgain')}
       </button>
     </>
@@ -169,7 +189,11 @@ export function BillDialog({
         </p>
       ) : null}
 
-      <ReceiptView doc={buildReceipt(bill, shop.settings, shop.receiptLabels)} inkAlt={t('ink.alt')} />
+      {loading
+        ? <p className="notice">{t('hist.loading')}</p>
+        : <ReceiptView doc={buildReceipt(bill, shop.settings, shop.receiptLabels)} inkAlt={t('ink.alt')} />}
+      {/* Left off the paper, still in the total: said here so the arithmetic is explained. */}
+      {hiddenLinesText(bill) ? <p className="notice">{t('hist.hiddenLines', { lines: hiddenLinesText(bill) })}</p> : null}
     </Dialog>
   );
 }

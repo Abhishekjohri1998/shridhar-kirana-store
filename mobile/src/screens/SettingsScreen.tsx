@@ -8,7 +8,7 @@ import * as Sharing from 'expo-sharing';
 import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  ERASE_WORD, LANGS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile,
+  ERASE_WORD, LANGS, ROUND_STEPS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile,
   parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
 } from '@shridhar/shared';
@@ -391,6 +391,20 @@ export function SettingsScreen() {
           onChange={(next) => void save({ paper: next }, 'set.savedPaper')}
         />
         <Text style={styles.hint}>{t('set.paperNote', { mm: paper.printableMm, dots: paper.dots })}</Text>
+      </Card>
+
+      {/* Billing's own now; it used to live in the stock app's settings. */}
+      <Card style={styles.card}>
+        <SectionTitle>{t('set.roundSection')}</SectionTitle>
+        <Choice<string>
+          options={ROUND_STEPS.map((step) => ({
+            key: String(step),
+            label: step === 0 ? t('set.roundNone') : t('set.roundTo', { n: step }),
+          }))}
+          value={String(shop.settings.roundTo ?? 0)}
+          onChange={(next) => void save({ roundTo: Number(next) }, 'set.savedRound')}
+        />
+        <Text style={styles.hint}>{t('set.roundNote')}</Text>
       </Card>
 
       <Card style={styles.card}>
