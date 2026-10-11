@@ -118,6 +118,34 @@ check('Enter used up only while a bill box owns it (build 62)', mod.includes('if
 check('never in a multi-line box', mod.includes('InputType.TYPE_TEXT_FLAG_MULTI_LINE'));
 check('Enter emitted once per press, not on repeats', mod.includes('ev.repeatCount == 0) instance?.emitKey(key)'));
 check('JS can say the list is open', mod.includes('@ReactMethod fun setSuggestOpen(open: Boolean)'));
+
+console.log('\nKeyboard shortcuts (build 63)');
+check('JS can switch them on', mod.includes('@ReactMethod fun setShortcuts(level: Int)'));
+check('emits hwShortcut with the modifiers', mod.includes('.emit("hwShortcut", map)')
+  && ['"ctrl"', '"shift"', '"alt"'].every((k) => mod.includes('map.putBoolean(' + k)));
+check('checked before the text-box test, so any focus works', mod.indexOf('if (onShortcut(ev)) return true') >= 0
+  && mod.indexOf('if (onShortcut(ev)) return true') < mod.indexOf('if (focus !is EditText) return false'));
+check('off unless JavaScript says so', mod.includes('@Volatile private var shortcutLevel = 0') && mod.includes('if (level <= 0) return false'));
+check('F1 alone at level 1', mod.includes('if (chord == "F1") return true') && mod.includes('return level >= 2 && chord in BILL_CHORDS'));
+check('emitted once per press, used up whole', mod.includes('if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {\n        instance?.emitShortcut('));
+for (const k of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'PAGE_UP', 'PAGE_DOWN', 'H', 'C', 'A', 'P', 'S']) {
+  check('reads KEYCODE_' + k, mod.includes('KeyEvent.KEYCODE_' + k + ' -> '));
+}
+check('modifier order is Ctrl, Shift, Alt as in JS', mod.includes('(if (ctrl) "Ctrl+" else "") + (if (shift) "Shift+" else "") + (if (alt) "Alt+" else "") + key'));
+check('arrows kept from a bill box only with shortcuts on', mod.includes('return suggestOpen || (shortcutLevel >= 2 && takeEnter)'));
+check('Enter handling unchanged', mod.includes('if (!takeEnter || multiLine) {'));
+try {
+  const shared = require(path.join(__dirname, '..', 'shared', 'dist', 'cjs', 'index.js'));
+  const js = shared.SHORTCUTS.filter((s) => !s.global).map((s) => s.chord).sort();
+  const native = [...plugin.BILL_CHORDS].sort();
+  check('the native list is shared/src/shortcuts.ts exactly', JSON.stringify(js) === JSON.stringify(native),
+    'js=' + js.join(',') + ' native=' + native.join(','));
+  check('every chord is in the Kotlin', js.every((c) => mod.includes('"' + c + '"')));
+  check('every key name the JS list uses is one the Kotlin can send',
+    shared.SHORTCUTS.every((s) => mod.includes('-> "' + s.chord.split('+').pop() + '"')));
+} catch (e) {
+  check('shared/ is built for the comparison', false, String(e));
+}
 const pkg = plugin.packageSource(PKG);
 check('the package creates the module', pkg.includes('listOf(ShridharNativeModule(ctx))'));
 

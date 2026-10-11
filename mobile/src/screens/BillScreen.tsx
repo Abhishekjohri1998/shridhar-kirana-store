@@ -7,8 +7,10 @@ import {
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
+  SHORTCUTS, adjacentBill, moveInColumn, shortcutFor, shortcutLine,
+  type BillLine, type LineColumn, type ShortcutAction,
 } from '@shridhar/shared';
-import { CustomerBar } from '../components/CustomerBar';
+import { CustomerBar, type CustomerFields } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
 import { ScrollPad } from '../components/ScrollPad';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
@@ -17,7 +19,7 @@ import { Button, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
-import { onHardwareKey, setSuggestOpen, setTakeEnter } from '../lib/native';
+import { onHardwareKey, onHardwareShortcut, setSuggestOpen, setTakeEnter } from '../lib/native';
 import { C, R, TYPE, shadow } from '../theme';
 
 /**
@@ -158,9 +160,12 @@ export function BillScreen() {
   const stockRef = useRef(stock);
   stockRef.current = stock;
   useEffect(() => { setSuggestOpen(stockOpen != null); }, [stockOpen]);
+  /** Up or Down with no suggestion list open: the same box on the line above or below. */
+  const hwArrow = useRef<(delta: -1 | 1) => void>(() => undefined);
   useEffect(() => onHardwareKey((key) => {
     const s = stockRef.current;
-    if (key === 'enter' || !s.openFor) return;
+    if (key === 'enter') return;
+    if (!s.openFor) { hwArrow.current(key === 'up' ? -1 : 1); return; }
     if (key === 'up') s.moveHighlight(-1);
     else if (key === 'down') s.moveHighlight(1);
   }), []);
@@ -173,6 +178,8 @@ export function BillScreen() {
    * strip on a roomy screen -- so every one of these is taken from a layout event.
    */
   const rowY = useRef<Record<string, number>>({});
+  /** Each row's own height, for finding the top line showing (F4-F8). */
+  const rowHt = useRef<Record<string, number>>({});
   const rowH = useRef(0);
   const offset = useRef(0);
   const [viewport, setViewport] = useState(0);
@@ -657,6 +664,95 @@ export function BillScreen() {
     }
   };
 
+  /*
+   * A hardware keyboard's shortcuts (build 63; the list is shared/src/shortcuts.ts). The native
+   * side sends them only while this screen is showing. F1 and Alt+H are the shell's.
+   */
+  const customerFields = useRef<CustomerFields>({ name: null, nameKn: null, phone: null });
+  const [keysOpen, setKeysOpen] = useState(false);
+  const isTyping = (line: BillLine) => !(writing[line.itemId] ?? line.lastMode !== 'text');
+  /** The line box with the cursor in it, and which column it is. */
+  const cursorAt = (): { index: number; column: LineColumn } | null => {
+    const cols: [LineColumn, Record<string, TextInput | null>][] = [
+      ['name', names.current], ['qty', qtys.current], ['price', prices.current],
+    ];
+    for (const [column, boxes] of cols) {
+      const id = Object.keys(boxes).find((k) => boxes[k]?.isFocused() === true);
+      if (id == null) continue;
+      const index = shop.cart.findIndex((l) => l.itemId === id);
+      if (index >= 0) return { index, column };
+    }
+    return null;
+  };
+  /** The cursor into one box of one line; a handwritten line is turned to typing for name/qty. */
+  const focusLineBox = (index: number, column: 'name' | 'qty' | 'price') => {
+    const line = shop.cart[index];
+    if (!line) return;
+    const typing = isTyping(line);
+    if (column !== 'price' && !typing) setWriting((w) => ({ ...w, [line.itemId]: false }));
+    focusRow(line.itemId);
+    const boxes = column === 'name' ? names.current : column === 'qty' ? qtys.current : prices.current;
+    const field = boxes[line.itemId];
+    if (field && (column === 'price' || typing)) { field.focus(); return; }
+    wantFocus.current = { id: line.itemId, from: '', kind: column };
+    setFocusTick((n) => n + 1);
+  };
+  hwArrow.current = (delta) => {
+    const at = cursorAt();
+    if (!at) return;
+    const cart = shop.cart;
+    // Price is on every line; name and quantity only on a typed one, or one with no writing yet.
+    const next = moveInColumn(at.index, delta, cart.length, (i) =>
+      at.column === 'price' || isTyping(cart[i]!) || !lineHasInk(cart[i]!));
+    if (next != null) focusLineBox(next, at.column as 'name' | 'qty' | 'price');
+  };
+  const onShortcut = useRef<(a: ShortcutAction) => void>(() => undefined);
+  onShortcut.current = (action) => {
+    const cart = shop.cart;
+    const lineIndex = () => shortcutLine(
+      cursorAt()?.index ?? null,
+      cart.map((l) => ({ top: rowY.current[l.itemId] ?? 0, height: rowHt.current[l.itemId] ?? rowH.current })),
+      offset.current,
+    );
+    switch (action) {
+      case 'prevBill':
+      case 'nextBill': {
+        const id = adjacentBill(shop.drafts.map((d) => d.id), shop.activeDraftId, action === 'prevBill' ? -1 : 1);
+        if (id) shop.switchBill(id);
+        return;
+      }
+      case 'customer':
+      case 'customerName': customerFields.current.name?.focus(); return;
+      case 'customerNameKn': customerFields.current.nameKn?.focus(); return;
+      case 'customerPhone': customerFields.current.phone?.focus(); return;
+      case 'lineName': case 'lineQty': case 'lineUnit': case 'linePrice': case 'lineTick': {
+        const index = lineIndex();
+        const line = cart[index];
+        if (!line) return;
+        setView('items');
+        if (action === 'lineTick') { shop.setLineGiven(index, !line.given); return; }
+        if (action === 'linePrice') { focusLineBox(index, 'price'); return; }
+        if (action === 'lineName') { focusLineBox(index, 'name'); return; }
+        // Quantity and unit live on a typed line; one already written on is left as it is.
+        if (!isTyping(line) && lineHasInk(line)) return;
+        if (action === 'lineQty') { focusLineBox(index, 'qty'); return; }
+        if (!isTyping(line)) setWriting((w) => ({ ...w, [line.itemId]: false }));
+        stock.loadUnits(line);
+        setUnitMenu(line.itemId);
+        return;
+      }
+      case 'tickAll': if (written.length > 0) shop.setAllGiven(!allGiven); return;
+      case 'preview': if (hasSomething) setPreview(draft()); return;
+      case 'save': if (hasSomething && !saving) void onSave(); return;
+      case 'print': if (hasSomething && !saving && !printer.busy) void onPrint(); return;
+      default: return; // toggleApp and history belong to the shell.
+    }
+  };
+  useEffect(() => onHardwareShortcut((e) => {
+    const action = shortcutFor(e);
+    if (action) onShortcut.current(action);
+  }), []);
+
   return (
     <View style={styles.wrap}>
       {/* Pinned at the top, above the writing. Forty lines down a bill these fields used to be
@@ -672,7 +768,7 @@ export function BillScreen() {
         contentContainerStyle={styles.tabsRow}
       >
         {shop.drafts.map((d, i) => {
-          const total = draftTotal(d);
+          const total = draftTotal(d, shop.settings.roundTo ?? 0);
           const label = d.customer
             ? customerName(d.customer, shop.lang) || d.customer.phone
             : d.typed.name.trim() || d.typed.nameKn.trim() || t('bill.billN', { n: i + 1 });
@@ -704,10 +800,18 @@ export function BillScreen() {
             <Text style={styles.tabNewText}>{t('bill.newBill')}</Text>
           </Pressable>
         ) : null}
+        {/* The hardware keyboard's shortcuts, listed. */}
+        <Pressable
+          onPress={() => setKeysOpen(true)}
+          style={styles.tabNew}
+          accessibilityLabel={t('keys.open')}
+        >
+          <Text style={styles.tabNewText}>⌨</Text>
+        </Pressable>
       </ScrollView>
 
       <View style={styles.top}>
-        <CustomerBar />
+        <CustomerBar fieldRefs={customerFields} />
         {error ? <ErrorText onDismiss={() => setError(null)}>{error}</ErrorText> : null}
 
         {/* Offered here rather than only from History: the moment a customer asks for a copy is
@@ -826,6 +930,7 @@ export function BillScreen() {
                 onLayout={(e) => {
                   const { y, height } = e.nativeEvent.layout;
                   rowY.current[line.itemId] = y;
+                  rowHt.current[line.itemId] = height;
                   // The smallest row, so a row with an added strip never shrinks the tail.
                   const h = Math.round(height);
                   if (rowH.current <= 0 || h < rowH.current) rowH.current = h;
@@ -1343,6 +1448,25 @@ export function BillScreen() {
         {preview ? <ReceiptView doc={buildReceipt(preview, shop.settings, shop.receiptLabels)} /> : null}
         <Text style={styles.provisional}>{t('bill.provisional')}</Text>
       </Dialog>
+
+      <Dialog
+        visible={keysOpen}
+        title={t('keys.title')}
+        onClose={() => setKeysOpen(false)}
+        footer={<Button label={t('common.close')} tone="plain" onPress={() => setKeysOpen(false)} style={{ flex: 1 }} />}
+      >
+        {SHORTCUTS.map((k) => (
+          <View key={k.chord} style={styles.keyRow}>
+            <Text style={styles.keyChord}>{k.chord}</Text>
+            <Text style={styles.keyLabel}>{t(k.labelKey)}</Text>
+          </View>
+        ))}
+        <View style={styles.keyRow}>
+          <Text style={styles.keyChord}>↑ ↓</Text>
+          <Text style={styles.keyLabel}>{t('keys.arrows')}</Text>
+        </View>
+        <Text style={styles.provisional}>{t('keys.lineNote')}</Text>
+      </Dialog>
     </View>
   );
 }
@@ -1379,6 +1503,9 @@ const styles = StyleSheet.create({
     borderRadius: R.sm, paddingHorizontal: 11,
   },
   tabNewText: { fontSize: 13, fontWeight: '700', color: C.soft },
+  keyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 5 },
+  keyChord: { width: 112, fontSize: 13, fontWeight: '700', color: C.ink },
+  keyLabel: { flex: 1, fontSize: 13, color: C.soft },
   savedRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10,
     backgroundColor: C.accentWash, borderWidth: 1, borderColor: C.accentEdge,

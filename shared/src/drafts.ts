@@ -1,4 +1,4 @@
-import { billTotal } from './doc';
+import { billTotal, roundLines } from './doc';
 import type { BillLine, Customer, Ink, StockTicks } from './types';
 
 /**
@@ -231,9 +231,12 @@ export function isDraftEmpty(d: Draft): boolean {
   return !d.lines.some(lineHasSomething);
 }
 
-/** What the bill comes to so far, for the tab that names it. */
-export function draftTotal(d: Draft): number {
-  return billTotal(d.lines);
+/**
+ * What the bill comes to so far, for the tab that names it: each line rounded on the shop's
+ * `roundTo` step, exactly as the bill's own total and the receipt show it (110, not 110.04).
+ */
+export function draftTotal(d: Draft, step = 0): number {
+  return billTotal(roundLines(d.lines, step));
 }
 
 /**

@@ -93,6 +93,8 @@ const used = new Set(
 );
 // TABS in App.tsx names its keys in a table, then feeds them through t().
 for (const m of sources.matchAll(/key:\s*'((?:nav)\.[\w.]+)'/g)) used.add(m[1]);
+// The shortcut list names its help lines in shared/src/shortcuts.ts; both apps feed them to t().
+for (const m of fs.readFileSync(path.join(ROOT, 'shared', 'src', 'shortcuts.ts'), 'utf8').matchAll(/labelKey:\s*'([\w.]+)'/g)) used.add(m[1]);
 // Settings passes these as a variable, so they never appear literally inside t(...).
 for (const m of sources.matchAll(/'(set\.saved[\w.]*)'/g)) used.add(m[1]);
 

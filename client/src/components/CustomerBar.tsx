@@ -18,7 +18,10 @@ import { useShop } from '../lib/useShop';
  * shop asked for -- a regular should not have to be re-entered, and re-entering them by hand is
  * how you end up with the same person stored three times.
  */
-export function CustomerBar() {
+/** The three boxes, so the bill screen's F2 / Shift+F2 / F3 can put the cursor in them. */
+export type CustomerFields = { name: HTMLInputElement | null; nameKn: HTMLInputElement | null; phone: HTMLInputElement | null };
+
+export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFields } } = {}) {
   const shop = useShop();
   const t = shop.t;
   // Held in the shared draft, not here: the bill needs to read it at print time, and switching
@@ -152,6 +155,7 @@ export function CustomerBar() {
         <input
           className="input"
           value={name}
+          ref={(el) => { if (fieldRefs) fieldRefs.current.name = el; }}
           onChange={(e) => setName(e.target.value)}
           placeholder={t('cust.namePlaceholder')}
           aria-label={t('cust.nameAria')}
@@ -162,6 +166,7 @@ export function CustomerBar() {
         <input
           className="input"
           value={nameKn}
+          ref={(el) => { if (fieldRefs) fieldRefs.current.nameKn = el; }}
           onChange={(e) => setNameKn(e.target.value)}
           placeholder={t('cs.nameKn')}
           aria-label={t('cs.nameKn')}
@@ -170,6 +175,7 @@ export function CustomerBar() {
         <input
           className="input"
           value={phone}
+          ref={(el) => { if (fieldRefs) fieldRefs.current.phone = el; }}
           onChange={(e) => setPhone(e.target.value)}
           placeholder={t('cust.phonePlaceholder')}
           aria-label={t('cust.phoneAria')}

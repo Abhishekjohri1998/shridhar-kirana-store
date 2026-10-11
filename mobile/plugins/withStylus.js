@@ -23,6 +23,13 @@
  *     Android. Up and Down are kept from the text box only while JavaScript says a suggestion
  *     list is open (`setSuggestOpen`). Enter is used up while a bill box says it owns it
  *     (`setTakeEnter`, build 62), so one press reaches JavaScript once and nothing else.
+ *  5. Keyboard shortcuts (build 63): F1-F8, Ctrl+PageUp/PageDown, Alt+H/C, Ctrl+A/P/S and
+ *     Ctrl+Shift+P go to JavaScript as `hwShortcut` events ({key, ctrl, shift, alt}) and are
+ *     used up -- whatever has focus -- but only while JavaScript has switched them on
+ *     (`setShortcuts`: 0 off, 1 F1 alone, 2 the whole bill-screen list). Any other screen or
+ *     key is untouched. While a bill line box has the cursor (setTakeEnter) and shortcuts are
+ *     at 2, Up and Down are kept from the box too, so JavaScript can move between lines.
+ *     The list is the same as shared/src/shortcuts.ts; plugintest checks that.
  */
 const fs = require('fs');
 const path = require('path');
@@ -30,6 +37,12 @@ const path = require('path');
 const MARK = 'ShridharNativeModule.onMotion';
 const PKG_MARK = 'ShridharNativePackage()';
 const KEY_MARK = 'ShridharNativeModule.onKey';
+
+/** The chords used up at shortcut level 2. F1 alone is level 1. Keep in step with SHORTCUTS. */
+const BILL_CHORDS = [
+  'Ctrl+PageUp', 'Ctrl+PageDown', 'Alt+H', 'Alt+C', 'F2', 'Shift+F2', 'F3', 'F4', 'F5', 'F6',
+  'F7', 'F8', 'Ctrl+A', 'Ctrl+P', 'Ctrl+S', 'Ctrl+Shift+P',
+];
 
 /** Adds lines just inside the class's closing brace. */
 function beforeClassEnd(src, block) {
@@ -107,6 +120,7 @@ function addToMainApplication(src, appPackage) {
 }
 
 function moduleSource(appPackage) {
+  const chords = BILL_CHORDS.map((c) => '"' + c + '"').join(', ');
   return `package ${appPackage}.stylus
 
 import android.content.ActivityNotFoundException
@@ -141,6 +155,9 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 
   /** JavaScript says a bill box has the cursor, so a hardware Enter is its alone (build 62). */
   @ReactMethod fun setTakeEnter(on: Boolean) { takeEnter = on }
+
+  /** JavaScript says which shortcuts are live: 0 none, 1 F1 alone, 2 the bill screen's (build 63). */
+  @ReactMethod fun setShortcuts(level: Int) { shortcutLevel = level }
 
   @ReactMethod
   fun shareToWhatsApp(phone: String, fileUri: String, text: String, promise: Promise) {
@@ -188,6 +205,16 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("hwKey", map)
   }
 
+  private fun emitShortcut(key: String, ctrl: Boolean, shift: Boolean, alt: Boolean) {
+    if (!ctx.hasActiveReactInstance()) return
+    val map = Arguments.createMap()
+    map.putString("key", key)
+    map.putBoolean("ctrl", ctrl)
+    map.putBoolean("shift", shift)
+    map.putBoolean("alt", alt)
+    ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("hwShortcut", map)
+  }
+
   private fun emit(down: Boolean) {
     if (!ctx.hasActiveReactInstance()) return
     val map = Arguments.createMap()
@@ -200,6 +227,60 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @Volatile private var held = false
     @Volatile private var suggestOpen = false
     @Volatile private var takeEnter = false
+    @Volatile private var shortcutLevel = 0
+
+    private val BILL_CHORDS = setOf(${chords})
+
+    /** The shortcut key's name, as shared/src/shortcuts.ts spells it, or null. */
+    @JvmStatic
+    fun shortcutKey(code: Int): String? = when (code) {
+      KeyEvent.KEYCODE_F1 -> "F1"
+      KeyEvent.KEYCODE_F2 -> "F2"
+      KeyEvent.KEYCODE_F3 -> "F3"
+      KeyEvent.KEYCODE_F4 -> "F4"
+      KeyEvent.KEYCODE_F5 -> "F5"
+      KeyEvent.KEYCODE_F6 -> "F6"
+      KeyEvent.KEYCODE_F7 -> "F7"
+      KeyEvent.KEYCODE_F8 -> "F8"
+      KeyEvent.KEYCODE_PAGE_UP -> "PageUp"
+      KeyEvent.KEYCODE_PAGE_DOWN -> "PageDown"
+      KeyEvent.KEYCODE_H -> "H"
+      KeyEvent.KEYCODE_C -> "C"
+      KeyEvent.KEYCODE_A -> "A"
+      KeyEvent.KEYCODE_P -> "P"
+      KeyEvent.KEYCODE_S -> "S"
+      else -> null
+    }
+
+    /** Ctrl, Shift, Alt, key -- always in that order, as chordOf() builds it in JavaScript. */
+    @JvmStatic
+    fun chord(key: String, ctrl: Boolean, shift: Boolean, alt: Boolean): String =
+      (if (ctrl) "Ctrl+" else "") + (if (shift) "Shift+" else "") + (if (alt) "Alt+" else "") + key
+
+    /** Whether this chord is a live shortcut at this level. */
+    @JvmStatic
+    fun isShortcut(chord: String, level: Int): Boolean {
+      if (level <= 0) return false
+      if (chord == "F1") return true
+      return level >= 2 && chord in BILL_CHORDS
+    }
+
+    /**
+     * A shortcut, whatever has focus: emitted once per press and used up -- down, repeats and
+     * up -- so the text box, the WebView or Android never also act on it.
+     */
+    @JvmStatic
+    fun onShortcut(ev: KeyEvent): Boolean {
+      val level = shortcutLevel
+      if (level <= 0) return false
+      val key = shortcutKey(ev.keyCode) ?: return false
+      val c = chord(key, ev.isCtrlPressed, ev.isShiftPressed, ev.isAltPressed)
+      if (!isShortcut(c, level)) return false
+      if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
+        instance?.emitShortcut(key, ev.isCtrlPressed, ev.isShiftPressed, ev.isAltPressed)
+      }
+      return true
+    }
 
     /**
      * Called by MainActivity for every key event. Up, Down and Enter from a hardware keyboard,
@@ -216,6 +297,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
      */
     @JvmStatic
     fun onKey(ev: KeyEvent, focus: View?): Boolean {
+      if (onShortcut(ev)) return true
       if (focus !is EditText) return false
       val key = when (ev.keyCode) {
         KeyEvent.KEYCODE_DPAD_UP -> "up"
@@ -233,7 +315,8 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
         return true
       }
       if (ev.action == KeyEvent.ACTION_DOWN) instance?.emitKey(key)
-      return suggestOpen
+      // A bill line box with shortcuts on: the arrows move between lines, in JavaScript.
+      return suggestOpen || (shortcutLevel >= 2 && takeEnter)
     }
 
     /** Called by MainActivity for every touch and hover event, before anything else sees it. */
@@ -313,5 +396,6 @@ module.exports = withStylus;
 module.exports.addToMainActivity = addToMainActivity;
 module.exports.addToMainApplication = addToMainApplication;
 module.exports.KEY_MARK = KEY_MARK;
+module.exports.BILL_CHORDS = BILL_CHORDS;
 module.exports.moduleSource = moduleSource;
 module.exports.packageSource = packageSource;

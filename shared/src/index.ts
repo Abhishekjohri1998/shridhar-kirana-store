@@ -18,3 +18,4 @@ export * from './when';
 export * from './stock';
 export * from './lastPrice';
 export * from './link';
+export * from './shortcuts';

@@ -9,8 +9,9 @@ import { Caveat_700Bold } from '@expo-google-fonts/caveat/700Bold';
 import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { money, pickLang, type MsgKey } from '@shridhar/shared';
+import { money, pickLang, shortcutFor, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
+import { onHardwareShortcut, setShortcuts } from './src/lib/native';
 import { PrintProvider } from './src/lib/usePrint';
 import { ShopProvider, useShop } from './src/lib/useShop';
 import { reportInsets, useHeldInsets } from './src/lib/screenEdges';
@@ -125,6 +126,28 @@ function Shell() {
   const frame = useSafeFrame();
   const insets = useHeldInsets();
 
+  /*
+   * A hardware keyboard's shortcuts (build 63). F1 swaps Billing and Stock from anywhere in the
+   * app once someone is in; the rest are the bill screen's and only live while it is showing,
+   * so no other screen loses a key. Alt+H is handled here, where the tabs are; the bill screen
+   * handles everything else.
+   */
+  const goRef = useRef<(next: TabKey) => void>(() => undefined);
+  const working = shop.ready && !!shop.serverUrl && shop.signedIn && !shop.locked && !shop.stockOnly;
+  useEffect(() => {
+    setShortcuts(!working ? 0 : app === 'billing' && tab === 'bill' ? 2 : 1);
+  }, [working, app, tab]);
+  useEffect(() => () => setShortcuts(0), []);
+  useEffect(() => onHardwareShortcut((e) => {
+    if (shortcutFor(e, false) === 'toggleApp') {
+      setApp((a) => (a === 'billing' ? 'stock' : 'billing'));
+      setStockOpened(true);
+    } else if (shortcutFor(e) === 'history') {
+      setApp('billing');
+      goRef.current('history');
+    }
+  }), []);
+
   if (!shop.ready || !fontsReady) {
     return (
       <View style={styles.loading}>
@@ -188,6 +211,7 @@ function Shell() {
       useNativeDriver: true,
     }).start();
   };
+  goRef.current = go;
 
   return (
     <PrintProvider>

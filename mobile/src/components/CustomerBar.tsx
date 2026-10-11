@@ -13,7 +13,10 @@ import { C } from '../theme';
  * get re-entered by hand -- which is how the same person ends up stored twice with the khata split
  * between the copies.
  */
-export function CustomerBar() {
+/** The three boxes, so the bill screen's F2 / Shift+F2 / F3 can put the cursor in them. */
+export type CustomerFields = { name: TextInput | null; nameKn: TextInput | null; phone: TextInput | null };
+
+export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFields } } = {}) {
   // On a tablet the three boxes and the button share one row, as in the shop's sketch; a phone wraps.
   const wide = useWindowDimensions().width >= 600;
   const shop = useShop();
@@ -141,6 +144,7 @@ export function CustomerBar() {
         <TextInput
           style={[styles.input, { flex: 2 }]}
           value={name}
+          ref={(el) => { if (fieldRefs) fieldRefs.current.name = el; }}
           onChangeText={setName}
           placeholder={t('cust.namePlaceholder')}
           placeholderTextColor={C.soft}
@@ -150,6 +154,7 @@ export function CustomerBar() {
         <TextInput
           style={[styles.input, { flex: 2 }]}
           value={nameKn}
+          ref={(el) => { if (fieldRefs) fieldRefs.current.nameKn = el; }}
           onChangeText={setNameKn}
           placeholder={t('cs.nameKn')}
           placeholderTextColor={C.soft}
@@ -157,6 +162,7 @@ export function CustomerBar() {
         <TextInput
           style={[styles.input, { flex: 1 }]}
           value={phone}
+          ref={(el) => { if (fieldRefs) fieldRefs.current.phone = el; }}
           onChangeText={setPhone}
           placeholder={t('cust.phonePlaceholder')}
           placeholderTextColor={C.soft}

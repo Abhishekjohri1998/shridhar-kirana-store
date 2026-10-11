@@ -21,8 +21,11 @@ import {
   dateStamp,
   type Bill,
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
+  SHORTCUTS, adjacentBill, lineMoveFor, moveInColumn, shortcutFor, shortcutLine,
+  type BillLine, type LineColumn, type ShortcutAction,
 } from '@shridhar/shared';
-import { CustomerBar } from '../components/CustomerBar';
+import { useNavigate } from 'react-router-dom';
+import { CustomerBar, type CustomerFields } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
@@ -126,6 +129,12 @@ export function BillPage() {
   /** The quantity and price boxes, which Enter hands on through: name, quantity, price. */
   const qtys = useRef<Record<string, HTMLInputElement | null>>({});
   const prices = useRef<Record<string, HTMLInputElement | null>>({});
+  /** The tick boxes and unit buttons, so Up and Down can walk those columns too. */
+  const ticks = useRef<Record<string, HTMLInputElement | null>>({});
+  const units = useRef<Record<string, HTMLButtonElement | null>>({});
+  const customerFields = useRef<CustomerFields>({ name: null, nameKn: null, phone: null });
+  const [keysOpen, setKeysOpen] = useState(false);
+  const navigate = useNavigate();
   const [tail, setTail] = useState(0);
   /** Which lines are being written rather than typed, by line id. See the mobile copy. */
   const [writing, setWriting] = useState<Record<string, boolean>>({});
@@ -478,13 +487,130 @@ export function BillPage() {
     }
   };
 
+  /*
+   * Keyboard shortcuts (the list is shared/src/shortcuts.ts). One handler for the page; a box's
+   * own handler (Enter, the suggestion list's arrows) runs first and wins by preventDefault.
+   * F1 is the tablet's Billing/Stock switch: the web app has no stock screen, so it does nothing
+   * here beyond keeping the browser's help page shut.
+   */
+  const isTyping = (line: BillLine) => !(writing[line.itemId] ?? line.lastMode !== 'text');
+  const cursorAt = (): { index: number; column: LineColumn } | null => {
+    const el = document.activeElement;
+    if (!el) return null;
+    const cols: [LineColumn, Record<string, HTMLElement | null>][] = [
+      ['name', names.current], ['qty', qtys.current], ['unit', units.current],
+      ['price', prices.current], ['tick', ticks.current],
+    ];
+    for (const [column, boxes] of cols) {
+      const id = Object.keys(boxes).find((k) => boxes[k] === el);
+      if (id == null) continue;
+      const index = shop.cart.findIndex((l) => l.itemId === id);
+      if (index >= 0) return { index, column };
+    }
+    return null;
+  };
+  /** The cursor into one column of one line; name, quantity and unit need a typed line. */
+  const focusLineBox = (index: number, column: LineColumn) => {
+    const line = shop.cart[index];
+    if (!line) return;
+    const needsTyping = column === 'name' || column === 'qty' || column === 'unit';
+    if (needsTyping && !isTyping(line)) {
+      setWriting((w) => ({ ...w, [line.itemId]: false }));
+      if (column === 'name') { wantName.current = line.itemId; setFocusTick((n) => n + 1); }
+      else if (column === 'qty') goToQty(line.itemId);
+      return;
+    }
+    const boxes: Record<LineColumn, Record<string, HTMLElement | null>> = {
+      name: names.current, qty: qtys.current, unit: units.current, price: prices.current, tick: ticks.current,
+    };
+    const field = boxes[column][line.itemId];
+    field?.focus();
+    field?.scrollIntoView({ block: 'nearest' });
+  };
+  const runShortcut = (action: ShortcutAction) => {
+    const cart = shop.cart;
+    const lineIndex = () => {
+      const list = sheet.current;
+      return shortcutLine(
+        cursorAt()?.index ?? null,
+        cart.map((l) => {
+          const row = rows.current[l.itemId];
+          return { top: row?.offsetTop ?? 0, height: row?.offsetHeight ?? 0 };
+        }),
+        list?.scrollTop ?? 0,
+      );
+    };
+    switch (action) {
+      case 'prevBill':
+      case 'nextBill': {
+        const id = adjacentBill(shop.drafts.map((d) => d.id), shop.activeDraftId, action === 'prevBill' ? -1 : 1);
+        if (id) shop.switchBill(id);
+        return;
+      }
+      case 'history': navigate('/history'); return;
+      case 'customer':
+      case 'customerName': customerFields.current.name?.focus(); return;
+      case 'customerNameKn': customerFields.current.nameKn?.focus(); return;
+      case 'customerPhone': customerFields.current.phone?.focus(); return;
+      case 'lineName': case 'lineQty': case 'lineUnit': case 'linePrice': case 'lineTick': {
+        const index = lineIndex();
+        const line = cart[index];
+        if (!line) return;
+        if (action === 'lineTick') { shop.setLineGiven(index, !line.given); return; }
+        if (action === 'linePrice') { focusLineBox(index, 'price'); return; }
+        if (action === 'lineName') { focusLineBox(index, 'name'); return; }
+        // Quantity and unit live on a typed line; one already written on is left as it is.
+        if (!isTyping(line) && lineHasInk(line)) return;
+        if (action === 'lineQty') { focusLineBox(index, 'qty'); return; }
+        if (!isTyping(line)) setWriting((w) => ({ ...w, [line.itemId]: false }));
+        else units.current[line.itemId]?.focus();
+        stock.loadUnits(line);
+        setUnitMenu(line.itemId);
+        return;
+      }
+      case 'tickAll': if (written.length > 0) shop.setAllGiven(!allGiven); return;
+      case 'preview': if (hasSomething) setPreview(draft()); return;
+      case 'save': if (hasSomething && !saving) void onSave(); return;
+      case 'print': if (hasSomething && !saving && !printer.busy) void onPrint(); return;
+      default: return; // toggleApp: nothing to switch to on the web.
+    }
+  };
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  keyHandler.current = (e) => {
+    if (e.defaultPrevented || e.isComposing || preview || keysOpen) return;
+    // A letter by its key position, so Alt+H is H on every layout (on a Mac Alt+H types a symbol).
+    const key = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : e.key;
+    const press = { key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey };
+    const move = lineMoveFor(press);
+    if (move) {
+      const at = cursorAt();
+      if (!at) return;
+      e.preventDefault();
+      const cart = shop.cart;
+      const typedCol = at.column === 'name' || at.column === 'qty' || at.column === 'unit';
+      const next = moveInColumn(at.index, move, cart.length, (i) =>
+        !typedCol || isTyping(cart[i]!) || !lineHasInk(cart[i]!));
+      if (next != null) focusLineBox(next, at.column);
+      return;
+    }
+    const action = shortcutFor(press);
+    if (!action) return;
+    e.preventDefault();
+    runShortcut(action);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="bill-layout">
       {/* One tab per bill in progress. A second customer in a hurry no longer means making them
           wait or throwing the slip away -- park this one, serve them, come back. */}
       <div className="bill-tabs" role="tablist">
         {shop.drafts.map((d, i) => {
-          const total = draftTotal(d);
+          const total = draftTotal(d, shop.settings.roundTo ?? 0);
           const label = d.customer
             ? customerName(d.customer, shop.lang) || d.customer.phone
             : d.typed.name.trim() || d.typed.nameKn.trim() || t('bill.billN', { n: i + 1 });
@@ -515,11 +641,21 @@ export function BillPage() {
             {t('bill.newBill')}
           </button>
         ) : null}
+        {/* The keyboard shortcuts, listed. */}
+        <button
+          type="button"
+          className="bill-tab-new"
+          aria-label={t('keys.open')}
+          title={t('keys.open')}
+          onClick={() => setKeysOpen(true)}
+        >
+          ⌨
+        </button>
       </div>
 
       {/* Pinned at the top, above the writing. Forty lines into a bill these fields used to be
           off-screen, so attaching somebody meant scrolling back and losing your place. */}
-      <CustomerBar />
+      <CustomerBar fieldRefs={customerFields} />
 
       <div className="slip-pane">
         {error ? <p className="error" role="alert">{error}</p> : null}
@@ -587,6 +723,7 @@ export function BillPage() {
                   {/* Handed over, as against merely listed. Before the description, where the
                       shop's own drawing put it. */}
                   <input
+                    ref={(el) => { ticks.current[line.itemId] = el; }}
                     type="checkbox"
                     className="slip-given"
                     checked={line.given === true}
@@ -705,6 +842,7 @@ export function BillPage() {
                           />
                           <span className="stock-unit-wrap">
                             <button
+                              ref={(el) => { units.current[line.itemId] = el; }}
                               type="button"
                               className="stock-unit"
                               aria-label={t('stock.unitOf', { n: index + 1 })}
@@ -1035,6 +1173,29 @@ export function BillPage() {
           <p className="muted small center" style={{ marginBottom: 0 }}>
             {t('bill.provisional')}
           </p>
+        </Dialog>
+      ) : null}
+
+      {keysOpen ? (
+        <Dialog
+          title={t('keys.title')}
+          onClose={() => setKeysOpen(false)}
+          footer={
+            <button className="btn plain" style={{ gridColumn: '1 / -1' }} onClick={() => setKeysOpen(false)}>
+              {t('common.close')}
+            </button>
+          }
+        >
+          {/* F1 swaps to Stock on the tablet; the web app has no stock screen to swap to. */}
+          {SHORTCUTS.filter((k) => k.action !== 'toggleApp').map((k) => (
+            <p key={k.chord} className="small" style={{ margin: '4px 0' }}>
+              <strong>{k.chord}</strong> {'  '}{t(k.labelKey)}
+            </p>
+          ))}
+          <p className="small" style={{ margin: '4px 0' }}>
+            <strong>↑ ↓</strong> {'  '}{t('keys.arrows')}
+          </p>
+          <p className="muted small" style={{ marginBottom: 0 }}>{t('keys.lineNote')}</p>
         </Dialog>
       ) : null}
     </div>

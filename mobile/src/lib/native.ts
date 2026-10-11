@@ -11,6 +11,8 @@ type ShridharNative = {
   setSuggestOpen?: (open: boolean) => void;
   /** Absent in builds before 62. */
   setTakeEnter?: (on: boolean) => void;
+  /** Absent in builds before 63. */
+  setShortcuts?: (level: number) => void;
 };
 
 const mod: ShridharNative | undefined =
@@ -80,4 +82,28 @@ export function setTakeEnter(on: boolean): void {
 /** Whether this build takes Enter natively (62 on); before that the box's own submit does. */
 export function takesEnter(): boolean {
   return typeof mod?.setTakeEnter === 'function';
+}
+
+/** A shortcut chord from a hardware keyboard (build 63), as shared/src/shortcuts.ts reads it. */
+export type HwShortcut = { key: string; ctrl: boolean; shift: boolean; alt: boolean };
+
+/**
+ * Keyboard shortcuts read natively: F1-F8, Ctrl+PageUp/PageDown, Alt+H/C, Ctrl+A/P/S,
+ * Ctrl+Shift+P. Only sent while switched on with setShortcuts. Returns the unsubscribe.
+ */
+export function onHardwareShortcut(fn: (e: HwShortcut) => void): () => void {
+  if (!mod) return () => undefined;
+  const sub = DeviceEventEmitter.addListener('hwShortcut', (e: Partial<HwShortcut>) => {
+    if (typeof e?.key !== 'string') return;
+    fn({ key: e.key, ctrl: e.ctrl === true, shift: e.shift === true, alt: e.alt === true });
+  });
+  return () => sub.remove();
+}
+
+/**
+ * Which shortcuts the native side keeps from everything else: 0 none, 1 F1 alone (any screen
+ * of the billing app, and Stock), 2 the bill screen's whole list.
+ */
+export function setShortcuts(level: 0 | 1 | 2): void {
+  try { mod?.setShortcuts?.(level); } catch { /* an older build */ }
 }
