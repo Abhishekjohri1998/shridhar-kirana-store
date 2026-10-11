@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ERASE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount } from '@shridhar/shared';
+import { ERASE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, roundedRate } from '@shridhar/shared';
 import { issueToken, pinMatches, requireAuth, secretMatches } from './auth';
 import { env } from './env';
 import { HttpError, handler } from './http';
@@ -522,7 +522,9 @@ api.post('/bills', handler(async (req, res) => {
           ? { moreInk: l.moreInk.filter((i) => i.strokes.length > 0) } : {}),
         ...(l.lastMode ? { lastMode: l.lastMode } : {}),
         qty: l.qty,
-        rate: l.rate,
+        // Each line's amount rounded on billing's step (110.04 to 110): the rate is the one that
+        // makes qty x rate come to it. The total is then their sum, with nothing to round off.
+        rate: roundedRate(l.qty, l.rate, roundTo),
         given: l.given,
         // Copied field by field, so every new field has to be named here -- `given` was once lost
         // exactly this way.

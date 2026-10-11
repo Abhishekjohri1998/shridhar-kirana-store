@@ -61,9 +61,10 @@ export function billAsText(
   const rupees = (n: number) => '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
   const out = [shopName, labels.bill + bill.no + ' · ' + new Date(bill.at).toLocaleString('en-IN'), ''];
   // Hidden lines stay off the text as they stay off the paper; the total still counts them.
-  // Descriptions hidden: the line's number stands in for its name, everything else stays.
   bill.lines.filter((x) => x.hidden !== true).forEach((l, i) => {
-    const name = bill.hideNames === true ? '#' + (i + 1) : (l.nameKn || l.nameEn || '—').trim();
+    // Descriptions hidden: the line's number and price only -- no name, quantity or rate.
+    if (bill.hideNames === true) { out.push((i + 1) + '. ' + rupees(l.qty * l.rate)); return; }
+    const name = (l.nameKn || l.nameEn || '—').trim();
     out.push(name + ' ' + l.qty + (l.unit ? ' ' + l.unit : '') + ' × ' + rupees(l.rate) + ' = ' + rupees(l.qty * l.rate));
   });
   out.push('', labels.total + ': ' + rupees(bill.total));

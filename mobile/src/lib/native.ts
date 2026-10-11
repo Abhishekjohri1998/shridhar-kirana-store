@@ -9,6 +9,8 @@ type ShridharNative = {
   shareToWhatsApp: (phoneE164: string, fileUri: string, text: string) => Promise<string>;
   /** Absent in builds before 59. */
   setSuggestOpen?: (open: boolean) => void;
+  /** Absent in builds before 62. */
+  setTakeEnter?: (on: boolean) => void;
 };
 
 const mod: ShridharNative | undefined =
@@ -63,4 +65,19 @@ export function onHardwareKey(fn: (key: HwKey) => void): () => void {
  */
 export function setSuggestOpen(open: boolean): void {
   try { mod?.setSuggestOpen?.(open); } catch { /* an older build */ }
+}
+
+/**
+ * Tells the native side a bill box has the cursor, so a hardware Enter is used up there and
+ * reaches JavaScript once, as `hwKey` 'enter', instead of also going on to the text box (where
+ * Android submitted it twice and moved the cursor down on its own). The caller then does what
+ * the box's submit would have done.
+ */
+export function setTakeEnter(on: boolean): void {
+  try { mod?.setTakeEnter?.(on); } catch { /* an older build */ }
+}
+
+/** Whether this build takes Enter natively (62 on); before that the box's own submit does. */
+export function takesEnter(): boolean {
+  return typeof mod?.setTakeEnter === 'function';
 }

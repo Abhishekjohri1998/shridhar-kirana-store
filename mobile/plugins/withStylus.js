@@ -21,7 +21,8 @@
  *     and Enter, while a text box has the cursor, go to JavaScript as `hwKey` events
  *     ({key: 'up' | 'down' | 'enter'}). React Native's TextInput never reports the arrows on
  *     Android. Up and Down are kept from the text box only while JavaScript says a suggestion
- *     list is open (`setSuggestOpen`); Enter always carries on to the box as before.
+ *     list is open (`setSuggestOpen`). Enter is used up while a bill box says it owns it
+ *     (`setTakeEnter`, build 62), so one press reaches JavaScript once and nothing else.
  */
 const fs = require('fs');
 const path = require('path');
@@ -111,6 +112,7 @@ function moduleSource(appPackage) {
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -136,6 +138,9 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 
   /** JavaScript says whether a suggestion list is showing, so Up and Down belong to it. */
   @ReactMethod fun setSuggestOpen(open: Boolean) { suggestOpen = open }
+
+  /** JavaScript says a bill box has the cursor, so a hardware Enter is its alone (build 62). */
+  @ReactMethod fun setTakeEnter(on: Boolean) { takeEnter = on }
 
   @ReactMethod
   fun shareToWhatsApp(phone: String, fileUri: String, text: String, promise: Promise) {
@@ -194,12 +199,20 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @Volatile private var instance: ShridharNativeModule? = null
     @Volatile private var held = false
     @Volatile private var suggestOpen = false
+    @Volatile private var takeEnter = false
 
     /**
      * Called by MainActivity for every key event. Up, Down and Enter from a hardware keyboard,
      * while a text box has focus, are sent to JavaScript on the way down. Returns true -- the
-     * key is used up -- only for Up and Down while a suggestion list is open; everything else
-     * goes on to the app exactly as before. The on-screen keyboard does not come through here.
+     * key is used up -- for Up and Down while a suggestion list is open, and for Enter (down,
+     * repeats and up) while JavaScript has said a bill box owns it (setTakeEnter).
+     *
+     * Enter used to carry on to the EditText as well. Android's TextView then ran its own Enter:
+     * an editor action (React Native's onSubmitEditing) on the way down AND again on the way
+     * up, and for a single-line box a focus search downwards -- which from the name box lands
+     * on the price. With the JavaScript pick finishing a moment later, the cursor ended up in
+     * the price box. Now one press is one "enter" event and nothing else.
+     * The on-screen keyboard does not come through here.
      */
     @JvmStatic
     fun onKey(ev: KeyEvent, focus: View?): Boolean {
@@ -210,8 +223,17 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
         KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> "enter"
         else -> return false
       }
+      if (key == "enter") {
+        val multiLine = (focus.inputType and InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0
+        if (!takeEnter || multiLine) {
+          if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) instance?.emitKey(key)
+          return false
+        }
+        if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) instance?.emitKey(key)
+        return true
+      }
       if (ev.action == KeyEvent.ACTION_DOWN) instance?.emitKey(key)
-      return key != "enter" && suggestOpen
+      return suggestOpen
     }
 
     /** Called by MainActivity for every touch and hover event, before anything else sees it. */

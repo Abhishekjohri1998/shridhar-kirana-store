@@ -334,20 +334,25 @@ async function main() {
     const saved = await on.post('/bills', { lines: LINES, draftId: 'd_live' });
     eq('a bill saves', saved.status, 201);
     eq('the total lands on the step of five', saved.body.total, 255);
-    eq('and records what it moved by', saved.body.roundOff, 2);
+    // Each line is rounded on its own now (33 to 35), so the total is just their sum.
+    eq('each line is rounded, not the total', saved.body.lines[1].rate, 35);
+    eq('so there is no round-off line', saved.body.roundOff, undefined);
     eq('the draft id is kept', saved.body.draftId, 'd_live');
     eq('the unit is kept on the line', saved.body.lines[0].unit, 'pack');
     eq('with stock\'s id', saved.body.lines[0].stockItemId, 'it_parle');
     eq('a line with no unit has none', saved.body.lines[1].unit, undefined);
     const reread = (await on.call('/bills/' + saved.body.no)).body;
-    eq('and all of it reads back', reread.roundOff + '/' + reread.draftId + '/' + reread.lines[0].unit, '2/d_live/pack');
+    eq('and all of it reads back', reread.lines[1].rate + '/' + reread.draftId + '/' + reread.lines[0].unit, '35/d_live/pack');
     eq('an over-long unit is refused',
       (await on.post('/bills', { lines: [{ ...LINES[0], unit: 'x'.repeat(25) }] })).status, 400);
 
     await on.put('/settings', { roundTo: 10 });
     const down = await on.post('/bills', { lines: [{ itemId: 'd1', qty: 1, rate: 1364 }] });
     eq('to ten, 1364 rounds down', down.body.total, 1360);
-    eq('and records a negative round-off', down.body.roundOff, -4);
+    eq('the line itself comes down to 1360', down.body.lines[0].rate, 1360);
+    eq('and no round-off is recorded', down.body.roundOff, undefined);
+    const slab = await on.post('/bills', { lines: [{ itemId: 's1', qty: 12, rate: 9.17 }] });
+    eq('to ten, a slab of 12 at 9.17 (110.04) is 110', slab.body.total, 110);
     await on.put('/settings', { roundTo: 0 });
     const none = await on.post('/bills', { lines: [{ itemId: 'n1', qty: 1, rate: 1364 }] });
     eq('no step, no rounding', none.body.total, 1364);

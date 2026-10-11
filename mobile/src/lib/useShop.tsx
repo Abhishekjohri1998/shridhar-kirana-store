@@ -7,7 +7,7 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
-  LINK_RETRY_MS, createLinkWatch, roundToStep,
+  LINK_RETRY_MS, createLinkWatch, roundLines,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -96,7 +96,7 @@ type Shop = {
   bills: Bill[];
   today: TodaySummary;
   cart: BillLine[];
-  /** The bill's total as it will be saved: the lines, rounded to settings.roundTo. */
+  /** The bill's total as it will be saved: each line rounded to settings.roundTo, added up. */
   cartTotal: number;
   /** What rounding moved the lines' sum by, signed; 0 when nothing was rounded. */
   cartRoundOff: number;
@@ -1010,12 +1010,13 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   );
 
   // What the bill will be saved at, shown live: billing's own rounding step on the lines' sum.
-  const roundedCart = roundToStep(billTotal(cart), settings.roundTo ?? 0);
+  // Each line rounded on billing's step and the total their sum: nothing left over to round.
+  const roundedCart = billTotal(roundLines(cart, settings.roundTo ?? 0));
 
   const value = useMemo<Shop>(
     () => ({
       ready, serverUrl, signedIn, locked, offline,
-      settings, bills, today, cart, cartTotal: roundedCart, cartRoundOff: round2(roundedCart - billTotal(cart)), setLineHidden,
+      settings, bills, today, cart, cartTotal: roundedCart, cartRoundOff: 0, setLineHidden,
       customer, inactive, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,

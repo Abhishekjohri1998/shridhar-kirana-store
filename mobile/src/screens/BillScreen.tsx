@@ -3,7 +3,7 @@ import {
   Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import {
-  FALLBACK_UNIT, lineHasSomething, nextTypingLine, lineAmount, lineName,
+  FALLBACK_UNIT, lineHasSomething, nextTypingLine, roundedLineAmount, roundLines, lineName,
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
@@ -17,7 +17,7 @@ import { Button, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
-import { onHardwareKey, setSuggestOpen } from '../lib/native';
+import { onHardwareKey, setSuggestOpen, setTakeEnter } from '../lib/native';
 import { C, R, TYPE, shadow } from '../theme';
 
 /**
@@ -145,19 +145,26 @@ export function BillScreen() {
 
   /*
    * A keyboard plugged into the tablet: Up and Down move through the suggestions under the name
-   * being typed. Enter needs nothing here -- the name box's own submit picks. Native code only
-   * holds the arrows back from the text box while a list is showing.
+   * being typed. Native code holds the arrows back from the text box while a list is showing.
+   *
+   * Enter, while a bill box has the cursor, is used up natively (build 62) and arrives here
+   * once; `hwEnter` does what that box's submit does. Up to build 61 it also went on to the
+   * box, where Android submitted it on the way down and again on the way up and, for a
+   * single-line box, moved the cursor down by itself -- landing on the price.
    */
+  const hwEnter = useRef<() => void>(() => undefined);
+  useEffect(() => () => setTakeEnter(false), []);
   const stockOpen = stock.openFor;
   const stockRef = useRef(stock);
   stockRef.current = stock;
   useEffect(() => { setSuggestOpen(stockOpen != null); }, [stockOpen]);
   useEffect(() => onHardwareKey((key) => {
     const s = stockRef.current;
-    if (!s.openFor) return;
+    if (key === 'enter' || !s.openFor) return;
     if (key === 'up') s.moveHighlight(-1);
     else if (key === 'down') s.moveHighlight(1);
   }), []);
+  useEffect(() => onHardwareKey((key) => { if (key === 'enter') hwEnter.current(); }), []);
   const sheet = useRef<ScrollView>(null);
   /*
    * What the slip actually measures, so the page can be turned rather than guessed at.
@@ -286,7 +293,9 @@ export function BillScreen() {
    * renders and the effect below never runs. That was the whole of "the action key does
    * nothing": `blurOnSubmit` is false, so pressing it does not even blur.
    */
-  const wantFocus = useRef<{ id: string; from: string; kind: 'name' | 'price' } | null>(null);
+  const wantFocus = useRef<{ id: string; from: string; kind: 'name' | 'price' | 'qty' } | null>(null);
+  /** A render to run the focus effect in, for a wish made outside one (after a pick). */
+  const [, setFocusTick] = useState(0);
 
   /**
    * Price entered, on to the next one.
@@ -336,11 +345,30 @@ export function BillScreen() {
     goToNewestLine();
   }, [shop.cart, goToNewestLine, focusRow]);
 
-  /** An item picked by Enter: on to that same line's quantity. */
+  /**
+   * An item picked by Enter: on to that same line's quantity, never the price.
+   *
+   * Always through the focus effect: the pick re-renders the row after a network round trip,
+   * and focusing at once could find the quantity box not mounted yet, or one about to be
+   * replaced. The wish waits for the box.
+   */
   const goToQty = useCallback((id: string) => {
     focusRow(id);
-    qtys.current[id]?.focus();
+    wantFocus.current = { id, from: '', kind: 'qty' };
+    setFocusTick((n) => n + 1);
   }, [focusRow]);
+
+  /**
+   * One press, one submit. A box's submit can be reached twice for one Enter (an older build's
+   * key path, or a key repeat); a second within a moment for the same box is the same press.
+   */
+  const lastSubmit = useRef({ key: '', at: 0 });
+  const firstSubmit = (key: string): boolean => {
+    const now = Date.now();
+    const same = lastSubmit.current.key === key && now - lastSubmit.current.at < 300;
+    lastSubmit.current = { key, at: now };
+    return !same;
+  };
 
   /**
    * Enter in a name box. A typed name is matched -- the highlighted or best suggestion, else the
@@ -349,6 +377,7 @@ export function BillScreen() {
    */
   const submitName = (index: number, typed: string) => {
     const line = shop.cart[index];
+    if (line && !firstSubmit('name:' + line.itemId)) return;
     if (!line || !typed.trim()) { stock.close(); goToNextName(index); return; }
     if (line.unit && stock.openFor !== line.itemId) { stock.close(); goToQty(line.itemId); return; }
     clearTyped(line.itemId);
@@ -358,20 +387,54 @@ export function BillScreen() {
     });
   };
 
+  /** Enter in a quantity box: across to that line's price. */
+  const submitQty = (id: string) => {
+    if (!firstSubmit('qty:' + id)) return;
+    focusRow(id);
+    prices.current[id]?.focus();
+  };
+  /** Enter in a price box: down to the next price. */
+  const submitPrice = (index: number) => {
+    const line = shop.cart[index];
+    if (line && !firstSubmit('price:' + line.itemId)) return;
+    goToNextPrice(index);
+  };
+
+  /** A hardware Enter: whichever bill box has the cursor, its own submit, once. */
+  hwEnter.current = () => {
+    const owner = (boxes: Record<string, TextInput | null>) =>
+      Object.keys(boxes).find((id) => boxes[id]?.isFocused() === true);
+    let id = owner(names.current);
+    if (id != null) {
+      const index = shop.cart.findIndex((l) => l.itemId === id);
+      const line = shop.cart[index];
+      if (line) submitName(index, line.stockItemId ? lineName(line, shop.lang) : line.nameKn);
+      return;
+    }
+    id = owner(qtys.current);
+    if (id != null) { submitQty(id); return; }
+    id = owner(prices.current);
+    if (id != null) {
+      const index = shop.cart.findIndex((l) => l.itemId === id);
+      if (index >= 0) submitPrice(index);
+    }
+  };
+
   useEffect(() => {
     const wanted = wantFocus.current;
     if (!wanted) return;
     // '' means "whichever line is newest", which is the one the typing brought into being. If
     // that is still the line that asked, nothing was added yet and there is nowhere to go.
     const target = wanted.id === '' ? shop.cart[shop.cart.length - 1]?.itemId : wanted.id;
-    if (!target || target === wanted.from) {
+    if (!target || (wanted.from !== '' && target === wanted.from)) {
       wantFocus.current = null;
       return;
     }
     if (wanted.kind === 'name') {
       setWriting((w) => (w[target] === false ? w : { ...w, [target]: false }));
     }
-    const field = wanted.kind === 'price' ? prices.current[target] : names.current[target];
+    const field = wanted.kind === 'price' ? prices.current[target]
+      : wanted.kind === 'qty' ? qtys.current[target] : names.current[target];
     if (!field) return;
     wantFocus.current = null;
     focusRow(target);
@@ -466,7 +529,8 @@ export function BillScreen() {
     no: (shop.bills[0]?.no ?? 0) + 1,
     at: new Date().toISOString(),
     ...(previewCustomer() ? { customer: previewCustomer() } : {}),
-    lines: written,
+    // Each line on the rounding step, as the server will save it.
+    lines: roundLines(written, shop.settings.roundTo ?? 0),
     total: shop.cartTotal,
     paid: paidValid ? paidAmount : shop.cartTotal,
     balance: balanceAfter,
@@ -477,8 +541,6 @@ export function BillScreen() {
     showBalance: showBalance && shop.customer != null,
     ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
-    // The rounding, as the server will apply it, so the preview's TOTAL matches the paper.
-    ...(shop.cartRoundOff !== 0 ? { roundOff: shop.cartRoundOff } : {}),
     roundTo: shop.settings.roundTo ?? 0,
   });
 
@@ -876,9 +938,9 @@ export function BillScreen() {
                       returnKeyType="next"
                       blurOnSubmit={false}
                       onSubmitEditing={() => submitName(index, line.stockItemId ? lineName(line, shop.lang) : line.nameKn)}
-                      onFocus={() => { focusRow(line.itemId); setView('items'); }}
+                      onFocus={() => { focusRow(line.itemId); setView('items'); setTakeEnter(true); }}
                       // A beat late, so a tap on a unit below lands before the list goes.
-                      onBlur={() => { blurRow(); setTimeout(stock.close, 300); }}
+                      onBlur={() => { blurRow(); setTakeEnter(false); setTimeout(stock.close, 300); }}
                     />
                     {/* Every typed line counts in a unit -- stock's, or NOS -- so its quantity
                         always shows. On a picked line, changing it asks stock for the rate again. */}
@@ -900,14 +962,16 @@ export function BillScreen() {
                           }}
                           returnKeyType="next"
                           blurOnSubmit={false}
-                          onSubmitEditing={() => { focusRow(line.itemId); prices.current[line.itemId]?.focus(); }}
+                          onSubmitEditing={() => submitQty(line.itemId)}
                           onFocus={() => {
+                            setTakeEnter(true);
                             focusRow(line.itemId);
                             setView('items');
                             setQtyText((prev) => ({ ...prev, [line.itemId]: '' }));
                           }}
                           onBlur={() => {
                             blurRow();
+                            setTakeEnter(false);
                             setQtyText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
                           }}
                         />
@@ -1048,14 +1112,14 @@ export function BillScreen() {
                   placeholder="—"
                   placeholderTextColor={C.faint}
                   accessibilityLabel={t('bill.priceOfLine', { n: index + 1 })}
-                  value={priceText[line.itemId] ?? (line.rate > 0 ? money(lineAmount(line.qty, line.rate)) : '')}
+                  value={priceText[line.itemId] ?? (line.rate > 0 ? money(roundedLineAmount(line.qty, line.rate, shop.settings.roundTo ?? 0)) : '')}
                   onChangeText={(text) => onPrice(index, line.itemId, text)}
                   returnKeyType="next"
                   // Without this the keyboard closes on the way past, and the next field has to
                   // raise it again -- a flicker on every single line.
                   blurOnSubmit={false}
-                  onSubmitEditing={() => goToNextPrice(index)}
-                  onFocus={() => { focusRow(line.itemId); setView('items'); }}
+                  onSubmitEditing={() => submitPrice(index)}
+                  onFocus={() => { focusRow(line.itemId); setView('items'); setTakeEnter(true); }}
                   // The line is done; bring the fresh blank one into view.
                   // Leaving a field never moves the page. It used to turn to the newest line,
                   // which meant tapping out at line 27 and dragging up towards line 2 was
@@ -1064,6 +1128,7 @@ export function BillScreen() {
                   // later change of quantity is seen at once.
                   onBlur={() => {
                     blurRow();
+                    setTakeEnter(false);
                     setPriceText((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
                   }}
                 />
@@ -1074,20 +1139,6 @@ export function BillScreen() {
                   </Text>
                 ) : null}
                 </View>
-
-                {/* Left off the printout, still counted: dims the line and says so. */}
-                {!blank ? (
-                  <Pressable
-                    style={styles.colIcon}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: line.hidden === true }}
-                    accessibilityLabel={t('bill.hideLine', { n: index + 1 })}
-                    onPress={() => shop.setLineHidden(index, !line.hidden)}
-                  >
-                    <Text style={[styles.slipUndo, line.hidden && styles.slipHidden]}>{'👁'}</Text>
-                    {line.hidden ? <Text style={styles.hiddenTag}>{t('bill.hiddenTag')}</Text> : null}
-                  </Pressable>
-                ) : null}
 
                 {/* Swaps this one line between writing and typing, and says which way it will go. */}
                 <Pressable

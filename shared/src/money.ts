@@ -48,3 +48,30 @@ export function money(n: number): string {
 export function qtyText(q: number): string {
   return String(Math.round(q * 1000) / 1000);
 }
+
+/**
+ * One line's amount on the shop's rounding step: 110.04 to 110 on a step of 1, 112.50 to 115 on
+ * a step of 5. Every line is rounded on its own and the bill's total is just their sum, so no
+ * "Round off" line is needed under it. A step of 0 leaves the amount alone (to the paisa).
+ */
+export function roundLine(amount: number, step: number): number {
+  return roundToStep(amount, step);
+}
+
+/** A line's amount as the bill shows and saves it: quantity times rate, rounded on the step. */
+export function roundedLineAmount(qty: number, rate: number, step: number): number {
+  return roundLine(lineAmount(qty, rate), step);
+}
+
+/**
+ * The rate to store so a line comes to its rounded amount: what the server saves, so the receipt
+ * code -- which works the amount out as qty x rate -- prints 110 and not 110.04. The cart keeps
+ * stock's own rate until then, so changing the quantity still starts from the real price.
+ * A line without a positive quantity and rate is left as it is.
+ */
+export function roundedRate(qty: number, rate: number, step: number): number {
+  if (!(qty > 0) || !(rate > 0) || !(step > 0)) return rate;
+  const amount = roundedLineAmount(qty, rate, step);
+  if (amount === lineAmount(qty, rate)) return rate;
+  return rateForTotal(amount, qty);
+}

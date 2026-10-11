@@ -1,6 +1,6 @@
 import { namelessLines, printedLines } from './link';
 import type { Bill, BillLine, Ink, Settings } from './types';
-import { lineAmount, money, qtyText, rateIsRound, round2 } from './money';
+import { lineAmount, money, qtyText, rateIsRound, round2, roundedRate } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
@@ -360,10 +360,9 @@ export function buildReceipt(
       }
     }
     else if (bill.hideNames === true) {
-      // No description: the quantity and unit stand in its place, and the rate always prints, so
-      // "1.  2 kg  @ 50 ... 100" still explains itself.
-      const name = qtyText(line.qty) + (unit ? ' ' + unit : '');
-      rows.push({ t: 'item', name: line.given ? GIVEN_MARK + name : name, ...shared, note: '@ ' + money(line.rate) });
+      // Descriptions hidden: the line's number and its price, nothing else -- no name, no
+      // quantity or unit, no "@ rate" under it. The shop asked for exactly "1 ... 170".
+      rows.push({ t: 'item', no: shared.no, amount: shared.amount, name: '' });
     }
     else {
       const name = typedAll;
@@ -449,6 +448,19 @@ export function buildReceipt(
   );
 
   return { width: paperProfile(settings.paper).dots, rows };
+}
+
+/**
+ * The lines with each one's rate set so it comes to its amount rounded on `step` (see
+ * roundedRate). A step of 0 changes nothing. Used by the server when a bill is saved and by the
+ * preview, so the two agree on every figure.
+ */
+export function roundLines<L extends BillLine>(lines: L[], step: number): L[] {
+  if (!(step > 0)) return lines;
+  return lines.map((l) => {
+    const rate = roundedRate(l.qty, l.rate, step);
+    return rate === l.rate ? l : { ...l, rate };
+  });
 }
 
 export function billTotal(lines: BillLine[]): number {

@@ -14,7 +14,7 @@ import {
   parsePaid,
   parsePrice,
   round2,
-  lineAmount,
+  roundedLineAmount, roundLines,
   lineName,
   slipTailPadding,
   carriedBalance,
@@ -213,6 +213,29 @@ export function BillPage() {
   });
 
   /**
+   * The quantity box to put the cursor in once it is there to take it.
+   *
+   * Picking a name re-renders the row, and the pick lands after a network round trip; focusing
+   * straight away could find the box not mounted yet (or about to be replaced), and the cursor
+   * stayed put or went elsewhere. So the wish is kept and this effect honours it after the
+   * render. The tick makes sure there is a render to run it.
+   */
+  const wantQty = useRef<string | null>(null);
+  const [, setFocusTick] = useState(0);
+  const goToQty = (id: string) => {
+    wantQty.current = id;
+    setFocusTick((n) => n + 1);
+  };
+  useEffect(() => {
+    const id = wantQty.current;
+    if (id == null) return;
+    const field = qtys.current[id];
+    if (!field) return;
+    wantQty.current = null;
+    field.focus();
+  });
+
+  /**
    * Enter in a name box. A typed name is matched -- the highlighted or best suggestion, else the
    * name as typed in NOS -- and the cursor goes to its quantity. A line already matched goes
    * straight there; an empty one goes on down, as before.
@@ -220,10 +243,10 @@ export function BillPage() {
   const submitName = (index: number, typed: string) => {
     const line = shop.cart[index];
     if (!line || !typed.trim()) { stock.close(); goToNextName(index); return; }
-    if (line.unit && stock.openFor !== line.itemId) { stock.close(); qtys.current[line.itemId]?.focus(); return; }
+    if (line.unit && stock.openFor !== line.itemId) { stock.close(); goToQty(line.itemId); return; }
     clearTyped(line.itemId);
     void stock.pickBest(index, line, typed).then((ok) => {
-      if (ok) qtys.current[line.itemId]?.focus();
+      if (ok) goToQty(line.itemId);
       else goToNextName(index);
     });
   };
@@ -342,7 +365,8 @@ export function BillPage() {
     no: (shop.bills[0]?.no ?? 0) + 1,
     at: new Date().toISOString(),
     ...(previewCustomer() ? { customer: previewCustomer() } : {}),
-    lines: written,
+    // Each line on the rounding step, as the server will save it.
+    lines: roundLines(written, shop.settings.roundTo ?? 0),
     total: shop.cartTotal,
     paid: paidValid ? paidAmount : shop.cartTotal,
     balance: balanceAfter,
@@ -353,8 +377,6 @@ export function BillPage() {
     showBalance: showBalance && shop.customer != null,
     ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
-    // The rounding, as the server will apply it, so the preview's TOTAL matches the paper.
-    ...(shop.cartRoundOff !== 0 ? { roundOff: shop.cartRoundOff } : {}),
     roundTo: shop.settings.roundTo ?? 0,
   });
 
@@ -646,6 +668,9 @@ export function BillPage() {
                           if (e.key !== 'Enter') return;
                           // Or the form around the slip takes it as "print this bill".
                           e.preventDefault();
+                          // A held key repeats; one press is one pick, or the repeat lands in
+                          // the quantity box and walks on to the price.
+                          if (e.repeat || e.nativeEvent.isComposing) return;
                           submitName(index, e.currentTarget.value);
                         }}
                       />
@@ -819,7 +844,7 @@ export function BillPage() {
                     inputMode="decimal"
                     aria-label={t('bill.priceOfLine', { n: index + 1 })}
                     placeholder={t('bill.price')}
-                    value={priceText[line.itemId] ?? (line.rate > 0 ? money(lineAmount(line.qty, line.rate)) : '')}
+                    value={priceText[line.itemId] ?? (line.rate > 0 ? money(roundedLineAmount(line.qty, line.rate, shop.settings.roundTo ?? 0)) : '')}
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
                     onBlur={() => {
                       wantFlip.current = true;
@@ -841,19 +866,6 @@ export function BillPage() {
                     <span className="calc-result">
                       = {money(evaluateAmount(priceText[line.itemId] ?? '') as number)}
                     </span>
-                  ) : null}
-
-                  {/* Left off the printout, still counted: dims the line and says so. */}
-                  {!blank ? (
-                    <button
-                      className="slip-undo slip-eye"
-                      aria-pressed={line.hidden === true}
-                      aria-label={t('bill.hideLine', { n: index + 1 })}
-                      title={t('bill.hideLine', { n: index + 1 })}
-                      onClick={() => shop.setLineHidden(index, !line.hidden)}
-                    >
-                      👁{line.hidden ? <span className="muted small"> {t('bill.hiddenTag')}</span> : null}
-                    </button>
                   ) : null}
 
                   {/* Swaps this one line between writing and typing. */}

@@ -1,7 +1,8 @@
 /**
- * The client feedback round on APK 59: a bill list that is fast, an honest offline flag, saves
- * that cannot be recorded twice, lines hidden from the printout, and rounding as billing's own
- * setting.
+ * The client feedback rounds on APK 59 and 61: a bill list that is fast, an honest offline flag,
+ * saves that cannot be recorded twice, lines hidden from the printout, rounding as billing's own
+ * setting -- each item rounded, not the total -- the whole-bill hide printing number and price
+ * only, no per-line eye, and Enter in an item name going to its quantity.
  *
  * Against a scratch server on the JSON file store in a temporary folder; no MongoDB is touched.
  * The offline flag and the receipt are pure functions and are checked directly.
@@ -90,20 +91,80 @@ function receipt() {
     check('hideNames: no names on the slip', !s.includes('Rice') && !s.includes('Salt') && !s.includes('Secret'), s);
     check('hideNames: no handwriting on the slip', !nd.rows.some((r) => r.t === 'ink'));
     const its = nd.rows.filter((r) => r.t === 'item' && r.no !== shared.EN_RECEIPT_LABELS.no);
-    eq('hideNames: lines keep number, qty+unit, rate and amount', its.map((r) => [r.no, r.name, r.note, r.amount]),
-      [['1', '2 kg', '@ ' + shared.money(50), shared.money(100)], ['2', '1', '@ ' + shared.money(10), shared.money(10)]]);
+    eq('hideNames: each line is its number and price only', its.map((r) => [r.no, r.name, r.note, r.amount]),
+      [['1', '', undefined, shared.money(100)], ['2', '', undefined, shared.money(10)]]);
+    check('hideNames: no quantity, unit or rate anywhere on the slip', !s.includes('kg') && !s.includes('@ '), s);
+    check('hideNames: not even with the shop\'s show-rate on',
+      !JSON.stringify(shared.buildReceipt(nb, { ...settings, showRate: true })).includes('@ '));
     const totalRow2 = nd.rows.find((r) => r.t === 'kv' && r.left === shared.EN_RECEIPT_LABELS.total);
     eq('hideNames: TOTAL unchanged', totalRow2 && totalRow2.right, shared.money(150));
     const t2 = shared.billAsText(nb, 'Shop', { bill: 'Bill ', total: 'Total', paid: 'Paid', balance: 'Balance' });
-    check('hideNames: WhatsApp text has numbers, not names', t2.includes('#1 2 kg') && t2.includes('#2 1') && !t2.includes('Rice'), t2);
+    check('hideNames: WhatsApp text is number and price only',
+      t2.includes('1. ₹100') && t2.includes('2. ₹10') && !t2.includes('Rice') && !t2.includes('kg') && !t2.includes('×'), t2);
     check('hideNames off: names still print', JSON.stringify(shared.buildReceipt({ ...nb, hideNames: false }, settings)).includes('Salt'));
   }
   eq('printedLines drops only hidden ones', shared.printedLines(bill.lines).map((l) => l.itemId), ['a', 'c']);
 }
 
+function perItemRounding() {
+  console.log('\nRounding each item, not the total (roundLine)');
+  eq('110.04 to 110 on a step of 1', shared.roundLine(110.04, 1), 110);
+  eq('110.5 up to 111', shared.roundLine(110.5, 1), 111);
+  eq('112.5 to 115 on a step of 5', shared.roundLine(112.5, 5), 115);
+  eq('112.49 to 110 on a step of 5', shared.roundLine(112.49, 5), 110);
+  eq('115 to 120 on a step of 10', shared.roundLine(115, 10), 120);
+  eq('114.99 to 110 on a step of 10', shared.roundLine(114.99, 10), 110);
+  eq('step 0 leaves it to the paisa', shared.roundLine(110.04, 0), 110.04);
+  eq('a slab line, 12 at 9.17, shows 110', shared.roundedLineAmount(12, 9.17, 1), 110);
+  const rate = shared.roundedRate(12, 9.17, 1);
+  eq('and the rate saved makes qty x rate come to 110', shared.lineAmount(12, rate), 110);
+  eq('a round line keeps its rate', shared.roundedRate(2, 50, 5), 50);
+  eq('step 0 keeps the rate', shared.roundedRate(12, 9.17, 0), 9.17);
+  const lines = [{ itemId: 'a', nameKn: '', nameEn: '', qty: 12, rate: 9.17 }, { itemId: 'b', nameKn: '', nameEn: '', qty: 1, rate: 33.4 }];
+  eq('the bill total is the sum of the rounded lines', shared.billTotal(shared.roundLines(lines, 1)), 143);
+  eq('roundLines with step 0 changes nothing', shared.roundLines(lines, 0), lines);
+
+  console.log('\nThe Round off line');
+  const settings = { ...shared.DEFAULT_SETTINGS };
+  const base = { no: 1, at: '2026-10-11T10:00:00.000Z', paid: 110, balance: 0, showBalance: false,
+    lines: [{ itemId: 'a', nameKn: 'Soap', nameEn: 'Soap', qty: 1, rate: 110 }] };
+  const isRound = (r) => r.t === 'kv' && r.left === shared.EN_RECEIPT_LABELS.roundOff;
+  check('a new bill (no roundOff) prints no Round off line',
+    !shared.buildReceipt({ ...base, total: 110, roundTo: 1 }, settings).rows.some(isRound));
+  check('an old bill with a roundOff still prints it',
+    shared.buildReceipt({ ...base, total: 110, roundOff: -0.04 }, settings).rows.some(isRound));
+}
+
+/*
+ * The bill screens, read as source: the per-line eye is gone, and Enter in an item name goes
+ * to that line's quantity through a focus wish that waits for the box, never to the price.
+ */
+function screens() {
+  console.log('\nThe bill screens');
+  const mobile = fs.readFileSync(path.join(ROOT, 'mobile', 'src', 'screens', 'BillScreen.tsx'), 'utf8');
+  const web = fs.readFileSync(path.join(ROOT, 'client', 'src', 'pages', 'BillPage.tsx'), 'utf8');
+  for (const [name, src] of [['tablet', mobile], ['web', web]]) {
+    check(name + ': no per-line eye', !src.includes('👁') && !src.includes('setLineHidden') && !src.includes('bill.hideLine'));
+    check(name + ': a picked name goes to the quantity', /if \(ok\) goToQty\(line\.itemId\)/.test(src));
+    check(name + ': an already matched name too', /stock\.close\(\); goToQty\(line\.itemId\); return;/.test(src));
+    check(name + ': no straight jump to the price from a name', !/submitName[\s\S]{0,600}prices\.current/.test(src.slice(src.indexOf('const submitName'), src.indexOf('const submitName') + 700)));
+  }
+  check('tablet: the quantity focus waits for the box', /kind === 'qty' \? qtys\.current\[target\]/.test(mobile));
+  check('web: the quantity focus waits for the box', /wantQty\.current = id/.test(web) && /const field = qtys\.current\[id\]/.test(web));
+  check('tablet: a hardware Enter is handled once, by the focused box', /hwEnter\.current\(\)/.test(mobile) && /firstSubmit\('name:'/.test(mobile));
+  check('tablet: the bill boxes claim Enter natively', (mobile.match(/setTakeEnter\(true\)/g) || []).length === 3
+    && (mobile.match(/setTakeEnter\(false\)/g) || []).length >= 3);
+  check('web: a held Enter does not repeat the pick', /e\.repeat/.test(web));
+  const plugin = fs.readFileSync(path.join(ROOT, 'mobile', 'plugins', 'withStylus.js'), 'utf8');
+  check('native: Enter is used up while a bill box owns it', /fun setTakeEnter/.test(plugin) && /if \(!takeEnter \|\| multiLine\)/.test(plugin));
+  check('native: Enter reaches JavaScript once per press', /ev\.repeatCount == 0\) instance\?\.emitKey\(key\)\r?\n        return true/.test(plugin));
+}
+
 async function main() {
   offlineFlag();
   receipt();
+  perItemRounding();
+  screens();
 
   fs.mkdirSync(DATA, { recursive: true });
   const child = spawn(
@@ -156,13 +217,18 @@ async function main() {
     eq('with the link off, the first start stores 0', s.roundTo, 0);
     eq('an odd step is refused', (await call('/settings', 'PUT', { roundTo: 3 })).status, 400);
     eq('5 is accepted', (await call('/settings', 'PUT', { roundTo: 5 })).body.roundTo, 5);
-    const r5 = (await call('/bills', 'POST', { lines: [{ itemId: 'x', qty: 1, rate: 152 }] })).body;
-    eq('the bill is rounded by billing\'s setting', r5.total, 150);
-    eq('roundOff says by how much', r5.roundOff, -2);
+    const r5 = (await call('/bills', 'POST', { lines: [{ itemId: 'x', qty: 1, rate: 152 }, { itemId: 'y', qty: 1, rate: 152 }] })).body;
+    eq('each line is rounded by billing\'s setting', r5.lines.map((l) => shared.lineAmount(l.qty, l.rate)), [150, 150]);
+    eq('the total is their sum (not 304 rounded to 305)', r5.total, 300);
+    eq('no roundOff on a new bill', r5.roundOff, undefined);
     eq('and roundTo which step', r5.roundTo, 5);
+    await call('/settings', 'PUT', { roundTo: 1 });
+    const slab = (await call('/bills', 'POST', { lines: [{ itemId: 'w', qty: 12, rate: 9.17 }] })).body;
+    eq('a slab line, 12 at 9.17, saves as 110', shared.lineAmount(slab.lines[0].qty, slab.lines[0].rate) + '/' + slab.total, '110/110');
+    eq('keeping its quantity', slab.lines[0].qty, 12);
     await call('/settings', 'PUT', { roundTo: 10 });
     const r10 = (await call('/bills', 'POST', { lines: [{ itemId: 'x', qty: 1, rate: 155 }] })).body;
-    eq('to ten, 155 goes up', r10.total + '/' + r10.roundOff + '/' + r10.roundTo, '160/5/10');
+    eq('to ten, 155 goes up', r10.total + '/' + r10.roundOff + '/' + r10.roundTo, '160/undefined/10');
     await call('/settings', 'PUT', { roundTo: 0 });
     const r0 = (await call('/bills', 'POST', { lines: [{ itemId: 'x', qty: 1, rate: 152 }] })).body;
     eq('no step: exact, roundTo 0 and no roundOff', r0.total + '/' + r0.roundTo + '/' + r0.roundOff, '152/0/undefined');

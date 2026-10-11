@@ -77,13 +77,14 @@ export function printedLines<L extends { hidden?: boolean }>(lines: L[]): L[] {
 
 /**
  * The lines as the customer's copy shows them when the bill hides item descriptions
- * (Bill.hideNames): no typed name, no handwriting, no stock name -- quantity, unit, rate and
- * everything else kept. Unchanged when the bill shows names.
+ * (Bill.hideNames): no typed name, no handwriting, no stock name, no unit. The receipt then
+ * prints each line as its number and price only (buildReceipt); quantity and rate stay on the
+ * line for the arithmetic. Unchanged when the bill shows names.
  */
 export function namelessLines<L extends BillLine>(bill: { hideNames?: boolean }, lines: L[]): L[] {
   if (bill.hideNames !== true) return lines;
   return lines.map((l) => {
-    const { ink: _ink, moreInk: _more, stockItemId: _stock, hasInk: _has, ...rest } = l as L & { hasInk?: boolean };
+    const { ink: _ink, moreInk: _more, stockItemId: _stock, hasInk: _has, unit: _unit, ...rest } = l as L & { hasInk?: boolean };
     return { ...rest, nameKn: '', nameEn: '' } as L;
   });
 }

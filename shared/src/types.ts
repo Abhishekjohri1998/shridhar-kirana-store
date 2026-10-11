@@ -133,8 +133,8 @@ export type Bill = {
   showBalance: boolean;
   /**
    * Leave each line's description (typed name or handwriting) off what the customer gets: the
-   * slip, the preview, the shared picture and the WhatsApp text. Quantity, unit, rate, amount and
-   * totals still print. The shop's own screens keep showing the names. Absent means shown.
+   * slip, the preview, the shared picture and the WhatsApp text. Each line prints as its number
+   * and price only (no quantity, unit or rate); totals still print. The shop's own screens keep showing the names. Absent means shown.
    */
   hideNames?: boolean;
   /**
