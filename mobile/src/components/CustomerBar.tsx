@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { checkCustomer, customerName, customerPhones, money, type Customer } from '@shridhar/shared';
+import { customerFocusPlan, type CustomerField } from '@shridhar/shared';
 import { Button, ErrorText } from './ui';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
@@ -15,8 +16,13 @@ import { C } from '../theme';
  */
 /** The three boxes, so the bill screen's F2 / Shift+F2 / F3 can put the cursor in them. */
 export type CustomerFields = { name: TextInput | null; nameKn: TextInput | null; phone: TextInput | null };
+/** Set by the bar: puts the cursor in one of its boxes, opening the section first if needed. */
+export type CustomerFocus = { current: ((field: CustomerField) => void) | null };
 
-export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFields } } = {}) {
+export function CustomerBar({ focusRef }: { focusRef?: CustomerFocus } = {}) {
+  const fieldRefs = useRef<CustomerFields>({ name: null, nameKn: null, phone: null });
+  /** A box asked for before it was mounted; focused by the effect below once it is. */
+  const [pendingFocus, setPendingFocus] = useState<CustomerField | null>(null);
   // On a tablet the three boxes and the button share one row, as in the shop's sketch; a phone wraps.
   const wide = useWindowDimensions().width >= 600;
   const shop = useShop();
@@ -36,6 +42,29 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
   const seq = useRef(0);
 
   const query = name.trim() || phone.trim();
+
+  /*
+   * F2 / Shift+F2 / F3 / Alt+C. With the boxes folded away (or an attached customer's chip
+   * showing) there is nothing to focus yet, so the section opens and the wish waits for it.
+   * An attached customer stays attached: the boxes open to look a different one up, exactly
+   * as "Change" does, only without throwing the attached one away until one is picked.
+   */
+  if (focusRef) {
+    focusRef.current = (field) => {
+      const box = fieldRefs.current[field];
+      if (customerFocusPlan(box != null) === 'focus') { box!.focus(); return; }
+      
+      if (shop.customer) setOpen(true);
+      setPendingFocus(field);
+    };
+  }
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const box = fieldRefs.current[pendingFocus];
+    if (!box) return;
+    setPendingFocus(null);
+    box.focus();
+  });
 
   useEffect(() => {
     if (shop.customer || query.length < 1) {
@@ -144,7 +173,7 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
         <TextInput
           style={[styles.input, { flex: 2 }]}
           value={name}
-          ref={(el) => { if (fieldRefs) fieldRefs.current.name = el; }}
+          ref={(el) => { fieldRefs.current.name = el; }}
           onChangeText={setName}
           placeholder={t('cust.namePlaceholder')}
           placeholderTextColor={C.soft}
@@ -154,7 +183,7 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
         <TextInput
           style={[styles.input, { flex: 2 }]}
           value={nameKn}
-          ref={(el) => { if (fieldRefs) fieldRefs.current.nameKn = el; }}
+          ref={(el) => { fieldRefs.current.nameKn = el; }}
           onChangeText={setNameKn}
           placeholder={t('cs.nameKn')}
           placeholderTextColor={C.soft}
@@ -162,7 +191,7 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
         <TextInput
           style={[styles.input, { flex: 1 }]}
           value={phone}
-          ref={(el) => { if (fieldRefs) fieldRefs.current.phone = el; }}
+          ref={(el) => { fieldRefs.current.phone = el; }}
           onChangeText={setPhone}
           placeholder={t('cust.phonePlaceholder')}
           placeholderTextColor={C.soft}

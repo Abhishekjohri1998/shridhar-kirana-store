@@ -21,11 +21,11 @@ import {
   dateStamp,
   type Bill,
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
-  SHORTCUTS, adjacentBill, lineMoveFor, moveInColumn, shortcutFor, shortcutLine,
+  SHORTCUTS, adjacentBill, customerFieldFor, lineMoveFor, moveInColumn, shortcutFor, shortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
 } from '@shridhar/shared';
 import { useNavigate } from 'react-router-dom';
-import { CustomerBar, type CustomerFields } from '../components/CustomerBar';
+import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
@@ -132,7 +132,7 @@ export function BillPage() {
   /** The tick boxes and unit buttons, so Up and Down can walk those columns too. */
   const ticks = useRef<Record<string, HTMLInputElement | null>>({});
   const units = useRef<Record<string, HTMLButtonElement | null>>({});
-  const customerFields = useRef<CustomerFields>({ name: null, nameKn: null, phone: null });
+  const customerFocus: CustomerFocus = useRef<CustomerFocus['current']>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const navigate = useNavigate();
   const [tail, setTail] = useState(0);
@@ -549,9 +549,13 @@ export function BillPage() {
       }
       case 'history': navigate('/history'); return;
       case 'customer':
-      case 'customerName': customerFields.current.name?.focus(); return;
-      case 'customerNameKn': customerFields.current.nameKn?.focus(); return;
-      case 'customerPhone': customerFields.current.phone?.focus(); return;
+      case 'customerName':
+      case 'customerNameKn':
+      case 'customerPhone': {
+        const field = customerFieldFor(action);
+        if (field) customerFocus.current?.(field);
+        return;
+      }
       case 'lineName': case 'lineQty': case 'lineUnit': case 'linePrice': case 'lineTick': {
         const index = lineIndex();
         const line = cart[index];
@@ -655,7 +659,7 @@ export function BillPage() {
 
       {/* Pinned at the top, above the writing. Forty lines into a bill these fields used to be
           off-screen, so attaching somebody meant scrolling back and losing your place. */}
-      <CustomerBar fieldRefs={customerFields} />
+      <CustomerBar focusRef={customerFocus} />
 
       <div className="slip-pane">
         {error ? <p className="error" role="alert">{error}</p> : null}

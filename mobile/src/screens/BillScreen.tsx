@@ -7,10 +7,10 @@ import {
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
-  SHORTCUTS, adjacentBill, moveInColumn, shortcutFor, shortcutLine,
+  SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
 } from '@shridhar/shared';
-import { CustomerBar, type CustomerFields } from '../components/CustomerBar';
+import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
 import { ScrollPad } from '../components/ScrollPad';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
@@ -668,7 +668,7 @@ export function BillScreen() {
    * A hardware keyboard's shortcuts (build 63; the list is shared/src/shortcuts.ts). The native
    * side sends them only while this screen is showing. F1 and Alt+H are the shell's.
    */
-  const customerFields = useRef<CustomerFields>({ name: null, nameKn: null, phone: null });
+  const customerFocus: CustomerFocus = useRef<CustomerFocus['current']>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const isTyping = (line: BillLine) => !(writing[line.itemId] ?? line.lastMode !== 'text');
   /** The line box with the cursor in it, and which column it is. */
@@ -722,9 +722,13 @@ export function BillScreen() {
         return;
       }
       case 'customer':
-      case 'customerName': customerFields.current.name?.focus(); return;
-      case 'customerNameKn': customerFields.current.nameKn?.focus(); return;
-      case 'customerPhone': customerFields.current.phone?.focus(); return;
+      case 'customerName':
+      case 'customerNameKn':
+      case 'customerPhone': {
+        const field = customerFieldFor(action);
+        if (field) customerFocus.current?.(field);
+        return;
+      }
       case 'lineName': case 'lineQty': case 'lineUnit': case 'linePrice': case 'lineTick': {
         const index = lineIndex();
         const line = cart[index];
@@ -811,7 +815,7 @@ export function BillScreen() {
       </ScrollView>
 
       <View style={styles.top}>
-        <CustomerBar fieldRefs={customerFields} />
+        <CustomerBar focusRef={customerFocus} />
         {error ? <ErrorText onDismiss={() => setError(null)}>{error}</ErrorText> : null}
 
         {/* Offered here rather than only from History: the moment a customer asks for a copy is

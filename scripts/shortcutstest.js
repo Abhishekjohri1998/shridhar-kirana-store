@@ -108,6 +108,22 @@ eq('each line rounded, then added (110 + 113)', S.draftTotal(two, 1), 223);
 eq('and that is the bill total the screen shows',
   S.draftTotal(two, 1), S.billTotal(S.roundLines(two.lines, 1)));
 
+console.log('\nCustomer boxes, even when the section is folded away');
+eq('F2 -> name', S.customerFieldFor('customerName'), 'name');
+eq('Alt+C -> name', S.customerFieldFor('customer'), 'name');
+eq('Shift+F2 -> Kannada name', S.customerFieldFor('customerNameKn'), 'nameKn');
+eq('F3 -> phone', S.customerFieldFor('customerPhone'), 'phone');
+eq('F4 is not a customer box', S.customerFieldFor('lineName'), null);
+eq('boxes on screen: focus now', S.customerFocusPlan(true), 'focus');
+eq('folded away: open, then focus once mounted', S.customerFocusPlan(false), 'openThenFocus');
+const fs = require('node:fs');
+for (const app of ['client', 'mobile']) {
+  const src = fs.readFileSync(path.join(__dirname, '..', app, 'src', 'components', 'CustomerBar.tsx'), 'utf8');
+  check(app + ': the bar opens itself and keeps the wish', src.includes('setPendingFocus(field)') && src.includes("customerFocusPlan(box != null) === 'focus'"));
+  check(app + ': and focuses the box once it mounts', src.includes('const box = fieldRefs.current[pendingFocus];') && src.includes('box.focus();'));
+}
+check('web: a folded section is expanded first', fs.readFileSync(path.join(__dirname, '..', 'client', 'src', 'components', 'CustomerBar.tsx'), 'utf8').replace(/\r\n/g, '\n').includes('setExpanded(true);\n      if (shop.customer) setOpen(true);'));
+
 console.log('');
 if (failures) {
   console.log(failures + ' check(s) failed');

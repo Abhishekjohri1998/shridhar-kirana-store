@@ -7,6 +7,7 @@ import {
   searchKey,
   type Customer,
 } from '@shridhar/shared';
+import { customerFocusPlan, type CustomerField } from '@shridhar/shared';
 import { CustomersIcon } from './Icons';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
@@ -20,8 +21,13 @@ import { useShop } from '../lib/useShop';
  */
 /** The three boxes, so the bill screen's F2 / Shift+F2 / F3 can put the cursor in them. */
 export type CustomerFields = { name: HTMLInputElement | null; nameKn: HTMLInputElement | null; phone: HTMLInputElement | null };
+/** Set by the bar: puts the cursor in one of its boxes, opening the section first if needed. */
+export type CustomerFocus = { current: ((field: CustomerField) => void) | null };
 
-export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFields } } = {}) {
+export function CustomerBar({ focusRef }: { focusRef?: CustomerFocus } = {}) {
+  const fieldRefs = useRef<CustomerFields>({ name: null, nameKn: null, phone: null });
+  /** A box asked for before it was mounted; focused by the effect below once it is. */
+  const [pendingFocus, setPendingFocus] = useState<CustomerField | null>(null);
   const shop = useShop();
   const t = shop.t;
   // Held in the shared draft, not here: the bill needs to read it at print time, and switching
@@ -43,6 +49,29 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
   const seq = useRef(0);
 
   const query = name.trim() || phone.trim();
+
+  /*
+   * F2 / Shift+F2 / F3 / Alt+C. With the boxes folded away (or an attached customer's chip
+   * showing) there is nothing to focus yet, so the section opens and the wish waits for it.
+   * An attached customer stays attached: the boxes open to look a different one up, exactly
+   * as "Change" does, only without throwing the attached one away until one is picked.
+   */
+  if (focusRef) {
+    focusRef.current = (field) => {
+      const box = fieldRefs.current[field];
+      if (customerFocusPlan(box != null) === 'focus') { box!.focus(); return; }
+      setExpanded(true);
+      if (shop.customer) setOpen(true);
+      setPendingFocus(field);
+    };
+  }
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const box = fieldRefs.current[pendingFocus];
+    if (!box) return;
+    setPendingFocus(null);
+    box.focus();
+  });
 
   useEffect(() => {
     if (shop.customer || query.length < 1) {
@@ -155,7 +184,7 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
         <input
           className="input"
           value={name}
-          ref={(el) => { if (fieldRefs) fieldRefs.current.name = el; }}
+          ref={(el) => { fieldRefs.current.name = el; }}
           onChange={(e) => setName(e.target.value)}
           placeholder={t('cust.namePlaceholder')}
           aria-label={t('cust.nameAria')}
@@ -166,7 +195,7 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
         <input
           className="input"
           value={nameKn}
-          ref={(el) => { if (fieldRefs) fieldRefs.current.nameKn = el; }}
+          ref={(el) => { fieldRefs.current.nameKn = el; }}
           onChange={(e) => setNameKn(e.target.value)}
           placeholder={t('cs.nameKn')}
           aria-label={t('cs.nameKn')}
@@ -175,7 +204,7 @@ export function CustomerBar({ fieldRefs }: { fieldRefs?: { current: CustomerFiel
         <input
           className="input"
           value={phone}
-          ref={(el) => { if (fieldRefs) fieldRefs.current.phone = el; }}
+          ref={(el) => { fieldRefs.current.phone = el; }}
           onChange={(e) => setPhone(e.target.value)}
           placeholder={t('cust.phonePlaceholder')}
           aria-label={t('cust.phoneAria')}

@@ -145,3 +145,23 @@ export function adjacentBill(ids: readonly string[], active: string, delta: -1 |
   const from = at < 0 ? 0 : at;
   return ids[(from + delta + ids.length) % ids.length] ?? null;
 }
+
+/** The customer box a shortcut puts the cursor in, or null for any other action. */
+export type CustomerField = 'name' | 'nameKn' | 'phone';
+export function customerFieldFor(action: ShortcutAction): CustomerField | null {
+  switch (action) {
+    case 'customer': case 'customerName': return 'name';
+    case 'customerNameKn': return 'nameKn';
+    case 'customerPhone': return 'phone';
+    default: return null;
+  }
+}
+
+/**
+ * Focusing a customer box that may not be on screen yet: the section is folded away (web) or
+ * shows the attached customer's chip. `mounted` says whether the boxes exist now. Returns what
+ * to do: focus straight away, or open the section and focus once the box mounts.
+ */
+export function customerFocusPlan(mounted: boolean): 'focus' | 'openThenFocus' {
+  return mounted ? 'focus' : 'openThenFocus';
+}
