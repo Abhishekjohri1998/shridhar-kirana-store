@@ -53,6 +53,8 @@ export function whatsappNumber(c: { phone?: string; phones?: string[]; whatsapp?
 export function billAsText(
   bill: {
     no: number; at: string; total: number; paid: number; balance: number; showBalance: boolean; hideNames?: boolean;
+    /** The shop's "show item rate under each item". Off (or missing): no "x rate", only the amount. */
+    showRate?: boolean;
     lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string; hidden?: boolean }[];
   },
   shopName: string,
@@ -65,6 +67,12 @@ export function billAsText(
     // Descriptions hidden: the line's number and price only -- no name, quantity or rate.
     if (bill.hideNames === true) { out.push((i + 1) + '. ' + rupees(l.qty * l.rate)); return; }
     const name = (l.nameKn || l.nameEn || '—').trim();
+    if (bill.showRate !== true) {
+      // As on the paper: the quantity and unit only where the slip prints them, before the name.
+      const unit = (l.unit ?? '').trim();
+      out.push((unit ? l.qty + ' ' + unit + ' ' : '') + name + ' = ' + rupees(l.qty * l.rate));
+      return;
+    }
     out.push(name + ' ' + l.qty + (l.unit ? ' ' + l.unit : '') + ' × ' + rupees(l.rate) + ' = ' + rupees(l.qty * l.rate));
   });
   out.push('', labels.total + ': ' + rupees(bill.total));

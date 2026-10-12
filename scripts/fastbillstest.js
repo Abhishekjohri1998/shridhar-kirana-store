@@ -103,6 +103,18 @@ function receipt() {
       t2.includes('1. ₹100') && t2.includes('2. ₹10') && !t2.includes('Rice') && !t2.includes('kg') && !t2.includes('×'), t2);
     check('hideNames off: names still print', JSON.stringify(shared.buildReceipt({ ...nb, hideNames: false }, settings)).includes('Salt'));
   }
+  {
+    console.log('\nShow item rate under each item');
+    const rb = { ...bill, lines: [{ itemId: 'a', nameKn: 'Rice', nameEn: 'Rice', qty: 3, rate: 500 / 3, unit: 'kg' }, bill.lines[2]] };
+    const its = (st) => shared.buildReceipt(rb, { ...settings, showRate: st }).rows.filter((r) => r.t === 'item' && r.no !== shared.EN_RECEIPT_LABELS.no);
+    eq('off: nothing under any item, not even a rate typed over a total', its(false).map((r) => r.note), [undefined, undefined]);
+    check('on: "@ rate" under each item', its(true).every((r) => typeof r.note === 'string' && r.note.startsWith('@ ')));
+    const L = { bill: 'Bill ', total: 'Total', paid: 'Paid', balance: 'Balance' };
+    const off = shared.billAsText(rb, 'Shop', L);
+    check('WhatsApp off: no rate, just the amount', off.includes('3 kg Rice = ₹500') && !off.includes('×'), off);
+    const on = shared.billAsText({ ...rb, showRate: true }, 'Shop', L);
+    check('WhatsApp on: qty × rate as before', on.includes('×'), on);
+  }
   eq('printedLines drops only hidden ones', shared.printedLines(bill.lines).map((l) => l.itemId), ['a', 'c']);
 }
 
@@ -145,8 +157,16 @@ function screens() {
   const web = fs.readFileSync(path.join(ROOT, 'client', 'src', 'pages', 'BillPage.tsx'), 'utf8');
   for (const [name, src] of [['tablet', mobile], ['web', web]]) {
     check(name + ': no per-line eye', !src.includes('👁') && !src.includes('setLineHidden') && !src.includes('bill.hideLine'));
-    check(name + ': a picked name goes to the quantity', /if \(ok\) goToQty\(line\.itemId\)/.test(src));
-    check(name + ': an already matched name too', /stock\.close\(\); goToQty\(line\.itemId\); return;/.test(src));
+    check(name + ': Enter on a picked name goes to the next line\'s name', /pickBest\(index, line, typed\)\.then\(\(\) => goToNextName\(index\)\)/.test(src));
+    check(name + ': an already matched name too', /stock\.close\(\); goToNextName\(index\); return; \}\s*clearTyped/.test(src));
+    {
+      const at = src.indexOf('const submitName');
+      check(name + ': Enter no longer goes to the quantity', !src.slice(at, at + 700).includes('goToQty'));
+    }
+    check(name + ': an unpriced line shows an empty quantity, "1" as its hint',
+      src.includes("value={qtyText[line.itemId] ?? (line.rate > 0 ? String(line.qty) : '')}") && src.includes('placeholder="1"'));
+    check(name + ': F4 goes to the top typed line showing', /nameShortcutLine\(rowBoxes\(\)/.test(src) && /lineHasInk\(cart\[i\]!\)/.test(src));
+    check(name + ': F5-F8 ignore the cursor\'s line', /shortcutLine\(rowBoxes\(\), /.test(src) && !/shortcutLine\(\s*cursorAt/.test(src));
     check(name + ': no straight jump to the price from a name', !/submitName[\s\S]{0,600}prices\.current/.test(src.slice(src.indexOf('const submitName'), src.indexOf('const submitName') + 700)));
   }
   check('tablet: the quantity focus waits for the box', /kind === 'qty' \? qtys\.current\[target\]/.test(mobile));

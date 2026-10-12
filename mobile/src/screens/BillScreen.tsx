@@ -7,7 +7,7 @@ import {
   MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
-  SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine,
+  SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
   rateText,
 } from '@shridhar/shared';
@@ -354,19 +354,6 @@ export function BillScreen() {
   }, [shop.cart, goToNewestLine, focusRow]);
 
   /**
-   * An item picked by Enter: on to that same line's quantity, never the price.
-   *
-   * Always through the focus effect: the pick re-renders the row after a network round trip,
-   * and focusing at once could find the quantity box not mounted yet, or one about to be
-   * replaced. The wish waits for the box.
-   */
-  const goToQty = useCallback((id: string) => {
-    focusRow(id);
-    wantFocus.current = { id, from: '', kind: 'qty' };
-    setFocusTick((n) => n + 1);
-  }, [focusRow]);
-
-  /**
    * One press, one submit. A box's submit can be reached twice for one Enter (an older build's
    * key path, or a key repeat); a second within a moment for the same box is the same press.
    */
@@ -379,20 +366,18 @@ export function BillScreen() {
   };
 
   /**
-   * Enter in a name box. A typed name is matched -- the highlighted or best suggestion, else the
-   * name as typed in NOS -- and the cursor goes to its quantity. A line already matched goes
-   * straight there; an empty one goes on down, as before.
+   * Enter in a name box. A typed name is matched -- the highlighted or best suggestion with its
+   * default unit, else the name as typed in NOS -- and the cursor goes on to the NEXT line's item
+   * name, in typing mode, stepping over handwritten lines (a new line if there is none). A line
+   * already matched, or an empty one, goes on down the same way.
    */
   const submitName = (index: number, typed: string) => {
     const line = shop.cart[index];
     if (line && !firstSubmit('name:' + line.itemId)) return;
     if (!line || !typed.trim()) { stock.close(); goToNextName(index); return; }
-    if (line.unit && stock.openFor !== line.itemId) { stock.close(); goToQty(line.itemId); return; }
+    if (line.unit && stock.openFor !== line.itemId) { stock.close(); goToNextName(index); return; }
     clearTyped(line.itemId);
-    void stock.pickBest(index, line, typed).then((ok) => {
-      if (ok) goToQty(line.itemId);
-      else goToNextName(index);
-    });
+    void stock.pickBest(index, line, typed).then(() => goToNextName(index));
   };
 
   /** Enter in a quantity box: across to that line's price. */
@@ -710,11 +695,10 @@ export function BillScreen() {
   const onShortcut = useRef<(a: ShortcutAction) => void>(() => undefined);
   onShortcut.current = (action) => {
     const cart = shop.cart;
-    const lineIndex = () => shortcutLine(
-      cursorAt()?.index ?? null,
-      cart.map((l) => ({ top: rowY.current[l.itemId] ?? 0, height: rowHt.current[l.itemId] ?? rowH.current })),
-      offset.current,
-    );
+    const rowBoxes = () =>
+      cart.map((l) => ({ top: rowY.current[l.itemId] ?? 0, height: rowHt.current[l.itemId] ?? rowH.current }));
+    // F5-F8: always the top line showing, not the cursor's line.
+    const lineIndex = () => shortcutLine(rowBoxes(), offset.current);
     switch (action) {
       case 'prevBill':
       case 'nextBill': {
@@ -734,13 +718,19 @@ export function BillScreen() {
         return;
       }
       case 'lineName': case 'lineQty': case 'lineUnit': case 'linePrice': case 'lineTick': {
+        if (action === 'lineName') {
+          // F4: the top typed line showing, handwritten ones stepped over; none -- a new line.
+          const at = nameShortcutLine(rowBoxes(), offset.current, (i) => lineHasInk(cart[i]!));
+          if (at >= 0) focusLineBox(at, 'name');
+          else goToNextName(cart.length - 1);
+          return;
+        }
         const index = lineIndex();
         const line = cart[index];
         if (!line) return;
         setView('items');
         if (action === 'lineTick') { shop.setLineGiven(index, !line.given); return; }
         if (action === 'linePrice') { focusLineBox(index, 'price'); return; }
-        if (action === 'lineName') { focusLineBox(index, 'name'); return; }
         // Quantity and unit live on a typed line; one already written on is left as it is.
         if (!isTyping(line) && lineHasInk(line)) return;
         if (action === 'lineQty') { focusLineBox(index, 'qty'); return; }
@@ -1065,8 +1055,8 @@ export function BillScreen() {
                           accessibilityLabel={t('stock.qtyOf', { n: index + 1 })}
                           // Empty on the way in, the old figure showing faintly, so a fresh one is
                           // typed rather than deleted first. Left empty, the old one stays.
-                          value={qtyText[line.itemId] ?? String(line.qty)}
-                          placeholder={String(line.qty)}
+                          value={qtyText[line.itemId] ?? (line.rate > 0 ? String(line.qty) : '')}
+                          placeholder="1"
                           placeholderTextColor={C.faint}
                           onChangeText={(text) => {
                             setQtyText((prev) => ({ ...prev, [line.itemId]: text }));

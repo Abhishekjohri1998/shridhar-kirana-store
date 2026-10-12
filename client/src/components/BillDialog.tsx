@@ -80,7 +80,7 @@ export function BillDialog({
         number = whatsappNumber((await billingApi.getCustomer(bill.customer.id)).customer) || number;
       } catch { /* the bill's own copy of the phone will do */ }
     }
-    const text = billAsText(bill, pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang), shop.receiptLabels);
+    const text = billAsText({ ...bill, showRate: shop.settings.showRate }, pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang), shop.receiptLabels);
     window.open('https://wa.me/' + number + '?text=' + encodeURIComponent(text), '_blank', 'noopener');
   };
 

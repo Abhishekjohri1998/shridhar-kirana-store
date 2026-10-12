@@ -252,7 +252,9 @@ async function main() {
     eq('a typed total of 500 for 3 sums to 500', shared.billTotal(typed), 500);
     const row = shared.buildReceipt({ ...BILL, lines: typed, total: 500 }, SETTINGS).rows.find((r) => r.t === 'item' && r.no === '1');
     eq('and prints 500', row && row.amount, '500');
-    eq('at 166.667, unasked (rates show up to 3 decimals)', row && row.note, '@ 166.667');
+    eq('showRate off: not even its 166.667 under it', row && row.note, undefined);
+    eq('showRate on: @ 166.667 (rates show up to 3 decimals)',
+      shared.buildReceipt({ ...BILL, lines: typed, total: 500 }, { ...SETTINGS, showRate: true }).rows.find((r) => r.t === 'item' && r.no === '1').note, '@ 166.667');
     eq('a round rate prints no note unasked',
       shared.buildReceipt(BILL, SETTINGS).rows.filter((r) => r.t === 'item')[1].note, undefined);
   }

@@ -89,9 +89,16 @@ eq('line 3 mostly gone: line 4', S.topVisibleLine(rows, 130), 3);
 eq('past the end: the last line', S.topVisibleLine(rows, 900), 4);
 eq('no lines', S.topVisibleLine([], 0), -1);
 eq('uneven rows', S.topVisibleLine([{ top: 0, height: 120 }, { top: 120, height: 50 }], 70), 1);
-eq('the cursor\'s line wins', S.shortcutLine(4, rows, 100), 4);
-eq('no cursor: the top line showing', S.shortcutLine(null, rows, 100), 2);
-eq('a cursor line out of range is ignored', S.shortcutLine(9, rows, 0), 0);
+eq('F5-F8: the top line showing, wherever the cursor is', S.shortcutLine(rows, 100), 2);
+eq('F5-F8: unscrolled, line 1', S.shortcutLine(rows, 0), 0);
+{
+  const ink = (set) => (i) => set.includes(i);
+  eq('F4: the top line showing when it is typed', S.nameShortcutLine(rows, 100, ink([])), 2);
+  eq('F4: handwritten lines at the top are skipped', S.nameShortcutLine(rows, 50, ink([1, 2])), 3);
+  eq('F4: none typed on screen -- the first typed one below', S.nameShortcutLine(rows, 0, ink([0, 1, 2, 3])), 4);
+  eq('F4: none at all -- a new line (-1)', S.nameShortcutLine(rows, 0, ink([0, 1, 2, 3, 4])), -1);
+  eq('F4: never line 1 when it is scrolled away', S.nameShortcutLine(rows, 150, ink([])), 3);
+}
 
 console.log('\nThe same column, one line over');
 eq('down from 1', S.moveInColumn(1, 1, 5), 2);

@@ -117,15 +117,28 @@ export function topVisibleLine(rows: readonly { top: number; height: number }[],
 }
 
 /**
- * Which line F4-F8 act on: the line the cursor is already in, else the top-most visible one.
+ * Which line F5-F8 act on: always the top-most line showing on screen -- never the line the
+ * cursor happens to be in, and never line 1 unless it is the one at the top.
  */
-export function shortcutLine(
-  cursorLine: number | null,
+export function shortcutLine(rows: readonly { top: number; height: number }[], offset: number): number {
+  return topVisibleLine(rows, offset);
+}
+
+/**
+ * Which line F4 (item name) goes to: the top-most line showing on screen that is not
+ * handwritten (`written`). None showing: the first such line below the visible area. -1 when
+ * there is none at all, and the caller makes a new line. (A typed line inside the visible area
+ * comes before any below it, so one scan down from the top line covers both.)
+ */
+export function nameShortcutLine(
   rows: readonly { top: number; height: number }[],
   offset: number,
+  written: (i: number) => boolean,
 ): number {
-  if (cursorLine != null && cursorLine >= 0 && cursorLine < rows.length) return cursorLine;
-  return topVisibleLine(rows, offset);
+  const top = topVisibleLine(rows, offset);
+  if (top < 0) return -1;
+  for (let i = top; i < rows.length; i++) if (!written(i)) return i;
+  return -1;
 }
 
 /**
