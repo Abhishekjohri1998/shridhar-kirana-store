@@ -18,7 +18,7 @@ export type ShortcutAction =
   | 'bill'
   | 'settings'
   | 'hideNames'
-  | 'customer'
+  | 'customers'
   | 'customerName'
   | 'customerNameKn'
   | 'customerPhone'
@@ -35,7 +35,7 @@ export type ShortcutAction =
 export interface Shortcut {
   chord: string;
   action: ShortcutAction;
-  /** Works on every screen, not only the bill (F1, Alt+B, Alt+S). */
+  /** Works on every screen, not only the bill (F1, Alt+B, Alt+S, F9, Alt+C). */
   global?: boolean;
   /** Its line in the help list. */
   labelKey: MsgKey;
@@ -48,7 +48,10 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { chord: 'Alt+B', action: 'bill', global: true, labelKey: 'keys.bill' },
   { chord: 'Alt+H', action: 'history', labelKey: 'keys.history' },
   { chord: 'Alt+S', action: 'settings', global: true, labelKey: 'keys.settings' },
-  { chord: 'Alt+C', action: 'customer', labelKey: 'keys.customer' },
+  // F9 as well (build 66): Samsung's keyboard can take Alt+S for its symbol panel.
+  { chord: 'F9', action: 'settings', global: true, labelKey: 'keys.settingsF9' },
+  // Alt+C (build 66): the Customers page, from anywhere. F2 is the customer name box.
+  { chord: 'Alt+C', action: 'customers', global: true, labelKey: 'keys.customers' },
   { chord: 'F2', action: 'customerName', labelKey: 'keys.customerName' },
   { chord: 'Shift+F2', action: 'customerNameKn', labelKey: 'keys.customerNameKn' },
   { chord: 'F3', action: 'customerPhone', labelKey: 'keys.customerPhone' },
@@ -174,7 +177,7 @@ export function adjacentBill(ids: readonly string[], active: string, delta: -1 |
 export type CustomerField = 'name' | 'nameKn' | 'phone';
 export function customerFieldFor(action: ShortcutAction): CustomerField | null {
   switch (action) {
-    case 'customer': case 'customerName': return 'name';
+    case 'customerName': return 'name';
     case 'customerNameKn': return 'nameKn';
     case 'customerPhone': return 'phone';
     default: return null;

@@ -44,7 +44,7 @@ export function CustomerBar({ focusRef }: { focusRef?: CustomerFocus } = {}) {
   const query = name.trim() || phone.trim();
 
   /*
-   * F2 / Shift+F2 / F3 / Alt+C. With the boxes folded away (or an attached customer's chip
+   * F2 / Shift+F2 / F3. With the boxes folded away (or an attached customer's chip
    * showing) there is nothing to focus yet, so the section opens and the wish waits for it.
    * An attached customer stays attached: the boxes open to look a different one up, exactly
    * as "Change" does, only without throwing the attached one away until one is picked.

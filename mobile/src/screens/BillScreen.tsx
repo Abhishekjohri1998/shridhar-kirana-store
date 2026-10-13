@@ -709,7 +709,6 @@ export function BillScreen() {
         return;
       }
       case 'hideNames': shop.setHideNames(!shop.hideNames); return;
-      case 'customer':
       case 'customerName':
       case 'customerNameKn':
       case 'customerPhone': {

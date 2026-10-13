@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FALLBACK_UNIT, bestMatch, sellUnitOf } from '@shridhar/shared';
+import { FALLBACK_UNIT, bestMatch, pickRate, sellUnitOf } from '@shridhar/shared';
 import type { BillLine, StockItem, StockUnit } from '@shridhar/shared';
 import { api } from './api';
 import { useShop } from './useShop';
@@ -91,7 +91,8 @@ export function useStockSuggest() {
       nameKn: item.nameKn,
       unit: unit.code,
       stockItemId: item.id,
-      rate: unit.price,
+      // The slab the line's quantity is in (1 for a new line), not the unit's base price.
+      rate: pickRate(unit, line.qty > 0 ? line.qty : 1),
     });
     handRate.current.delete(line.itemId);
     setUnits((m) => ({ ...m, [line.itemId]: Array.isArray(item.units) ? item.units : [] }));
@@ -99,9 +100,15 @@ export function useStockSuggest() {
     setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
     setQuery(null);
     setItems([]);
-    // A quantity already on the line may sit in a slab, so ask straight away.
-    if (line.qty !== 1) requote(line.itemId, item.id, unit.code, line.qty);
-    fillLastPrice(line.itemId, lineNameOf(item), item.id, unit.code);
+    // Stock's own quote for this quantity -- qty 1 too, where a slab starting at 1 sets the rate --
+    // straight away; then the price it last went at, which still wins when there is one.
+    const name = lineNameOf(item);
+    if (!on) {
+      fillLastPrice(line.itemId, name, item.id, unit.code);
+      return;
+    }
+    requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0,
+      () => fillLastPrice(line.itemId, name, item.id, unit.code));
   };
 
   /*
@@ -211,11 +218,11 @@ export function useStockSuggest() {
       nameKn: line.nameKn,
       unit: unit.code,
       stockItemId: line.stockItemId,
-      rate: mine ? line.rate : unit.price,
+      rate: mine ? line.rate : pickRate(unit, line.qty > 0 ? line.qty : 1),
     });
     setBounds((b) => ({ ...b, [line.itemId]: { min: unit.min, max: unit.max } }));
     setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
-    if (!mine && line.qty !== 1) requote(line.itemId, line.stockItemId, unit.code, line.qty);
+    if (!mine && on) requote(line.itemId, line.stockItemId, unit.code, line.qty > 0 ? line.qty : 1);
   };
 
   /** NOS from the unit menu: the line lets go of stock's item and keeps its name and price. */
@@ -226,8 +233,11 @@ export function useStockSuggest() {
     setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
   };
 
-  /** Stock's rate for this quantity, a beat after the last change, unless the rate is the shopkeeper's. */
-  const requote = (key: string, item: string, unit: string, qty: number) => {
+  /**
+   * Stock's rate for this quantity, a beat after the last change (`delay`; 0 right after a pick),
+   * unless the rate is the shopkeeper's. `after` runs once stock has answered or failed.
+   */
+  const requote = (key: string, item: string, unit: string, qty: number, delay = 400, after?: () => void) => {
     clearTimeout(timers.current[key]);
     timers.current[key] = setTimeout(() => {
       api.stockQuote(item, unit, qty)
@@ -236,12 +246,14 @@ export function useStockSuggest() {
           // Found again by id: lines above may have been removed while stock was answering.
           const at = cart.current.findIndex((l) => l.itemId === key);
           const line = cart.current[at];
-          if (!line || line.stockItemId !== item || line.unit !== unit || line.qty !== qty) return;
+          const lineQty = line && line.qty > 0 ? line.qty : 1;
+          if (!line || line.stockItemId !== item || line.unit !== unit || lineQty !== qty) return;
           if (typeof q.rate === 'number' && q.rate !== line.rate) shop.setLineRate(at, q.rate);
           setQuoteWarn((w) => ({ ...w, [key]: q.warn ?? null }));
         })
-        .catch(() => undefined);
-    }, 400);
+        .catch(() => undefined)
+        .finally(() => after?.());
+    }, delay);
   };
 
   const onQty = (index: number, line: BillLine, qty: number) => {

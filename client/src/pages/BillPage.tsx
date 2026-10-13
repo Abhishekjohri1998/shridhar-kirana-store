@@ -545,7 +545,6 @@ export function BillPage() {
       }
       case 'hideNames': shop.setHideNames(!shop.hideNames); return;
       case 'history': navigate('/history'); return;
-      case 'customer':
       case 'customerName':
       case 'customerNameKn':
       case 'customerPhone': {
@@ -604,8 +603,8 @@ export function BillPage() {
       return;
     }
     const action = shortcutFor(press);
-    // Alt+B and Alt+S are the app shell's (App.tsx), on every page.
-    if (!action || action === 'bill' || action === 'settings') return;
+    // Alt+B, Alt+S / F9 and Alt+C are the app shell's (App.tsx), on every page.
+    if (!action || action === 'bill' || action === 'settings' || action === 'customers') return;
     e.preventDefault();
     runShortcut(action);
   };

@@ -31,6 +31,14 @@
  *     key is untouched. While a bill line box has the cursor (setTakeEnter) and shortcuts are
  *     at 2, Up and Down are kept from the box too, so JavaScript can move between lines.
  *     The list is the same as shared/src/shortcuts.ts; plugintest checks that.
+ *  6. Before the keyboard (build 66). Samsung's keyboard opens its symbol panel on Alt+S, because
+ *     a hardware key reaches the IME before the activity's dispatchKeyEvent. MainActivity now
+ *     wraps the React root in ShridharKeyCatcher, whose dispatchKeyEventPreIme -- the first stage
+ *     an app gets, ahead of the IME and the focused view -- hands live shortcuts to the module,
+ *     which uses up the down, repeats and the matching up (even when Alt is let go first).
+ *     dispatchKeyShortcutEvent / onKeyShortcut are taken too, for a chord Android routes as a
+ *     menu shortcut. Alt+C (Customers) and F9 (Settings, for a keyboard that still takes
+ *     Alt+S) are global from build 66.
  */
 const fs = require('fs');
 const path = require('path');
@@ -38,13 +46,14 @@ const path = require('path');
 const MARK = 'ShridharNativeModule.onMotion';
 const PKG_MARK = 'ShridharNativePackage()';
 const KEY_MARK = 'ShridharNativeModule.onKey';
+const PREIME_MARK = 'ShridharKeyCatcher(this)';
 
 /** The chords live from shortcut level 1 (every screen). Keep in step with SHORTCUTS' global ones. */
-const GLOBAL_CHORDS = ['F1', 'Alt+B', 'Alt+S'];
+const GLOBAL_CHORDS = ['F1', 'Alt+B', 'Alt+S', 'F9', 'Alt+C'];
 
 /** The chords used up at shortcut level 2 only. Keep in step with SHORTCUTS. */
 const BILL_CHORDS = [
-  'Ctrl+PageUp', 'Ctrl+PageDown', 'Alt+H', 'Alt+C', 'F2', 'Shift+F2', 'F3', 'F4', 'F5', 'F6',
+  'Ctrl+PageUp', 'Ctrl+PageDown', 'Alt+H', 'F2', 'Shift+F2', 'F3', 'F4', 'F5', 'F6',
   'F7', 'F8', 'Ctrl+H', 'Ctrl+A', 'Ctrl+P', 'Ctrl+S', 'Ctrl+Shift+P',
 ];
 
@@ -66,7 +75,49 @@ function addImports(src, lines) {
 
 /** MainActivity.kt with the hooks added. Each one is added only when it is not already there. */
 function addToMainActivity(src, appPackage) {
-  return addKeyHook(addMotionHook(src, appPackage), appPackage);
+  return addPreImeHook(addKeyHook(addMotionHook(src, appPackage), appPackage), appPackage);
+}
+
+/**
+ * Build 66: the React root goes inside ShridharKeyCatcher, so shortcuts are taken before the
+ * keyboard app (IME) sees them; and Android's key-shortcut path is taken as well.
+ */
+function addPreImeHook(src, appPackage) {
+  if (src.includes(PREIME_MARK)) return src;
+  const out = addImports(src, [
+    'import android.view.KeyEvent',
+    'import android.view.View',
+    'import android.view.ViewGroup',
+    'import android.widget.FrameLayout',
+    'import ' + appPackage + '.stylus.ShridharKeyCatcher',
+    'import ' + appPackage + '.stylus.ShridharNativeModule',
+  ]);
+  const hook = [
+    '',
+    '  // withStylus: shortcuts before the keyboard app sees them (Samsung takes Alt+S otherwise).',
+    '  override fun setContentView(view: View?) {',
+    '    if (view == null || view is ShridharKeyCatcher) {',
+    '      super.setContentView(view)',
+    '      return',
+    '    }',
+    '    (view.parent as? ViewGroup)?.removeView(view)',
+    '    val catcher = ' + PREIME_MARK,
+    '    catcher.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))',
+    '    super.setContentView(catcher)',
+    '  }',
+    '',
+    '  override fun dispatchKeyShortcutEvent(event: KeyEvent): Boolean {',
+    '    if (ShridharNativeModule.onShortcut(event)) return true',
+    '    return super.dispatchKeyShortcutEvent(event)',
+    '  }',
+    '',
+    '  override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {',
+    '    if (ShridharNativeModule.onShortcut(event)) return true',
+    '    return super.onKeyShortcut(keyCode, event)',
+    '  }',
+    '',
+  ].join('\n');
+  return beforeClassEnd(out, hook);
 }
 
 /** The keyboard hook, on its own mark, so an activity patched before build 59 gains it too. */
@@ -233,6 +284,8 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @Volatile private var suggestOpen = false
     @Volatile private var takeEnter = false
     @Volatile private var shortcutLevel = 0
+    /** Keys whose down was used up as a shortcut: their up is used up too, Alt held or not. */
+    private val takenDown = java.util.Collections.synchronizedSet(HashSet<Int>())
 
     private val GLOBAL_CHORDS = setOf(${globals})
     private val BILL_CHORDS = setOf(${chords})
@@ -248,6 +301,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
       KeyEvent.KEYCODE_F6 -> "F6"
       KeyEvent.KEYCODE_F7 -> "F7"
       KeyEvent.KEYCODE_F8 -> "F8"
+      KeyEvent.KEYCODE_F9 -> "F9"
       KeyEvent.KEYCODE_PAGE_UP -> "PageUp"
       KeyEvent.KEYCODE_PAGE_DOWN -> "PageDown"
       KeyEvent.KEYCODE_H -> "H"
@@ -278,13 +332,16 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
      */
     @JvmStatic
     fun onShortcut(ev: KeyEvent): Boolean {
+      // The up of a key whose down was a shortcut -- even when Alt or Ctrl was let go first.
+      if (ev.action == KeyEvent.ACTION_UP && takenDown.remove(ev.keyCode)) return true
       val level = shortcutLevel
       if (level <= 0) return false
       val key = shortcutKey(ev.keyCode) ?: return false
       val c = chord(key, ev.isCtrlPressed, ev.isShiftPressed, ev.isAltPressed)
       if (!isShortcut(c, level)) return false
-      if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
-        instance?.emitShortcut(key, ev.isCtrlPressed, ev.isShiftPressed, ev.isAltPressed)
+      if (ev.action == KeyEvent.ACTION_DOWN) {
+        takenDown.add(ev.keyCode)
+        if (ev.repeatCount == 0) instance?.emitShortcut(key, ev.isCtrlPressed, ev.isShiftPressed, ev.isAltPressed)
       }
       return true
     }
@@ -347,6 +404,9 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 function packageSource(appPackage) {
   return `package ${appPackage}.stylus
 
+import android.content.Context
+import android.view.KeyEvent
+import android.widget.FrameLayout
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.ReactApplicationContext
@@ -358,6 +418,18 @@ class ShridharNativePackage : ReactPackage {
     listOf(ShridharNativeModule(ctx))
 
   override fun createViewManagers(ctx: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
+}
+
+/**
+ * Written by mobile/plugins/withStylus.js (build 66). MainActivity puts the React root inside
+ * this, so a live shortcut is taken at the pre-IME stage -- before the keyboard app (Samsung's
+ * opens its symbol panel on Alt+S) or the focused text box can act on it.
+ */
+class ShridharKeyCatcher(context: Context) : FrameLayout(context) {
+  override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {
+    if (ShridharNativeModule.onShortcut(event)) return true
+    return super.dispatchKeyEventPreIme(event)
+  }
 }
 `;
 }
@@ -403,6 +475,7 @@ module.exports = withStylus;
 module.exports.addToMainActivity = addToMainActivity;
 module.exports.addToMainApplication = addToMainApplication;
 module.exports.KEY_MARK = KEY_MARK;
+module.exports.PREIME_MARK = PREIME_MARK;
 module.exports.BILL_CHORDS = BILL_CHORDS;
 module.exports.GLOBAL_CHORDS = GLOBAL_CHORDS;
 module.exports.moduleSource = moduleSource;

@@ -29,3 +29,20 @@ export function bestMatch<T extends Pick<StockItem, 'nameEn' | 'nameKn'>>(items:
     ?? list.find((x) => names(x).some((n) => n.startsWith(q)))
     ?? list[0];
 }
+
+/**
+ * The rate a picked line starts at for `qty` of `unit`, before stock's quote comes back: the
+ * slab with the highest start the quantity has reached, else the unit's own price. The same
+ * rule as stock's priceFor; stock's quote (asked for straight after every pick) still has the
+ * last word. Without slabs from stock this is simply `unit.price`.
+ */
+export function pickRate(unit: Pick<StockUnit, 'price' | 'basePrice' | 'slabs'>, qty = 1): number {
+  const q = qty > 0 ? qty : 1;
+  let best: { minQty: number; rate: number } | undefined;
+  for (const s of Array.isArray(unit.slabs) ? unit.slabs : []) {
+    if (!s || !(typeof s.rate === 'number') || !(s.rate >= 0)) continue;
+    if (q >= s.minQty && (!best || s.minQty > best.minQty)) best = s;
+  }
+  if (best) return best.rate;
+  return typeof unit.basePrice === 'number' && unit.slabs?.length ? unit.basePrice : unit.price;
+}

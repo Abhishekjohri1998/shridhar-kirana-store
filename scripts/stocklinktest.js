@@ -50,6 +50,19 @@ const PARLE = {
   ],
 };
 
+/**
+ * A slab item (build 66): 1-9 pc at 10, 10 pc or more at 9.17. Stock sends `price` as the rate
+ * for one (the 1+ slab), the unit's own price as `basePrice`, and the slabs themselves.
+ */
+const SLABBED = {
+  id: 'it_slab', nameEn: 'Slab soap', nameKn: 'ಸೋಪು',
+  sellUnit: 'pc',
+  units: [
+    { code: 'pc', label: 'pc', price: 10, basePrice: 12, slabs: [{ minQty: 1, rate: 10 }, { minQty: 10, rate: 9.17 }] },
+    { code: 'box', label: 'box', price: 200 },
+  ],
+};
+
 /** Stock's accounts, as the fake knows them. */
 const PEOPLE = {
   '9000000001': { pin: '1111', role: 'admin', name: 'Owner' },
@@ -78,6 +91,10 @@ function startFakeStock(port) {
         setTimeout(() => send(200, { items: [PARLE] }), 6000);
         return;
       }
+      if (q.startsWith('slab')) {
+        send(200, { items: [SLABBED] });
+        return;
+      }
       send(200, { items: 'parle-g ಪಾರ್ಲೆ'.includes(q) || q.startsWith('par') ? [PARLE] : [] });
       return;
     }
@@ -85,6 +102,14 @@ function startFakeStock(port) {
       const item = url.searchParams.get('item');
       const unit = url.searchParams.get('unit');
       const qty = Number(url.searchParams.get('qty'));
+      if (item === SLABBED.id) {
+        const su = SLABBED.units.find((x) => x.code === unit);
+        if (!su) { send(404, { error: 'unknown' }); return; }
+        const hit = (su.slabs || []).filter((s) => qty >= s.minQty).sort((a, b) => b.minQty - a.minQty)[0];
+        const r = hit ? hit.rate : (su.basePrice ?? su.price);
+        send(200, { rate: r, amount: r * qty, unit, slab: !!hit, warn: null });
+        return;
+      }
       const u = item === PARLE.id ? PARLE.units.find((x) => x.code === unit) : null;
       if (!u) {
         send(404, { error: 'unknown' });
@@ -276,6 +301,30 @@ async function main() {
     eq('and say so', three.body.slab, true);
     eq('an unknown unit is quietly unavailable', (await on.call('/stock/quote?item=it_parle&unit=box&qty=1')).status, 503);
     eq('a quote with no quantity is refused', (await on.call('/stock/quote?item=it_parle&unit=pack')).status, 400);
+
+    console.log('\nA slab item picked (build 66): 1-9 pc at 10, 10+ at 9.17');
+    {
+      const { pickRate, sellUnitOf } = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'index.js'));
+      const got = (await on.call('/stock/items?q=slab')).body.items[0];
+      const pc = sellUnitOf(got);
+      eq('the slabs come through untouched', JSON.stringify(pc.slabs), JSON.stringify(SLABBED.units[0].slabs));
+      eq('picked at qty 1: the 1+ slab, not the base price', pickRate(pc, 1), 10);
+      eq('qty 9: still 10', pickRate(pc, 9), 10);
+      eq('qty 10: 9.17', pickRate(pc, 10), 9.17);
+      eq('qty 0 counts as 1', pickRate(pc, 0), 10);
+      eq('stock quotes qty 1 at 10', (await on.call('/stock/quote?item=it_slab&unit=pc&qty=1')).body.rate, 10);
+      eq('and qty 10 at 9.17', (await on.call('/stock/quote?item=it_slab&unit=pc&qty=10')).body.rate, 9.17);
+      eq('the pick and the quote agree for qty 1', pickRate(pc, 1), (await on.call('/stock/quote?item=it_slab&unit=pc&qty=1')).body.rate);
+      eq('a slab only from 10: qty 1 is the base price', pickRate({ price: 12, basePrice: 12, slabs: [{ minQty: 10, rate: 9.17 }] }, 1), 12);
+      eq('no slabs from an older stock: the unit price', pickRate({ price: 110 }, 5), 110);
+      const rd = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+      for (const f of ['client/src/lib/useStockSuggest.ts', 'mobile/src/lib/useStockSuggest.ts']) {
+        const src = rd(f);
+        check(f + ': a pick starts at the slab rate', src.includes('rate: pickRate(unit, line.qty > 0 ? line.qty : 1),'));
+        check(f + ': and asks stock at once, qty 1 too', src.includes('requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0,') && !src.includes('if (line.qty !== 1) requote'));
+        check(f + ': and requotes on a quantity change', src.includes('requote(line.itemId, line.stockItemId, line.unit, qty);'));
+      }
+    }
 
     console.log('\nA stock server that hangs');
     const startedAt = Date.now();

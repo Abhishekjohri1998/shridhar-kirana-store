@@ -127,8 +127,8 @@ check('checked before the text-box test, so any focus works', mod.indexOf('if (o
   && mod.indexOf('if (onShortcut(ev)) return true') < mod.indexOf('if (focus !is EditText) return false'));
 check('off unless JavaScript says so', mod.includes('@Volatile private var shortcutLevel = 0') && mod.includes('if (level <= 0) return false'));
 check('the global chords at level 1', mod.includes('if (chord in GLOBAL_CHORDS) return true') && mod.includes('return level >= 2 && chord in BILL_CHORDS'));
-check('emitted once per press, used up whole', mod.includes('if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {\n        instance?.emitShortcut('));
-for (const k of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'PAGE_UP', 'PAGE_DOWN', 'H', 'B', 'C', 'A', 'P', 'S']) {
+check('emitted once per press, used up whole', mod.includes('if (ev.action == KeyEvent.ACTION_DOWN) {\n        takenDown.add(ev.keyCode)\n        if (ev.repeatCount == 0) instance?.emitShortcut('));
+for (const k of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'PAGE_UP', 'PAGE_DOWN', 'H', 'B', 'C', 'A', 'P', 'S']) {
   check('reads KEYCODE_' + k, mod.includes('KeyEvent.KEYCODE_' + k + ' -> '));
 }
 check('modifier order is Ctrl, Shift, Alt as in JS', mod.includes('(if (ctrl) "Ctrl+" else "") + (if (shift) "Shift+" else "") + (if (alt) "Alt+" else "") + key'));
@@ -144,6 +144,7 @@ try {
   const nativeGlobal = [...plugin.GLOBAL_CHORDS].sort();
   check('the native global list is shared/src/shortcuts.ts exactly', JSON.stringify(jsGlobal) === JSON.stringify(nativeGlobal),
     'js=' + jsGlobal.join(',') + ' native=' + nativeGlobal.join(','));
+  check('Alt+C and F9 are global, Ctrl+Shift+P is a bill chord (build 66)', plugin.GLOBAL_CHORDS.includes('Alt+C') && plugin.GLOBAL_CHORDS.includes('F9') && plugin.BILL_CHORDS.includes('Ctrl+Shift+P'));
   check('Alt+B, Alt+S and Ctrl+H are in the Kotlin (build 64)', ['Alt+B', 'Alt+S', 'Ctrl+H'].every((c) => mod.includes('"' + c + '"')));
   check('every chord is in the Kotlin', js.every((c) => mod.includes('"' + c + '"')));
   check('every key name the JS list uses is one the Kotlin can send',
@@ -153,6 +154,23 @@ try {
 }
 const pkg = plugin.packageSource(PKG);
 check('the package creates the module', pkg.includes('listOf(ShridharNativeModule(ctx))'));
+
+console.log('\nBefore the keyboard app (build 66)');
+check('a key catcher takes shortcuts at the pre-IME stage', pkg.includes('class ShridharKeyCatcher(context: Context) : FrameLayout(context)')
+  && pkg.includes('override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {\n    if (ShridharNativeModule.onShortcut(event)) return true'));
+check('the package file braces balance', count(pkg, '{') === count(pkg, '}'));
+check('MainActivity wraps the React root in it', once.includes('override fun setContentView(view: View?)') && once.includes('val catcher = ShridharKeyCatcher(this)'));
+check('a root already wrapped is not wrapped twice', once.includes('view is ShridharKeyCatcher'));
+check('a root with a parent is moved, not added twice', once.includes('(view.parent as? ViewGroup)?.removeView(view)'));
+check('the key-shortcut path is taken too', once.includes('override fun dispatchKeyShortcutEvent(event: KeyEvent): Boolean') && once.includes('override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean'));
+check('the catcher is imported', count(once, 'import com.shridhar.billing.stylus.ShridharKeyCatcher\n') === 1);
+check('View imported once', count(once, '\nimport android.view.View\n') === 1);
+check('an activity patched by build 65 gains it', (() => {
+  const b65 = once.replace(/\n  \/\/ withStylus: shortcuts before[\s\S]*$/, '\n}\n');
+  const up = plugin.addToMainActivity(b65, PKG);
+  return !b65.includes('ShridharKeyCatcher(this)') && up.includes('ShridharKeyCatcher(this)') && count(up, '{') === count(up, '}');
+})());
+check('the up of a taken key is taken too, Alt held or not', mod.includes('if (ev.action == KeyEvent.ACTION_UP && takenDown.remove(ev.keyCode)) return true') && mod.includes('takenDown.add(ev.keyCode)'));
 
 console.log('\nRegistered in app.json');
 const appJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'mobile', 'app.json'), 'utf8'));

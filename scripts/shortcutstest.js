@@ -27,7 +27,9 @@ const want = [
   [{ key: 'PageDown', ctrl: true }, 'nextBill'],
   [{ key: 'h', alt: true }, 'history'],
   [{ key: 'H', alt: true }, 'history'],
-  [{ key: 'c', alt: true }, 'customer'],
+  [{ key: 'c', alt: true }, 'customers'],
+  [{ key: 'C', alt: true }, 'customers'],
+  [{ key: 'F9' }, 'settings'],
   [{ key: 'F2' }, 'customerName'],
   [{ key: 'F2', shift: true }, 'customerNameKn'],
   [{ key: 'F3' }, 'customerPhone'],
@@ -67,9 +69,14 @@ eq('Ctrl+H elsewhere is nothing', S.shortcutFor({ key: 'h', ctrl: true }, false)
 console.log('\nThe list itself');
 const chords = S.SHORTCUTS.map((s) => s.chord);
 check('no chord twice', new Set(chords).size === chords.length);
-check('every action once', new Set(S.SHORTCUTS.map((s) => s.action)).size === S.SHORTCUTS.length);
+check('every action once, but Settings twice (Alt+S and F9)', new Set(S.SHORTCUTS.map((s) => s.action)).size === S.SHORTCUTS.length - 1
+  && S.SHORTCUTS.filter((s) => s.action === 'settings').map((s) => s.chord).join() === 'Alt+S,F9');
 check('every entry has a help line', S.SHORTCUTS.every((s) => S.STRINGS.en[s.labelKey] && S.STRINGS.kn[s.labelKey]));
-check('F1, Alt+B and Alt+S are the global ones', S.SHORTCUTS.filter((s) => s.global).map((s) => s.chord).sort().join() === 'Alt+B,Alt+S,F1');
+check('F1, Alt+B, Alt+S, F9 and Alt+C are the global ones', S.SHORTCUTS.filter((s) => s.global).map((s) => s.chord).sort().join() === 'Alt+B,Alt+C,Alt+S,F1,F9');
+eq('Alt+C anywhere is Customers (build 66)', S.shortcutFor({ key: 'c', alt: true }, false), 'customers');
+eq('F9 anywhere is Settings (build 66)', S.shortcutFor({ key: 'F9' }, false), 'settings');
+eq('Alt+C is not the name box any more', S.customerFieldFor('customers'), null);
+check('the help lists F9 in both languages', !!(S.STRINGS.en['keys.settingsF9'] && S.STRINGS.kn['keys.settingsF9']));
 eq('Ctrl+H is not Alt+H', S.shortcutFor({ key: 'h', ctrl: true }), 'hideNames');
 eq('a plain B is typing', S.shortcutFor({ key: 'b' }), null);
 
@@ -151,8 +158,12 @@ console.log('\nWiring (build 64)');
     check(f + ': "each" shows the rate to 3 places', src.includes("t('bill.each', { rate: rateText(line.rate) })"));
   }
   check('web: Ctrl+H never opens the browser history', rd('client/src/pages/BillPage.tsx').includes("if (shortcutFor(press) === 'hideNames') e.preventDefault();"));
-  check('web: Alt+B and Alt+S from any page', rd('client/src/App.tsx').includes("navigate(action === 'bill' ? '/bill' : '/settings')"));
-  check('tablet: Alt+B and Alt+S from any screen', rd('mobile/App.tsx').includes("global === 'bill' || global === 'settings'"));
+  check('web: Alt+B, Alt+S / F9 and Alt+C from any page', rd('client/src/App.tsx').includes("action !== 'bill' && action !== 'settings' && action !== 'customers'") && rd('client/src/App.tsx').includes("navigate('/' + action)"));
+  check('web: the bill page leaves Alt+C to the shell', rd('client/src/pages/BillPage.tsx').includes("action === 'settings' || action === 'customers') return;"));
+  check('tablet: Alt+B, Alt+S / F9 and Alt+C from any screen', rd('mobile/App.tsx').includes("global === 'bill' || global === 'settings' || global === 'customers'"));
+  for (const f of ['mobile/src/screens/BillScreen.tsx', 'client/src/pages/BillPage.tsx']) {
+    check(f + ': Ctrl+Shift+P prints', rd(f).includes("case 'print': if (hasSomething && !saving && !printer.busy) void onPrint(); return;"));
+  }
   const stock = rd('mobile/src/screens/StockScreen.tsx');
   check('stock spinner: onLoadStart no longer sets it', !/onLoadStart=\{[^\n]*setLoading\(true\)/.test(stock));
   check('stock spinner: cleared at full progress', stock.includes('if (e.nativeEvent.progress >= 1) setLoading(false);'));
@@ -162,7 +173,6 @@ console.log('\nWiring (build 64)');
 
 console.log('\nCustomer boxes, even when the section is folded away');
 eq('F2 -> name', S.customerFieldFor('customerName'), 'name');
-eq('Alt+C -> name', S.customerFieldFor('customer'), 'name');
 eq('Shift+F2 -> Kannada name', S.customerFieldFor('customerNameKn'), 'nameKn');
 eq('F3 -> phone', S.customerFieldFor('customerPhone'), 'phone');
 eq('F4 is not a customer box', S.customerFieldFor('lineName'), null);

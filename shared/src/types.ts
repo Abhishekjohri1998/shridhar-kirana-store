@@ -301,6 +301,13 @@ export type StockUnit = {
   /** The range stock considers sensible, for a gentle warning -- never a block. */
   min?: number;
   max?: number;
+  /**
+   * The unit's own price before slabs, when it has slabs (stock sends `price` as the rate for
+   * one, which a slab starting at 1 may already set).
+   */
+  basePrice?: number;
+  /** Quantity slabs, when stock sends them: from `minQty` of this unit, `rate` each. */
+  slabs?: { minQty: number; rate: number }[];
 };
 
 export type StockItem = {

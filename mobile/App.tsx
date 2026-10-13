@@ -129,8 +129,8 @@ function Shell() {
   /*
    * A hardware keyboard's shortcuts (build 63). F1 swaps Billing and Stock from anywhere in the
    * app once someone is in; the rest are the bill screen's and only live while it is showing,
-   * so no other screen loses a key. Alt+B and Alt+S work
-   * from every screen. Alt+H, Alt+B and Alt+S are handled here, where the tabs are; the bill screen
+   * so no other screen loses a key. Alt+B, Alt+S (F9 too) and Alt+C (Customers) work
+   * from every screen. Alt+H, Alt+B, Alt+S, F9 and Alt+C are handled here, where the tabs are; the bill screen
    * handles everything else.
    */
   const goRef = useRef<(next: TabKey) => void>(() => undefined);
@@ -144,8 +144,8 @@ function Shell() {
     if (global === 'toggleApp') {
       setApp((a) => (a === 'billing' ? 'stock' : 'billing'));
       setStockOpened(true);
-    } else if (global === 'bill' || global === 'settings') {
-      // Alt+B and Alt+S (build 64): from anywhere, including Stock.
+    } else if (global === 'bill' || global === 'settings' || global === 'customers') {
+      // Alt+B, Alt+S / F9 and Alt+C: from anywhere, including Stock.
       setApp('billing');
       goRef.current(global);
     } else if (shortcutFor(e) === 'history') {
