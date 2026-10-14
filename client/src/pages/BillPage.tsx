@@ -23,7 +23,7 @@ import {
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, lineMoveFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
-  rateText,
+  rateText, unitMenuStart, unitMenuStep,
 } from '@shridhar/shared';
 import { useNavigate } from 'react-router-dom';
 import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
@@ -107,18 +107,61 @@ export function BillPage() {
       if (unitMenuRef.current?.contains(el) || el?.closest?.('.stock-unit')) return;
       setUnitMenu(null);
     };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setUnitMenu(null); };
     document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', esc);
-    return () => {
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', esc);
-    };
+    return () => document.removeEventListener('mousedown', away);
+  }, [unitMenu]);
+  /**
+   * The unit chip Left and Right are on while the list is open (build 67): it starts on the
+   * line's current unit; Enter picks it as a click would, Escape closes. Taken at the window,
+   * before the focused unit button or the bill's own Enter can act on the key.
+   */
+  const [unitHi, setUnitHi] = useState(-1);
+  const unitKeys = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  useEffect(() => {
+    if (!unitMenu) return;
+    const keys = (e: KeyboardEvent) => unitKeys.current(e);
+    window.addEventListener('keydown', keys, true);
+    return () => window.removeEventListener('keydown', keys, true);
   }, [unitMenu]);
   /** A pick or a unit change sets the line's own price and quantity, so half-typed text goes. */
   const clearTyped = (key: string) => {
     setPriceText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
     setQtyText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
+  };
+  /** The open unit list's chips in the order shown -- stock's units, then NOS. */
+  const unitCodes = (line: BillLine) => [...stock.unitsFor(line).map((u) => u.code), FALLBACK_UNIT];
+  const unitMenuAt = unitMenu ? shop.cart.findIndex((l) => l.itemId === unitMenu) : -1;
+  const unitMenuLine = unitMenuAt >= 0 ? shop.cart[unitMenuAt] : undefined;
+  // Stock's units can arrive after the list opens (loadUnits): start again on the current unit.
+  const unitMenuKey = unitMenuLine ? unitMenuLine.itemId + '|' + unitCodes(unitMenuLine).join(',') : '';
+  useEffect(() => {
+    if (!unitMenuLine) { setUnitHi(-1); return; }
+    setUnitHi(unitMenuStart(unitCodes(unitMenuLine), unitMenuLine.unit || FALLBACK_UNIT));
+  }, [unitMenuKey]);
+  /** A chip of the open list, by its place: the same as a click on it. */
+  const pickUnitAt = (index: number, line: BillLine, at: number) => {
+    const list = stock.unitsFor(line);
+    const u = at >= 0 && at < list.length ? list[at] : undefined;
+    if (u) {
+      clearTyped(line.itemId);
+      stock.changeUnit(index, line, u);
+    } else if (at === list.length) {
+      stock.chooseNos(index, line);
+    }
+    setUnitMenu(null);
+  };
+  unitKeys.current = (e: KeyboardEvent) => {
+    const take = () => { e.preventDefault(); e.stopPropagation(); };
+    if (e.key === 'Escape') { take(); setUnitMenu(null); return; }
+    if (!unitMenuLine) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      take();
+      const n = unitCodes(unitMenuLine).length;
+      setUnitHi((h) => unitMenuStep(h, e.key === 'ArrowLeft' ? -1 : 1, n));
+    } else if (e.key === 'Enter') {
+      take();
+      pickUnitAt(unitMenuAt, unitMenuLine, unitHi);
+    }
   };
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
@@ -867,13 +910,13 @@ export function BillPage() {
                             </button>
                             {unitMenu === line.itemId ? (
                               <ul className="stock-list stock-unit-menu" ref={unitMenuRef}>
-                                {stock.unitsFor(line).map((u) => {
+                                {stock.unitsFor(line).map((u, at) => {
                                   const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
                                   return (
                                     <li key={u.code}>
                                       <button
                                         type="button"
-                                        className="stock-unit-opt"
+                                        className={'stock-unit-opt' + (at === unitHi ? ' on' : '')}
                                         aria-current={u.code === line.unit}
                                         onClick={() => {
                                           clearTyped(line.itemId);
@@ -890,7 +933,7 @@ export function BillPage() {
                                 <li>
                                   <button
                                     type="button"
-                                    className="stock-unit-opt"
+                                    className={'stock-unit-opt' + (unitHi === stock.unitsFor(line).length ? ' on' : '')}
                                     aria-current={(line.unit || FALLBACK_UNIT) === FALLBACK_UNIT}
                                     onClick={() => {
                                       stock.chooseNos(index, line);

@@ -1871,6 +1871,8 @@ select.input {
 }
 .stock-unit-menu li + li .stock-unit-opt { border-top: 1px solid var(--line); }
 .stock-unit-opt[aria-current='true'] { font-weight: 700; }
+/* The chip Left and Right are on (build 67): the suggestion list's own highlight. */
+.stock-unit-opt.on { background: var(--brand-wash); }
 .stock-list {
   list-style: none;
   margin: 4px 0 0;

@@ -39,6 +39,10 @@
  *     dispatchKeyShortcutEvent / onKeyShortcut are taken too, for a chord Android routes as a
  *     menu shortcut. Alt+C (Customers) and F9 (Settings, for a keyboard that still takes
  *     Alt+S) are global from build 66.
+ *  7. The unit list (build 67). While JavaScript says a line's unit list is open
+ *     (`setUnitMenuOpen`, like setSuggestOpen), Left, Right, Enter and Escape go to JavaScript as
+ *     `hwKey` 'left' | 'right' | 'enter' | 'escape' and are used up -- down, repeats and the
+ *     matching up -- whatever has focus, at the pre-IME stage and again in dispatchKeyEvent.
  */
 const fs = require('fs');
 const path = require('path');
@@ -215,6 +219,9 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
   /** JavaScript says which shortcuts are live: 0 none, 1 F1 alone, 2 the bill screen's (build 63). */
   @ReactMethod fun setShortcuts(level: Int) { shortcutLevel = level }
 
+  /** JavaScript says a line's unit list is open, so Left, Right, Enter and Escape are its (build 67). */
+  @ReactMethod fun setUnitMenuOpen(open: Boolean) { unitMenuOpen = open }
+
   @ReactMethod
   fun shareToWhatsApp(phone: String, fileUri: String, text: String, promise: Promise) {
     val activity = currentActivity
@@ -284,6 +291,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @Volatile private var suggestOpen = false
     @Volatile private var takeEnter = false
     @Volatile private var shortcutLevel = 0
+    @Volatile private var unitMenuOpen = false
     /** Keys whose down was used up as a shortcut: their up is used up too, Alt held or not. */
     private val takenDown = java.util.Collections.synchronizedSet(HashSet<Int>())
 
@@ -347,6 +355,29 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     }
 
     /**
+     * The unit list F6 opened (build 67): Left and Right move along its chips, Enter picks, Escape
+     * closes -- in JavaScript. Emitted on the way down (the arrows on repeats too) and used up
+     * whole; the up is taken through takenDown, so it is used up even after Enter or Escape has
+     * closed the list, and never reaches the text box as a stray Enter.
+     */
+    @JvmStatic
+    fun onUnitMenu(ev: KeyEvent): Boolean {
+      if (!unitMenuOpen) return false
+      val key = when (ev.keyCode) {
+        KeyEvent.KEYCODE_DPAD_LEFT -> "left"
+        KeyEvent.KEYCODE_DPAD_RIGHT -> "right"
+        KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> "enter"
+        KeyEvent.KEYCODE_ESCAPE -> "escape"
+        else -> return false
+      }
+      if (ev.action == KeyEvent.ACTION_DOWN) {
+        takenDown.add(ev.keyCode)
+        if (ev.repeatCount == 0 || key == "left" || key == "right") instance?.emitKey(key)
+      }
+      return true
+    }
+
+    /**
      * Called by MainActivity for every key event. Up, Down and Enter from a hardware keyboard,
      * while a text box has focus, are sent to JavaScript on the way down. Returns true -- the
      * key is used up -- for Up and Down while a suggestion list is open, and for Enter (down,
@@ -362,6 +393,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @JvmStatic
     fun onKey(ev: KeyEvent, focus: View?): Boolean {
       if (onShortcut(ev)) return true
+      if (onUnitMenu(ev)) return true
       if (focus !is EditText) return false
       val key = when (ev.keyCode) {
         KeyEvent.KEYCODE_DPAD_UP -> "up"
@@ -428,6 +460,7 @@ class ShridharNativePackage : ReactPackage {
 class ShridharKeyCatcher(context: Context) : FrameLayout(context) {
   override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {
     if (ShridharNativeModule.onShortcut(event)) return true
+    if (ShridharNativeModule.onUnitMenu(event)) return true
     return super.dispatchKeyEventPreIme(event)
   }
 }

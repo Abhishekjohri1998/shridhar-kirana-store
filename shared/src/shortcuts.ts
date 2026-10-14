@@ -192,3 +192,24 @@ export function customerFieldFor(action: ShortcutAction): CustomerField | null {
 export function customerFocusPlan(mounted: boolean): 'focus' | 'openThenFocus' {
   return mounted ? 'focus' : 'openThenFocus';
 }
+
+/**
+ * The unit list F6 opens (build 67): Left and Right move a highlight across its chips, Enter
+ * picks the highlighted one, Escape closes. These two are the arithmetic, so the web page, the
+ * tablet and the tests agree on it.
+ *
+ * Where the highlight starts: on the line's current unit, else the first chip. `codes` is the
+ * chips in the order shown (NOS last); -1 only for an empty list.
+ */
+export function unitMenuStart(codes: string[], current: string | undefined): number {
+  if (!codes.length) return -1;
+  const at = current ? codes.indexOf(current) : -1;
+  return at >= 0 ? at : 0;
+}
+
+/** One chip left (-1) or right (+1), round from the last to the first and back. */
+export function unitMenuStep(at: number, step: 1 | -1, n: number): number {
+  if (!(n > 0)) return -1;
+  if (at < 0 || at >= n) return step > 0 ? 0 : n - 1;
+  return (at + step + n) % n;
+}

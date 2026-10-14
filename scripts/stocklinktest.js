@@ -321,9 +321,42 @@ async function main() {
       for (const f of ['client/src/lib/useStockSuggest.ts', 'mobile/src/lib/useStockSuggest.ts']) {
         const src = rd(f);
         check(f + ': a pick starts at the slab rate', src.includes('rate: pickRate(unit, line.qty > 0 ? line.qty : 1),'));
-        check(f + ': and asks stock at once, qty 1 too', src.includes('requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0,') && !src.includes('if (line.qty !== 1) requote'));
+        check(f + ': and asks stock at once, qty 1 too', src.includes('requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0);') && !src.includes('if (line.qty !== 1) requote'));
         check(f + ': and requotes on a quantity change', src.includes('requote(line.itemId, line.stockItemId, line.unit, qty);'));
+        check(f + ': a stock pick never asks for the last price', !/fillLastPrice\([^)]*item\.id/.test(src) && !src.includes('() => fillLastPrice'));
+        check(f + ': the last price is asked by name only, for NOS', src.includes('fillLastPrice(line.itemId, name, FALLBACK_UNIT);') && src.includes('api.lastPrice(name, undefined,'));
+        check(f + ': a late last price is guarded by the pricing sequence', src.includes('lastPriceApplies(line, asked, priceSeq.current[key] ?? 0, handRate.current.has(key))'));
+        check(f + ': an applied quote bumps the sequence', /bumpPrice\(key\);\s*if \(typeof q\.rate === 'number'/.test(src));
       }
+    }
+
+    console.log('\nWheel Soap 190g (build 67): the range price wins over the last price');
+    {
+      const { pickRate, sellUnitOf, lastPriceApplies, roundedLineAmount } = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'index.js'));
+      const wheel = {
+        id: 'it_wheel', nameEn: 'Wheel Soap 190g', nameKn: '', sellUnit: 'pc',
+        units: [
+          { code: 'pc', price: 10, basePrice: 10, slabs: [{ minQty: 6, rate: 9.166 }] },
+          { code: 'Box', price: 560 },
+          { code: 'Dz', price: 110 },
+        ],
+      };
+      const pc = sellUnitOf(wheel);
+      eq('picked in its selling unit, pc', pc.code, 'pc');
+      eq('qty 1 pc: 10', pickRate(pc, 1), 10);
+      eq('qty 1 pc: line 10', roundedLineAmount(1, pickRate(pc, 1), 1), 10);
+      eq('qty 5 pc: still 10', pickRate(pc, 5), 10);
+      eq('qty 6 pc: the slab rate 9.166', pickRate(pc, 6), 9.166);
+      eq('qty 6 pc: line 55 on the rupee step', roundedLineAmount(6, pickRate(pc, 6), 1), 55);
+      eq('qty 12 pc: line 110', roundedLineAmount(12, pickRate(pc, 12), 1), 110);
+      eq('1 Dz: 110', pickRate(wheel.units[2], 1), 110);
+      // An earlier bill sold 12 pc at 9.17: that answer must not touch a stock line.
+      eq('last price ignored for a stock line', lastPriceApplies({ stockItemId: 'it_wheel', unit: 'pc' }, { unit: 'pc', seq: 1 }, 1, false), false);
+      eq('last price used for a NOS line', lastPriceApplies({ unit: 'NOS' }, { unit: 'NOS', seq: 1 }, 1, false), true);
+      eq('not over a hand-typed price', lastPriceApplies({ unit: 'NOS' }, { unit: 'NOS', seq: 1 }, 1, true), false);
+      eq('not when the line was priced again since it asked', lastPriceApplies({ unit: 'NOS' }, { unit: 'NOS', seq: 1 }, 2, false), false);
+      eq('not once the line changed unit', lastPriceApplies({ unit: 'pc' }, { unit: 'NOS', seq: 1 }, 1, false), false);
+      eq('not for a removed line', lastPriceApplies(undefined, { unit: 'NOS', seq: 1 }, 1, false), false);
     }
 
     console.log('\nA stock server that hangs');

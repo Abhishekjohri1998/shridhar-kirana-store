@@ -13,6 +13,8 @@ type ShridharNative = {
   setTakeEnter?: (on: boolean) => void;
   /** Absent in builds before 63. */
   setShortcuts?: (level: number) => void;
+  /** Absent in builds before 67. */
+  setUnitMenuOpen?: (open: boolean) => void;
 };
 
 const mod: ShridharNative | undefined =
@@ -46,7 +48,8 @@ export async function shareToWhatsApp(phoneE164: string, fileUri: string, text: 
 }
 
 /** A key from a hardware keyboard, read natively: React Native's TextInput never reports arrows. */
-export type HwKey = 'up' | 'down' | 'enter';
+export type HwKey = 'up' | 'down' | 'enter' | 'left' | 'right' | 'escape';
+const HW_KEYS: HwKey[] = ['up', 'down', 'enter', 'left', 'right', 'escape'];
 
 /**
  * Up, Down and Enter from a keyboard plugged into the tablet, while a text box has the cursor.
@@ -56,7 +59,7 @@ export type HwKey = 'up' | 'down' | 'enter';
 export function onHardwareKey(fn: (key: HwKey) => void): () => void {
   if (!mod) return () => undefined;
   const sub = DeviceEventEmitter.addListener('hwKey', (e: { key?: string }) => {
-    if (e?.key === 'up' || e?.key === 'down' || e?.key === 'enter') fn(e.key);
+    if (HW_KEYS.includes(e?.key as HwKey)) fn(e.key as HwKey);
   });
   return () => sub.remove();
 }
@@ -67,6 +70,15 @@ export function onHardwareKey(fn: (key: HwKey) => void): () => void {
  */
 export function setSuggestOpen(open: boolean): void {
   try { mod?.setSuggestOpen?.(open); } catch { /* an older build */ }
+}
+
+/**
+ * Tells the native side a line's unit list is open (build 67): Left, Right, Enter and Escape are
+ * then its, whatever has focus -- sent here as hwKey 'left' | 'right' | 'enter' | 'escape' and
+ * kept from the text box, the keyboard app and Back.
+ */
+export function setUnitMenuOpen(open: boolean): void {
+  try { mod?.setUnitMenuOpen?.(open); } catch { /* an older build */ }
 }
 
 /**

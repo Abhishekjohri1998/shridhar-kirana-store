@@ -186,6 +186,34 @@ for (const app of ['client', 'mobile']) {
 }
 check('web: a folded section is expanded first', fs.readFileSync(path.join(__dirname, '..', 'client', 'src', 'components', 'CustomerBar.tsx'), 'utf8').replace(/\r\n/g, '\n').includes('setExpanded(true);\n      if (shop.customer) setOpen(true);'));
 
+console.log('\nThe unit list F6 opens (build 67)');
+{
+  const codes = ['pc', 'Box', 'Dz', 'NOS'];
+  eq('starts on the current unit', S.unitMenuStart(codes, 'Dz'), 2);
+  eq('a unit not listed: the first chip', S.unitMenuStart(codes, 'kg'), 0);
+  eq('no unit: the first chip', S.unitMenuStart(codes, undefined), 0);
+  eq('an empty list: nothing', S.unitMenuStart([], 'pc'), -1);
+  eq('right moves one', S.unitMenuStep(0, 1, 4), 1);
+  eq('left moves back', S.unitMenuStep(2, -1, 4), 1);
+  eq('right from the last wraps to the first', S.unitMenuStep(3, 1, 4), 0);
+  eq('left from the first wraps to the last', S.unitMenuStep(0, -1, 4), 3);
+  eq('no highlight yet: right is the first', S.unitMenuStep(-1, 1, 4), 0);
+  eq('no highlight yet: left is the last', S.unitMenuStep(-1, -1, 4), 3);
+  eq('no chips: nothing', S.unitMenuStep(0, 1, 0), -1);
+  const rd = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
+  const web = rd('client/src/pages/BillPage.tsx');
+  check('web: Left/Right/Enter/Escape taken while the list is open', ['ArrowLeft', 'ArrowRight', "'Enter'", "'Escape'"].every((k) => web.includes(k)) && web.includes("window.addEventListener('keydown', keys, true)"));
+  check('web: Enter picks through changeUnit', web.includes('pickUnitAt(unitMenuAt, unitMenuLine, unitHi)') && web.includes('stock.changeUnit(index, line, u);'));
+  check('web: the highlight is shown', web.includes("(at === unitHi ? ' on' : '')"));
+  const tab = rd('mobile/src/screens/BillScreen.tsx');
+  check('tablet: tells native the list is open', tab.includes('setUnitMenuOpen(unitMenu != null)'));
+  check('tablet: the list has the keys first, Enter does not also move on', tab.includes('if (unitOpen.current) {') && tab.includes("if (key === 'enter' && !unitOpen.current) hwEnter.current()"));
+  check('tablet: Enter picks through changeUnit', tab.includes('pickUnitAt(unitMenuAt, unitMenuLine, unitHi)') && tab.includes('stock.changeUnit(index, line, u);'));
+  check('tablet: the highlight is shown', tab.includes('at === unitHi && styles.stockChipOn'));
+  const i18n = rd('shared/src/i18n.ts');
+  check('help says F6 then arrows and Enter, EN and KN', (i18n.match(/F6 (then|ನಂತರ) ← → Enter/g) || []).length === 2);
+}
+
 console.log('');
 if (failures) {
   console.log(failures + ' check(s) failed');

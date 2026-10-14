@@ -167,7 +167,7 @@ function screens() {
       src.includes("value={qtyText[line.itemId] ?? (line.rate > 0 ? String(line.qty) : '')}") && src.includes('placeholder="1"'));
     check(name + ': F4 goes to the top typed line showing', /nameShortcutLine\(rowBoxes\(\)/.test(src) && /lineHasInk\(cart\[i\]!\)/.test(src));
     check(name + ': F5-F8 ignore the cursor\'s line', /shortcutLine\(rowBoxes\(\), /.test(src) && !/shortcutLine\(\s*cursorAt/.test(src));
-    check(name + ': no straight jump to the price from a name', !/submitName[\s\S]{0,600}prices\.current/.test(src.slice(src.indexOf('const submitName'), src.indexOf('const submitName') + 700)));
+    check(name + ': no straight jump to the price from a name', !/submitName[\s\S]{0,600}prices\.current/.test((() => { const lf = src.replace(/\r\n/g, '\n'); const at = lf.indexOf('const submitName'); return lf.slice(at, lf.indexOf('\n  };', at)); })()));
   }
   check('tablet: the quantity focus waits for the box', /kind === 'qty' \? qtys\.current\[target\]/.test(mobile));
   check('web: the quantity focus waits for the box', /wantQty\.current = id/.test(web) && /const field = qtys\.current\[id\]/.test(web));

@@ -46,3 +46,23 @@ export function pickRate(unit: Pick<StockUnit, 'price' | 'basePrice' | 'slabs'>,
   if (best) return best.rate;
   return typeof unit.basePrice === 'number' && unit.slabs?.length ? unit.basePrice : unit.price;
 }
+
+/**
+ * Whether the price an item last went at may fill a line, once the billing server answers
+ * (build 67). Only for a line stock does not know (NOS or an unmatched name): a stock-matched
+ * line is priced by stock's quote for its quantity and unit -- the range price wins, so 1 pc of
+ * an item once sold 12 at a time at 9.17 is 10 again. Never over the shopkeeper's own price, and
+ * never when anything has priced the line since it was asked (`askedSeq` against `nowSeq`), so a
+ * late answer cannot replace a quote.
+ */
+export function lastPriceApplies(
+  line: { stockItemId?: string | null; unit?: string } | undefined,
+  asked: { unit: string; seq: number },
+  nowSeq: number,
+  handTyped: boolean,
+): boolean {
+  if (!line || handTyped) return false;
+  if (line.stockItemId) return false;
+  if (line.unit !== asked.unit) return false;
+  return asked.seq === nowSeq;
+}

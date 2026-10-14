@@ -172,6 +172,27 @@ check('an activity patched by build 65 gains it', (() => {
 })());
 check('the up of a taken key is taken too, Alt held or not', mod.includes('if (ev.action == KeyEvent.ACTION_UP && takenDown.remove(ev.keyCode)) return true') && mod.includes('takenDown.add(ev.keyCode)'));
 
+console.log('\nThe unit list (build 67)');
+check('JS can say the unit list is open', mod.includes('@ReactMethod fun setUnitMenuOpen(open: Boolean) { unitMenuOpen = open }') && mod.includes('@Volatile private var unitMenuOpen = false'));
+check('Left, Right, Enter and Escape are its', ['KEYCODE_DPAD_LEFT -> "left"', 'KEYCODE_DPAD_RIGHT -> "right"', 'KEYCODE_ESCAPE -> "escape"'].every((k) => mod.includes(k)));
+check('only while it is open', mod.includes('fun onUnitMenu(ev: KeyEvent): Boolean {\n      if (!unitMenuOpen) return false'));
+check('used up whole, the up too', /fun onUnitMenu[\s\S]*?takenDown\.add\(ev\.keyCode\)[\s\S]*?return true/.test(mod));
+check('arrows repeat, Enter and Escape once', mod.includes('if (ev.repeatCount == 0 || key == "left" || key == "right") instance?.emitKey(key)'));
+check('whatever has focus: before the text-box test', mod.indexOf('if (onUnitMenu(ev)) return true') > mod.indexOf('if (onShortcut(ev)) return true')
+  && mod.indexOf('if (onUnitMenu(ev)) return true') < mod.indexOf('if (focus !is EditText) return false'));
+check('and ahead of the keyboard app', pkg.includes('if (ShridharNativeModule.onShortcut(event)) return true\n    if (ShridharNativeModule.onUnitMenu(event)) return true'));
+{
+  const native = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'src', 'lib', 'native.ts'), 'utf8');
+  check('JS side: setUnitMenuOpen, safe on an older build', native.includes('mod?.setUnitMenuOpen?.(open)'));
+  check('JS side: hwKey passes left, right and escape', native.includes("'left' | 'right' | 'escape'"));
+  const gen = path.join(__dirname, '..', 'mobile', 'android', 'app', 'src', 'main', 'java', 'com', 'shridhar', 'billing', 'stylus');
+  if (fs.existsSync(gen)) {
+    const rd = (f) => fs.readFileSync(path.join(gen, f), 'utf8').replace(/\r\n/g, '\n');
+    check('the android project carries this module (regenerated)', rd('ShridharNativeModule.kt') === mod);
+    check('and this package', rd('ShridharNativePackage.kt') === pkg);
+  }
+}
+
 console.log('\nRegistered in app.json');
 const appJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'mobile', 'app.json'), 'utf8'));
 check('the plugin is listed', (appJson.expo.plugins || []).includes('./plugins/withStylus'));

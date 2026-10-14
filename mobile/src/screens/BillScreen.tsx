@@ -9,7 +9,7 @@ import {
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
-  rateText,
+  rateText, unitMenuStart, unitMenuStep,
 } from '@shridhar/shared';
 import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
@@ -20,7 +20,7 @@ import { Button, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
-import { onHardwareKey, onHardwareShortcut, setSuggestOpen, setTakeEnter } from '../lib/native';
+import { onHardwareKey, onHardwareShortcut, setSuggestOpen, setTakeEnter, setUnitMenuOpen } from '../lib/native';
 import { C, R, TYPE, shadow } from '../theme';
 
 /**
@@ -137,6 +137,50 @@ export function BillScreen() {
     setPriceText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
     setQtyText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
   };
+  /**
+   * The unit chip Left and Right are on while the list is open (build 67): it starts on the
+   * line's current unit; Enter picks it as a tap would, Escape closes. Native code keeps those
+   * four keys for the list while it is open (setUnitMenuOpen).
+   */
+  const [unitHi, setUnitHi] = useState(-1);
+  /** The open list's chips in the order shown -- stock's units, then NOS. */
+  const unitCodes = (line: BillLine) => [...stock.unitsFor(line).map((u) => u.code), FALLBACK_UNIT];
+  const unitMenuAt = unitMenu ? shop.cart.findIndex((l) => l.itemId === unitMenu) : -1;
+  const unitMenuLine = unitMenuAt >= 0 ? shop.cart[unitMenuAt] : undefined;
+  // Stock's units can arrive after the list opens (loadUnits): start again on the current unit.
+  const unitMenuKey = unitMenuLine ? unitMenuLine.itemId + '|' + unitCodes(unitMenuLine).join(',') : '';
+  useEffect(() => {
+    if (!unitMenuLine) { setUnitHi(-1); return; }
+    setUnitHi(unitMenuStart(unitCodes(unitMenuLine), unitMenuLine.unit || FALLBACK_UNIT));
+  }, [unitMenuKey]);
+  useEffect(() => { setUnitMenuOpen(unitMenu != null); }, [unitMenu]);
+  useEffect(() => () => setUnitMenuOpen(false), []);
+  /** A chip of the open list, by its place: the same as a tap on it. */
+  const pickUnitAt = (index: number, line: BillLine, at: number) => {
+    const list = stock.unitsFor(line);
+    const u = at >= 0 && at < list.length ? list[at] : undefined;
+    if (u) {
+      clearTyped(line.itemId);
+      stock.changeUnit(index, line, u);
+    } else if (at === list.length) {
+      stock.chooseNos(index, line);
+    }
+    setUnitMenu(null);
+  };
+  /** Read by the hardware-key listener, which is set up once. */
+  const unitKeys = useRef<(key: 'left' | 'right' | 'enter' | 'escape') => void>(() => undefined);
+  const unitOpen = useRef(false);
+  unitOpen.current = unitMenu != null;
+  unitKeys.current = (key) => {
+    if (key === 'escape') { setUnitMenu(null); return; }
+    if (!unitMenuLine) return;
+    if (key === 'left' || key === 'right') {
+      const n = unitCodes(unitMenuLine).length;
+      setUnitHi((h) => unitMenuStep(h, key === 'left' ? -1 : 1, n));
+    } else {
+      pickUnitAt(unitMenuAt, unitMenuLine, unitHi);
+    }
+  };
   /** One writing strip per line, so a row's undo button can reach its own strokes. */
   const pads = useRef<Record<string, InkPadHandle | null>>({});
   /** The same, for the price boxes, so one line's price can hand on to the next one's. */
@@ -164,13 +208,18 @@ export function BillScreen() {
   /** Up or Down with no suggestion list open: the same box on the line above or below. */
   const hwArrow = useRef<(delta: -1 | 1) => void>(() => undefined);
   useEffect(() => onHardwareKey((key) => {
+    // The unit list F6 opened has Left, Right, Enter and Escape to itself (build 67).
+    if (unitOpen.current) {
+      if (key === 'left' || key === 'right' || key === 'enter' || key === 'escape') unitKeys.current(key);
+      return;
+    }
     const s = stockRef.current;
-    if (key === 'enter') return;
+    if (key !== 'up' && key !== 'down') return;
     if (!s.openFor) { hwArrow.current(key === 'up' ? -1 : 1); return; }
     if (key === 'up') s.moveHighlight(-1);
     else if (key === 'down') s.moveHighlight(1);
   }), []);
-  useEffect(() => onHardwareKey((key) => { if (key === 'enter') hwEnter.current(); }), []);
+  useEffect(() => onHardwareKey((key) => { if (key === 'enter' && !unitOpen.current) hwEnter.current(); }), []);
   const sheet = useRef<ScrollView>(null);
   /*
    * What the slip actually measures, so the page can be turned rather than guessed at.
@@ -1092,12 +1141,12 @@ export function BillScreen() {
                     </View>
                     {unitMenu === line.itemId ? (
                       <View style={[styles.stockList, styles.stockChips, styles.stockUnitMenu]}>
-                        {stock.unitsFor(line).map((u) => {
+                        {stock.unitsFor(line).map((u, at) => {
                           const label = (shop.lang === 'kn' && u.labelKn) || u.label || u.code;
                           return (
                             <Pressable
                               key={u.code}
-                              style={styles.stockChip}
+                              style={[styles.stockChip, at === unitHi && styles.stockChipOn]}
                               accessibilityState={{ selected: u.code === line.unit }}
                               onPress={() => {
                                 clearTyped(line.itemId);
@@ -1105,20 +1154,20 @@ export function BillScreen() {
                                 setUnitMenu(null);
                               }}
                             >
-                              <Text style={styles.stockChipText}>{label + ' ₹' + money(u.price)}</Text>
+                              <Text style={[styles.stockChipText, at === unitHi && styles.stockChipTextOn]}>{label + ' ₹' + money(u.price)}</Text>
                             </Pressable>
                           );
                         })}
                         {/* Always there: a count of anything, for an item stock does not know. */}
                         <Pressable
-                          style={styles.stockChip}
+                          style={[styles.stockChip, unitHi === stock.unitsFor(line).length && styles.stockChipOn]}
                           accessibilityState={{ selected: (line.unit || FALLBACK_UNIT) === FALLBACK_UNIT }}
                           onPress={() => {
                             stock.chooseNos(index, line);
                             setUnitMenu(null);
                           }}
                         >
-                          <Text style={styles.stockChipText}>{FALLBACK_UNIT}</Text>
+                          <Text style={[styles.stockChipText, unitHi === stock.unitsFor(line).length && styles.stockChipTextOn]}>{FALLBACK_UNIT}</Text>
                         </Pressable>
                       </View>
                     ) : null}
@@ -1642,6 +1691,9 @@ const styles = StyleSheet.create({
     borderRadius: R.pill, paddingHorizontal: 12, paddingVertical: 7,
   },
   stockChipText: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
+  /** The chip Left and Right are on (build 67). */
+  stockChipOn: { backgroundColor: C.accent, borderColor: C.accent },
+  stockChipTextOn: { color: C.accentInk },
   stockUnitMenu: { padding: 8 },
   stockWarn: { ...TYPE.hint, color: C.gold, marginTop: 2 },
 

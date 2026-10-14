@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FALLBACK_UNIT, bestMatch, pickRate, sellUnitOf } from '@shridhar/shared';
+import { FALLBACK_UNIT, bestMatch, lastPriceApplies, pickRate, sellUnitOf } from '@shridhar/shared';
 import type { BillLine, StockItem, StockUnit } from '@shridhar/shared';
 import { api } from './api';
 import { useShop } from './useShop';
@@ -57,6 +57,12 @@ export function useStockSuggest() {
   const [bounds, setBounds] = useState<Record<string, { min?: number; max?: number }>>({});
   const [quoteWarn, setQuoteWarn] = useState<Record<string, 'below' | 'above' | null>>({});
   const handRate = useRef(new Set<string>());
+  /**
+   * Each line's pricing generation: bumped by every pick, unit change and applied quote, so a
+   * last-price answer that comes back after any of them is stale and dropped (build 67).
+   */
+  const priceSeq = useRef<Record<string, number>>({});
+  const bumpPrice = (key: string) => { priceSeq.current[key] = (priceSeq.current[key] ?? 0) + 1; };
   /** Each picked line's units, for its unit menu. Lost on a reload; loadUnits asks stock again. */
   const [units, setUnits] = useState<Record<string, StockUnit[]>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -100,15 +106,12 @@ export function useStockSuggest() {
     setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
     setQuery(null);
     setItems([]);
+    bumpPrice(line.itemId);
     // Stock's own quote for this quantity -- qty 1 too, where a slab starting at 1 sets the rate --
-    // straight away; then the price it last went at, which still wins when there is one.
-    const name = lineNameOf(item);
-    if (!on) {
-      fillLastPrice(line.itemId, name, item.id, unit.code);
-      return;
-    }
-    requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0,
-      () => fillLastPrice(line.itemId, name, item.id, unit.code));
+    // straight away. A stock item is priced by stock alone: the range price wins over the price it
+    // last went at (build 67), which only fills lines stock does not know.
+    if (!on) return;
+    requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0);
   };
 
   /*
@@ -117,14 +120,15 @@ export function useStockSuggest() {
    * was asked for and its price is not the shopkeeper's own; it stays "auto", so a change of
    * quantity still asks stock again as before.
    */
-  const fillLastPrice = (key: string, name: string, stockItemId: string | undefined, unit: string) => {
-    if (!name.trim() && !stockItemId) return;
-    api.lastPrice(name, stockItemId, shop.customer?.id)
+  const fillLastPrice = (key: string, name: string, unit: string) => {
+    if (!name.trim()) return;
+    const asked = { unit, seq: priceSeq.current[key] ?? 0 };
+    api.lastPrice(name, undefined, shop.customer?.id)
       .then((r) => {
-        if (typeof r?.rate !== 'number' || !(r.rate > 0) || handRate.current.has(key)) return;
+        if (typeof r?.rate !== 'number' || !(r.rate > 0)) return;
         const at = cart.current.findIndex((l) => l.itemId === key);
         const line = cart.current[at];
-        if (!line || line.unit !== unit || (line.stockItemId ?? undefined) !== stockItemId) return;
+        if (!line || !lastPriceApplies(line, asked, priceSeq.current[key] ?? 0, handRate.current.has(key))) return;
         if (r.rate !== line.rate) shop.setLineRate(at, r.rate);
       })
       .catch(() => undefined);
@@ -142,7 +146,8 @@ export function useStockSuggest() {
     });
     setQuery(null);
     setItems([]);
-    fillLastPrice(line.itemId, name, undefined, FALLBACK_UNIT);
+    bumpPrice(line.itemId);
+    fillLastPrice(line.itemId, name, FALLBACK_UNIT);
     return true;
   };
 
@@ -174,9 +179,6 @@ export function useStockSuggest() {
     const unit = sellUnitOf(item);
     if (unit) pick(index, line, item, unit);
   };
-
-  /** A line's name as stock gave it, either language. */
-  const lineNameOf = (x: { nameEn: string; nameKn: string }) => x.nameEn || x.nameKn;
 
   /** The units a picked line can switch between, once known. */
   const unitsFor = (line: BillLine): StockUnit[] => units[line.itemId] ?? [];
@@ -222,6 +224,7 @@ export function useStockSuggest() {
     });
     setBounds((b) => ({ ...b, [line.itemId]: { min: unit.min, max: unit.max } }));
     setQuoteWarn((w) => ({ ...w, [line.itemId]: null }));
+    bumpPrice(line.itemId);
     if (!mine && on) requote(line.itemId, line.stockItemId, unit.code, line.qty > 0 ? line.qty : 1);
   };
 
@@ -235,9 +238,9 @@ export function useStockSuggest() {
 
   /**
    * Stock's rate for this quantity, a beat after the last change (`delay`; 0 right after a pick),
-   * unless the rate is the shopkeeper's. `after` runs once stock has answered or failed.
+   * unless the rate is the shopkeeper's.
    */
-  const requote = (key: string, item: string, unit: string, qty: number, delay = 400, after?: () => void) => {
+  const requote = (key: string, item: string, unit: string, qty: number, delay = 400) => {
     clearTimeout(timers.current[key]);
     timers.current[key] = setTimeout(() => {
       api.stockQuote(item, unit, qty)
@@ -248,11 +251,11 @@ export function useStockSuggest() {
           const line = cart.current[at];
           const lineQty = line && line.qty > 0 ? line.qty : 1;
           if (!line || line.stockItemId !== item || line.unit !== unit || lineQty !== qty) return;
+          bumpPrice(key);
           if (typeof q.rate === 'number' && q.rate !== line.rate) shop.setLineRate(at, q.rate);
           setQuoteWarn((w) => ({ ...w, [key]: q.warn ?? null }));
         })
-        .catch(() => undefined)
-        .finally(() => after?.());
+        .catch(() => undefined);
     }, delay);
   };
 
