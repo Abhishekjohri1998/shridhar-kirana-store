@@ -121,8 +121,28 @@ function Shell() {
   // Held until the face is ready, so no heading is drawn once in the wrong font and again in
   // the right one.
   const [fontsReady] = useFonts({ Caveat_700Bold });
-  const barWidth = useRef(0);
+  /*
+   * The bar's width as state, not a ref: the marker's travel is read from it while rendering,
+   * and a ref filled in by onLayout never caused that render -- so the marker's travel stayed
+   * 0 and the green bar sat over Bill whichever tab was showing.
+   */
+  const [barWidth, setBarWidth] = useState(0);
   const slide = useRef(new Animated.Value(0)).current;
+  /*
+   * The marker follows the active tab itself, not whatever pressed it: a tap, Alt+B/C/H/S, F9,
+   * F1 back from Stock and any other setTab all move it the same way. The indicator slides
+   * between tabs rather than jumping, which is the cheapest way to say "you are still in the
+   * same app, one section over".
+   */
+  useEffect(() => {
+    Animated.spring(slide, {
+      toValue: Math.max(0, TABS.findIndex((t) => t.key === tab)),
+      damping: 18,
+      stiffness: 220,
+      mass: 0.7,
+      useNativeDriver: true,
+    }).start();
+  }, [tab, slide]);
   const frame = useSafeFrame();
   const insets = useHeldInsets();
 
@@ -206,16 +226,8 @@ function Shell() {
   const shopName = pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang);
 
   const go = (next: TabKey) => {
+    // The marker moves on its own when `tab` changes (the effect above).
     setTab(next);
-    // The indicator slides between tabs rather than jumping, which is the cheapest way to say
-    // "you are still in the same app, one section over".
-    Animated.spring(slide, {
-      toValue: TABS.findIndex((t) => t.key === next),
-      damping: 18,
-      stiffness: 220,
-      mass: 0.7,
-      useNativeDriver: true,
-    }).start();
   };
   goRef.current = go;
 
@@ -297,7 +309,7 @@ function Shell() {
         <View
           style={[styles.tabBar, { paddingBottom: insets.bottom }, app !== 'billing' && styles.hidden]}
           onLayout={(e) => {
-            barWidth.current = e.nativeEvent.layout.width;
+            setBarWidth(e.nativeEvent.layout.width);
             slide.setValue(index);
           }}
         >
@@ -310,7 +322,7 @@ function Shell() {
                   {
                     translateX: slide.interpolate({
                       inputRange: [0, 1],
-                      outputRange: [0, barWidth.current / TABS.length],
+                      outputRange: [0, barWidth / TABS.length],
                     }),
                   },
                 ],

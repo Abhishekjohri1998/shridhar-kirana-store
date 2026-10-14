@@ -214,6 +214,16 @@ console.log('\nThe unit list F6 opens (build 67)');
   check('help says F6 then arrows and Enter, EN and KN', (i18n.match(/F6 (then|ನಂತರ) ← → Enter/g) || []).length === 2);
 }
 
+{
+  console.log('\nTablet tab marker follows the active tab');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'App.tsx'), 'utf8').replace(/\r\n/g, '\n');
+  check('the bar width is state, so its travel is not stuck at 0', app.includes('const [barWidth, setBarWidth] = useState(0);') && !app.includes('barWidth.current'));
+  check('the marker springs from the tab state', /useEffect\(\(\) => \{\s+Animated\.spring\(slide, \{\s+toValue: Math\.max\(0, TABS\.findIndex\(\(t\) => t\.key === tab\)\),[\s\S]*?\}, \[tab, slide\]\);/.test(app));
+  check('same timing as before', app.includes('damping: 18,') && app.includes('stiffness: 220,') && app.includes('mass: 0.7,'));
+  check('go() only sets the tab', !/const go = \(next: TabKey\) => \{[^}]*Animated/.test(app));
+  check('travel uses the measured width', app.includes('outputRange: [0, barWidth / TABS.length]'));
+}
+
 console.log('');
 if (failures) {
   console.log(failures + ' check(s) failed');

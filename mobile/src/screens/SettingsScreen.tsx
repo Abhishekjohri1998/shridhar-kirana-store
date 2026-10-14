@@ -369,6 +369,17 @@ export function SettingsScreen() {
             <Text style={styles.hint}>{t('set.showRateHint')}</Text>
           </View>
         </View>
+
+        <Text style={styles.label}>{t('set.hiddenReceipt')}</Text>
+        <Choice<'list' | 'compact'>
+          options={[
+            { key: 'list', label: t('set.hiddenList') },
+            { key: 'compact', label: t('set.hiddenCompact') },
+          ]}
+          value={shop.settings.hiddenReceipt ?? 'list'}
+          onChange={(next) => void save({ hiddenReceipt: next }, 'set.savedHiddenReceipt')}
+        />
+        <Text style={styles.hint}>{t('set.hiddenReceiptHint')}</Text>
       </Card>
 
       <Card style={styles.card}>

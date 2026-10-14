@@ -333,6 +333,28 @@ export function SettingsPage() {
             <span className="muted small">{t('set.showRateHint')}</span>
           </span>
         </label>
+        <div className="field">
+          <label>{t('set.hiddenReceipt')}</label>
+          <span className="stock-chips" role="radiogroup" aria-label={t('set.hiddenReceipt')}>
+            {(['list', 'compact'] as const).map((mode) => {
+              const on = (shop.settings.hiddenReceipt ?? 'list') === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  className="pay-all stock-chip"
+                  style={on ? { background: 'var(--brand-edge)', fontWeight: 700 } : undefined}
+                  onClick={() => { if (!on) void save({ hiddenReceipt: mode }, 'set.savedHiddenReceipt'); }}
+                >
+                  {t(mode === 'list' ? 'set.hiddenList' : 'set.hiddenCompact')}
+                </button>
+              );
+            })}
+          </span>
+          <span className="muted small">{t('set.hiddenReceiptHint')}</span>
+        </div>
       </section>
 
       <section className="card stack">

@@ -55,6 +55,8 @@ export function billAsText(
     no: number; at: string; total: number; paid: number; balance: number; showBalance: boolean; hideNames?: boolean;
     /** The shop's "show item rate under each item". Off (or missing): no "x rate", only the amount. */
     showRate?: boolean;
+    /** The shop's hidden-items receipt; 'compact' sends "1)110, 2)170 · Total 280" on one line. */
+    hiddenReceipt?: 'list' | 'compact';
     lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string; hidden?: boolean }[];
   },
   shopName: string,
@@ -62,6 +64,15 @@ export function billAsText(
 ): string {
   const rupees = (n: number) => '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
   const out = [shopName, labels.bill + bill.no + ' · ' + new Date(bill.at).toLocaleString('en-IN'), ''];
+  if (bill.hideNames === true && bill.hiddenReceipt === 'compact') {
+    const plain = (n: number) => String(Math.round(n * 100) / 100);
+    const runs = bill.lines.filter((x) => x.hidden !== true).map((l, i) => (i + 1) + ')' + plain(l.qty * l.rate));
+    out.push(runs.join(', ') + ' · ' + labels.total + ' ' + plain(bill.total));
+    if (bill.showBalance) {
+      out.push(labels.paid + ': ' + rupees(bill.paid), labels.balance + ': ' + rupees(bill.balance));
+    }
+    return out.join('\n');
+  }
   // Hidden lines stay off the text as they stay off the paper; the total still counts them.
   bill.lines.filter((x) => x.hidden !== true).forEach((l, i) => {
     // Descriptions hidden: the line's number and price only -- no name, quantity or rate.

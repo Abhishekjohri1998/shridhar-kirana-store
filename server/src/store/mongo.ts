@@ -176,6 +176,7 @@ const settingsSchema = new Schema<SettingsDoc>(
     footerKn: { type: String, required: false, default: '' },
     showRate: { type: Boolean, required: true },
     showGstin: { type: Boolean, required: false, default: true },
+    hiddenReceipt: { type: String, required: false, default: 'list' },
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
     // No default on purpose: absent means "never set", which the first start fills from stock.
     roundTo: { type: Number, required: false },

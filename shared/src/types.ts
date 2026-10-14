@@ -237,6 +237,11 @@ export type Settings = {
   footerKn: string;
   /** Print the per-unit rate under each item name. The shop's paper slip does not, so this is off by default. */
   showRate: boolean;
+  /**
+   * How a bill with its item descriptions hidden prints: 'list' (a numbered line per item, the
+   * default) or 'compact' (one wrapped run "1)110, 2)170, 3)550" and the total). Absent reads as list.
+   */
+  hiddenReceipt?: HiddenReceipt;
   /** A customer quiet for this many days is flagged as needing a nudge. */
   inactiveAfterDays: number;
   /**
@@ -246,6 +251,8 @@ export type Settings = {
    */
   roundTo?: number;
 };
+
+export type HiddenReceipt = 'list' | 'compact';
 
 export const DEFAULT_SETTINGS: Settings = {
   shopName: 'Shridhar Kirani Stores',
@@ -257,6 +264,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shopNameKn: '',
   footerKn: '',
   showRate: false,
+  hiddenReceipt: 'list',
   inactiveAfterDays: 30,
 };
 

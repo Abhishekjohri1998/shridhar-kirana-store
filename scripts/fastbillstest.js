@@ -115,6 +115,56 @@ function receipt() {
     const on = shared.billAsText({ ...rb, showRate: true }, 'Shop', L);
     check('WhatsApp on: qty × rate as before', on.includes('×'), on);
   }
+  {
+    console.log('\nCompact hidden-items receipt (Settings.hiddenReceipt)');
+    const L = { bill: 'Bill ', total: 'Total', paid: 'Paid', balance: 'Balance' };
+    const b79 = {
+      no: 79, at: '2026-10-11T10:00:00.000Z', total: 830, paid: 830, balance: 0, showBalance: false, hideNames: true,
+      customer: { id: 'k', name: 'Ravi', phone: '9876543210' },
+      lines: [
+        { itemId: 'a', nameKn: 'Rice', nameEn: 'Rice', qty: 1, rate: 110 },
+        { itemId: 'b', nameKn: 'Dal', nameEn: 'Dal', qty: 1, rate: 170 },
+        { itemId: 'c', nameKn: 'Oil', nameEn: 'Oil', qty: 1, rate: 550 },
+      ],
+    };
+    const cs = { ...settings, hiddenReceipt: 'compact' };
+    const cd = shared.buildReceipt(b79, cs);
+    const strip = (d) => d.rows.filter((r) => r.t !== 'space');
+    const seps = cd.rows.map((r, i) => (r.t === 'sep' ? i : -1)).filter((i) => i >= 0);
+    check('compact: no item rows and no table header', !cd.rows.some((r) => r.t === 'item'), JSON.stringify(cd.rows));
+    const runs = cd.rows.filter((r) => r.t === 'center' && /^\d+\)/.test(r.text)).map((r) => r.text);
+    eq('compact: one block "1)110, 2)170, 3)550"', runs, ['1)110, 2)170, 3)550']);
+    const at = cd.rows.findIndex((r) => r.t === 'center' && r.text === runs[0]);
+    const totalAt = cd.rows.findIndex((r) => r.t === 'kv' && r.left === shared.EN_RECEIPT_LABELS.total);
+    check('compact: dashed rule between the block and TOTAL', seps.some((i) => i > at && i < totalAt));
+    eq('compact: TOTAL 830', cd.rows[totalAt] && cd.rows[totalAt].right, shared.money(830));
+    check('compact: customer block and bill number kept',
+      cd.rows.some((r) => r.t === 'kv' && r.left === 'Ravi' && r.right === '9876543210') && cd.rows.some((r) => r.t === 'kv' && r.left === shared.EN_RECEIPT_LABELS.bill + 79),
+      JSON.stringify(cd.rows));
+    check('compact: thank-you last', strip(cd).slice(-1)[0].text === settings.footer);
+    check('compact: no names', !JSON.stringify(cd).match(/Rice|Dal|Oil/));
+    // 58 mm: many entries wrap, never inside one, each line within the paper.
+    const many = { ...b79, lines: Array.from({ length: 14 }, (_, i) => ({ itemId: 'x' + i, nameKn: 'N', nameEn: 'N', qty: 1, rate: 1000 + i * 11 })) };
+    const md = shared.buildReceipt(many, { ...cs, paper: '58mm' });
+    const mruns = md.rows.filter((r) => r.t === 'center' && /^\d+\)/.test(r.text)).map((r) => r.text);
+    check('58mm: wraps onto several lines', mruns.length > 1, JSON.stringify(mruns));
+    const entries = mruns.join(' ').split(' ').map((e) => e.replace(/,$/, ''));
+    eq('58mm: every entry whole, in order', entries, many.lines.map((l, i) => (i + 1) + ')' + shared.money(l.rate)));
+    const room = md.width - 2 * shared.RASTER.pad;
+    check('58mm: every line fits the paper', mruns.every((t) => t.length * shared.RASTER.itemSize * 0.6 <= room), JSON.stringify(mruns));
+    const wide = shared.buildReceipt(many, { ...cs, paper: '80mm' }).rows.filter((r) => r.t === 'center' && /^\d+\)/.test(r.text));
+    check('80mm: fewer lines than 58mm', wide.length < mruns.length);
+    // List mode and hideNames off are untouched.
+    eq('list mode unchanged', JSON.stringify(shared.buildReceipt(b79, { ...settings, hiddenReceipt: 'list' })), JSON.stringify(shared.buildReceipt(b79, settings)));
+    check('list mode still has its rows', shared.buildReceipt(b79, settings).rows.filter((r) => r.t === 'item').length === 4);
+    const shown = { ...b79, hideNames: false };
+    eq('compact with hideNames off: no change', JSON.stringify(shared.buildReceipt(shown, cs)), JSON.stringify(shared.buildReceipt(shown, settings)));
+    const wt = shared.billAsText({ ...b79, hiddenReceipt: 'compact' }, 'Shop', L);
+    check('WhatsApp compact: "1)110, 2)170, 3)550 · Total 830"', wt.includes('1)110, 2)170, 3)550 · Total 830'), wt);
+    eq('WhatsApp list unchanged', shared.billAsText({ ...b79, hiddenReceipt: 'list' }, 'Shop', L), shared.billAsText(b79, 'Shop', L));
+    eq('WhatsApp compact with hideNames off unchanged',
+      shared.billAsText({ ...shown, hiddenReceipt: 'compact' }, 'Shop', L), shared.billAsText(shown, 'Shop', L));
+  }
   eq('printedLines drops only hidden ones', shared.printedLines(bill.lines).map((l) => l.itemId), ['a', 'c']);
 }
 

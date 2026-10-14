@@ -92,6 +92,7 @@ const settingsBody = z.object({
   shopNameKn: z.string().trim().max(80).optional(),
   footerKn: z.string().trim().max(120).optional(),
   showRate: z.boolean().optional(),
+  hiddenReceipt: z.enum(['list', 'compact']).optional(),
   showGstin: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
   // Each bill's total lands on this many rupees: 0 (none), 1, 5 or 10.

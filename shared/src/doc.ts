@@ -204,6 +204,26 @@ export function carriedBalance(showBalance: boolean, previousBalance?: number | 
   return showBalance && previousBalance != null && previousBalance > 0 ? round2(previousBalance) : 0;
 }
 
+/**
+ * "1)110, 2)170, 3)550" broken into lines that fit `dots` of paper, never inside an entry. The
+ * width is estimated as amountWidthEstimate does, a little generously, so the rasterisers (which
+ * wrap a `center` row again at its spaces) never have to break a line this already broke.
+ */
+export function compactLines(entries: string[], dots: number): string[] {
+  const room = dots - 2 * RASTER.pad;
+  const w = (s: string) => [...s].length * RASTER.itemSize * 0.62;
+  const out: string[] = [];
+  let cur = '';
+  entries.forEach((e, i) => {
+    const piece = e + (i < entries.length - 1 ? ',' : '');
+    const next = cur ? cur + ' ' + piece : piece;
+    if (cur && w(next) > room) { out.push(cur); cur = piece; }
+    else cur = next;
+  });
+  if (cur) out.push(cur);
+  return out;
+}
+
 export function buildReceipt(
   bill: Bill,
   settings: Settings,
@@ -257,7 +277,15 @@ export function buildReceipt(
     rows.push({ t: 'kv', left: labels.phone, right: bill.customer.phone, size: 20 });
   }
 
-  rows.push(
+  /*
+   * The shop's compact slip for a bill with its descriptions hidden: no table at all, only
+   * "1)110, 2)170, 3)550" wrapped at the paper width, then TOTAL. Settings.hiddenReceipt.
+   */
+  const compact = bill.hideNames === true && settings.hiddenReceipt === 'compact';
+  const compactEntries: string[] = [];
+
+  if (compact) rows.push({ t: 'sep' });
+  else rows.push(
     { t: 'sep' },
     // The columns, named. An `item` row rather than a type of its own: all four renderers
     // already draw one, so the headings cost nothing and cannot fall out of step between the
@@ -360,6 +388,9 @@ export function buildReceipt(
         rows.push({ t: 'item', no: '', amount: '', name: typed, note: shared.note });
       }
     }
+    else if (compact) {
+      compactEntries.push(shared.no + ')' + shared.amount);
+    }
     else if (bill.hideNames === true) {
       // Descriptions hidden: the line's number and its price, nothing else -- no name, no
       // quantity or unit, no "@ rate" under it. The shop asked for exactly "1 ... 170".
@@ -384,7 +415,13 @@ export function buildReceipt(
    */
   const carried = carriedBalance(bill.showBalance, bill.previousBalance);
 
-  if (carried > 0) {
+  if (compact) {
+    const entries = carried > 0
+      ? [...compactEntries, (lines.length + 1) + ')' + money(carried)]
+      : compactEntries;
+    for (const text of compactLines(entries, dots)) rows.push({ t: 'center', text, size: RASTER.itemSize });
+  }
+  else if (carried > 0) {
     rows.push({
       t: 'item',
       // Carries on from the written lines: the column is a line's place on the paper, and a gap
