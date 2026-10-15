@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
-  DEFAULT_SETTINGS, billTotal, customerMatches, itemNameKey, lastPriceOf, round2, roundToStep,
+  DEFAULT_SETTINGS, migrateSettings, billTotal, customerMatches, itemNameKey, lastPriceOf, round2, roundToStep,
   type Bill, type BillLine, type Customer, type Ink, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -176,7 +176,10 @@ const settingsSchema = new Schema<SettingsDoc>(
     footerKn: { type: String, required: false, default: '' },
     showRate: { type: Boolean, required: true },
     showGstin: { type: Boolean, required: false, default: true },
-    hiddenReceipt: { type: String, required: false, default: 'list' },
+    // The old receipt setting, read only to migrate it (see migrateSettings). No default on
+    // receiptStyle: absent means "never set", which falls back to hiddenReceipt.
+    hiddenReceipt: { type: String, required: false },
+    receiptStyle: { type: String, required: false },
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
     // No default on purpose: absent means "never set", which the first start fills from stock.
     roundTo: { type: Number, required: false },
@@ -243,7 +246,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         { upsert: true, new: true },
       ).lean();
       const { key, ...rest } = strip(doc as unknown as SettingsDoc);
-      return { ...DEFAULT_SETTINGS, ...rest };
+      return migrateSettings(rest as Record<string, unknown>);
     },
 
     async updateSettings(patch) {
@@ -253,7 +256,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         { upsert: true, new: true },
       ).lean();
       const { key, ...rest } = strip(doc as unknown as SettingsDoc);
-      return { ...DEFAULT_SETTINGS, ...rest };
+      return migrateSettings(rest as Record<string, unknown>);
     },
 
     async listBills(limit, customerId, options = {}) {

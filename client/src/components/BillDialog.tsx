@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { billAsText, buildReceipt, hiddenLinesText, pickLang, whatsappNumber, type Bill } from '@shridhar/shared';
+import { billAsText, historyViewSettings, receiptStyleOf, buildReceipt, hiddenLinesText, pickLang, whatsappNumber, type Bill } from '@shridhar/shared';
 import { api as billingApi } from '../lib/api';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
@@ -80,7 +80,7 @@ export function BillDialog({
         number = whatsappNumber((await billingApi.getCustomer(bill.customer.id)).customer) || number;
       } catch { /* the bill's own copy of the phone will do */ }
     }
-    const text = billAsText({ ...bill, showRate: shop.settings.showRate, hiddenReceipt: shop.settings.hiddenReceipt }, pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang), shop.receiptLabels);
+    const text = billAsText({ ...bill, showRate: shop.settings.showRate, receiptStyle: receiptStyleOf(shop.settings) }, pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang), shop.receiptLabels);
     window.open('https://wa.me/' + number + '?text=' + encodeURIComponent(text), '_blank', 'noopener');
   };
 
@@ -214,7 +214,7 @@ export function BillDialog({
       {bill.hideNames ? <p className="muted small" style={{ margin: '0 0 8px' }}>{t('bill.namesHidden')}</p> : null}
       {loading
         ? <p className="notice">{t('hist.loading')}</p>
-        : <ReceiptView doc={buildReceipt(bill, shop.settings, shop.receiptLabels)} inkAlt={t('ink.alt')} />}
+        : <ReceiptView doc={buildReceipt(bill, historyViewSettings(shop.settings), shop.receiptLabels)} inkAlt={t('ink.alt')} />}
       {/* Left off the paper, still in the total: said here so the arithmetic is explained. */}
       {hiddenLinesText(bill) ? <p className="notice">{t('hist.hiddenLines', { lines: hiddenLinesText(bill) })}</p> : null}
     </Dialog>

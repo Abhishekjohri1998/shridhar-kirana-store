@@ -1,4 +1,5 @@
-import { billTotal, roundLines } from './doc';
+import { billTotal, isPriceOnly, roundLines } from './doc';
+import { receiptStyleOf } from './types';
 import type { BillLine, Customer, Ink, StockTicks } from './types';
 
 /**
@@ -274,4 +275,16 @@ let counter = 0;
 export function nextLineId(prefix = 'line'): string {
   counter += 1;
   return prefix + '-' + Date.now().toString(36) + '-' + counter.toString(36);
+}
+
+/**
+ * Whether the bill screen should turn "hide descriptions" on by itself: the shop's receipt style
+ * is Compact and the bill being written is price-only (blank rows ignored). Used on a change of
+ * either, so the switch stays the shop's to turn off once a description is added.
+ */
+export function shouldAutoHide(
+  lines: BillLine[],
+  settings: { receiptStyle?: string; hiddenReceipt?: string },
+): boolean {
+  return receiptStyleOf(settings) === 'compact' && isPriceOnly({ lines: lines.filter(lineHasSomething) });
 }

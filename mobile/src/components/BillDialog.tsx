@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Switch, Text, View } from 'react-native';
-import { buildReceipt, hiddenLinesText, type Bill } from '@shridhar/shared';
+import { buildReceipt, historyViewSettings, hiddenLinesText, type Bill } from '@shridhar/shared';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
 import { Button, ErrorText, Notice } from './ui';
@@ -76,7 +76,9 @@ export function BillDialog({
   const loading = listed != null && bill == null;
 
   const doc = useMemo(
-    () => (bill ? buildReceipt(bill, shop.settings, shop.receiptLabels) : null),
+    // History's on-screen view is always the normal layout; Print again and Share follow the
+    // shop's receipt style (receiptLayout), through usePrint with the real settings.
+    () => (bill ? buildReceipt(bill, historyViewSettings(shop.settings), shop.receiptLabels) : null),
     [bill, shop.settings, shop.receiptLabels],
   );
 

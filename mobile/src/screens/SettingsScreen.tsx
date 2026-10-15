@@ -11,6 +11,7 @@ import {
   ERASE_WORD, LANGS, ROUND_STEPS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile,
   parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
+  receiptStyleOf,
 } from '@shridhar/shared';
 import { Dialog } from '../components/Dialog';
 import { ScriptField } from '../components/ScriptField';
@@ -370,16 +371,17 @@ export function SettingsScreen() {
           </View>
         </View>
 
-        <Text style={styles.label}>{t('set.hiddenReceipt')}</Text>
-        <Choice<'list' | 'compact'>
-          options={[
-            { key: 'list', label: t('set.hiddenList') },
-            { key: 'compact', label: t('set.hiddenCompact') },
-          ]}
-          value={shop.settings.hiddenReceipt ?? 'list'}
-          onChange={(next) => void save({ hiddenReceipt: next }, 'set.savedHiddenReceipt')}
-        />
-        <Text style={styles.hint}>{t('set.hiddenReceiptHint')}</Text>
+        <View style={styles.switchRow}>
+          <Switch
+            value={receiptStyleOf(shop.settings) === 'compact'}
+            onValueChange={(v) => void save({ receiptStyle: v ? 'compact' : 'normal' }, 'set.savedReceiptStyle')}
+            trackColor={{ true: C.accent, false: C.line }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.switchLabel}>{t('set.receiptStyle')}</Text>
+            <Text style={styles.hint}>{t('set.receiptStyleHint')}</Text>
+          </View>
+        </View>
       </Card>
 
       <Card style={styles.card}>

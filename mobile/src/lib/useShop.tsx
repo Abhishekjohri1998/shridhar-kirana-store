@@ -7,7 +7,7 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
-  LINK_RETRY_MS, createLinkWatch, roundLines,
+  LINK_RETRY_MS, createLinkWatch, roundLines, shouldAutoHide,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -342,6 +342,15 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     (value: boolean) => patchActive((d) => ((d.hideNames === true) === value ? d : { ...d, hideNames: value })),
     [patchActive],
   );
+  /*
+   * Receipt style Compact and a price-only bill: "hide descriptions" turns on by itself, and the
+   * switch shows it. Only when that becomes true (not on every render), so once a description is
+   * added the shop can still turn it off.
+   */
+  const autoHide = shouldAutoHide(cart, settings);
+  useEffect(() => {
+    if (autoHide) setHideNames(true);
+  }, [autoHide, setHideNames]);
   const setPrintBalanceState = useCallback(
     (value: boolean) => patchActive((d) => (d.printBalance === value ? d : { ...d, printBalance: value })),
     [patchActive],

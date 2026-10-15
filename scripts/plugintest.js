@@ -193,6 +193,14 @@ check('and ahead of the keyboard app', pkg.includes('if (ShridharNativeModule.on
   }
 }
 
+console.log('\nStylus writing in the stock WebView (build 69)');
+check('handwriting kept on for every WebView, Android 13+ only',
+  pkg.includes('Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !v.isAutoHandwritingEnabled')
+  && pkg.includes('v.setAutoHandwritingEnabled(true)'));
+check('the catcher has no touch hook at all', !pkg.includes('dispatchTouchEvent') && !pkg.includes('onInterceptTouchEvent'));
+check('onMotion never uses up a touch (it returns nothing)', mod.includes('fun onMotion(ev: MotionEvent) {'));
+check('MainActivity always passes touches on', once.includes('    ShridharNativeModule.onMotion(ev)\n    return super.dispatchTouchEvent(ev)'));
+
 console.log('\nRegistered in app.json');
 const appJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'mobile', 'app.json'), 'utf8'));
 check('the plugin is listed', (appJson.expo.plugins || []).includes('./plugins/withStylus'));

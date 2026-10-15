@@ -1,3 +1,5 @@
+import { receiptLayout } from './doc';
+import type { Ink } from './types';
 /**
  * One canonical form for a phone number, used by the browser and the server alike.
  *
@@ -55,16 +57,19 @@ export function billAsText(
     no: number; at: string; total: number; paid: number; balance: number; showBalance: boolean; hideNames?: boolean;
     /** The shop's "show item rate under each item". Off (or missing): no "x rate", only the amount. */
     showRate?: boolean;
-    /** The shop's hidden-items receipt; 'compact' sends "1)110, 2)170 · Total 280" on one line. */
+    /** The shop's receipt style; compact (per receiptLayout) sends "1)110, 2)170 · Total 280" on one line. */
+    receiptStyle?: 'normal' | 'compact';
+    /** The old name of receiptStyle ('list' = normal), still accepted. */
     hiddenReceipt?: 'list' | 'compact';
-    lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string; hidden?: boolean }[];
+    lines: { nameEn: string; nameKn: string; qty: number; rate: number; unit?: string; hidden?: boolean; ink?: Ink; moreInk?: Ink[] }[];
   },
   shopName: string,
   labels: { bill: string; total: string; paid: string; balance: string },
 ): string {
   const rupees = (n: number) => '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
   const out = [shopName, labels.bill + bill.no + ' · ' + new Date(bill.at).toLocaleString('en-IN'), ''];
-  if (bill.hideNames === true && bill.hiddenReceipt === 'compact') {
+  const layout = receiptLayout(bill, bill);
+  if (layout === 'compact') {
     const plain = (n: number) => String(Math.round(n * 100) / 100);
     const runs = bill.lines.filter((x) => x.hidden !== true).map((l, i) => (i + 1) + ')' + plain(l.qty * l.rate));
     out.push(runs.join(', ') + ' · ' + labels.total + ' ' + plain(bill.total));
@@ -76,7 +81,7 @@ export function billAsText(
   // Hidden lines stay off the text as they stay off the paper; the total still counts them.
   bill.lines.filter((x) => x.hidden !== true).forEach((l, i) => {
     // Descriptions hidden: the line's number and price only -- no name, quantity or rate.
-    if (bill.hideNames === true) { out.push((i + 1) + '. ' + rupees(l.qty * l.rate)); return; }
+    if (layout === 'normal-hidden') { out.push((i + 1) + '. ' + rupees(l.qty * l.rate)); return; }
     const name = (l.nameKn || l.nameEn || '—').trim();
     if (bill.showRate !== true) {
       // As on the paper: the quantity and unit only where the slip prints them, before the name.

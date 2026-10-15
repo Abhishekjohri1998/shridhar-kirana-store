@@ -43,6 +43,8 @@
  *     (`setUnitMenuOpen`, like setSuggestOpen), Left, Right, Enter and Escape go to JavaScript as
  *     `hwKey` 'left' | 'right' | 'enter' | 'escape' and are used up -- down, repeats and the
  *     matching up -- whatever has focus, at the pre-IME stage and again in dispatchKeyEvent.
+ *  8. Stylus writing in the stock WebView (build 69). ShridharKeyCatcher keeps handwriting on for
+ *     every WebView (Android 13+). No touch is ever used up by this plugin's code.
  */
 const fs = require('fs');
 const path = require('path');
@@ -437,7 +439,11 @@ function packageSource(appPackage) {
   return `package ${appPackage}.stylus
 
 import android.content.Context
+import android.os.Build
 import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import android.widget.FrameLayout
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
@@ -462,6 +468,29 @@ class ShridharKeyCatcher(context: Context) : FrameLayout(context) {
     if (ShridharNativeModule.onShortcut(event)) return true
     if (ShridharNativeModule.onUnitMenu(event)) return true
     return super.dispatchKeyEventPreIme(event)
+  }
+
+  /*
+   * Stylus writing in a WebView's text boxes (build 69: the stock app inside the billing app).
+   *
+   * Nothing here or in onMotion ever uses up a touch: every event goes on to super, and
+   * react-native-webview's own view only asks its parents not to intercept. What is done here:
+   * handwriting is kept switched on for every WebView (View.setAutoHandwritingEnabled, Android
+   * 13+), checked on each layout, so a stylus stroke in a focused web text box can start
+   * Android's stylus handwriting wherever the installed WebView supports it.
+   */
+  init {
+    viewTreeObserver.addOnGlobalLayoutListener { visitWebViews(this) }
+  }
+
+  private fun visitWebViews(v: View) {
+    if (v is WebView) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !v.isAutoHandwritingEnabled) {
+        v.setAutoHandwritingEnabled(true)
+      }
+      return
+    }
+    if (v is ViewGroup) for (i in 0 until v.childCount) visitWebViews(v.getChildAt(i))
   }
 }
 `;

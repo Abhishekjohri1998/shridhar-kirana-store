@@ -1,5 +1,5 @@
 import { namelessLines, printedLines } from './link';
-import type { Bill, BillLine, Ink, Settings } from './types';
+import { receiptStyleOf, type Bill, type BillLine, type Ink, type Settings, type HiddenReceipt, type ReceiptStyle } from './types';
 import { lineAmount, money, qtyText, rateText, round2, roundedRate } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
@@ -224,6 +224,57 @@ export function compactLines(entries: string[], dots: number): string[] {
   return out;
 }
 
+type LayoutLine = {
+  nameEn?: string; nameKn?: string; qty: number; rate: number; hidden?: boolean;
+  ink?: Ink; moreInk?: Ink[];
+};
+
+/**
+ * Given a bill: a price-only bill -- every printed line has an amount above zero, and none has a
+ * name or any handwriting. An empty bill is not one.
+ * Given a single line: true when it carries no description at all -- a bare price.
+ */
+export function isPriceOnly(bill: { lines: LayoutLine[] } | LayoutLine): boolean {
+  if (!('lines' in bill)) {
+    const line = bill;
+    return !line.nameKn && !line.nameEn && !(line.ink && line.ink.strokes.length > 0);
+  }
+  const lines = bill.lines.filter((l) => l.hidden !== true);
+  if (lines.length === 0) return false;
+  return lines.every((l) =>
+    lineAmount(l.qty, l.rate) > 0
+    && !(l.nameEn ?? '').trim() && !(l.nameKn ?? '').trim()
+    && !(l.ink && l.ink.strokes.length > 0)
+    && !(l.moreInk ?? []).some((i) => i.strokes.length > 0));
+}
+
+export type ReceiptLayout = 'compact' | 'normal-hidden' | 'normal';
+
+/**
+ * How a bill prints, from the shop's receipt style:
+ *   Normal  + price-only               -> normal
+ *   Normal  + description, hide on     -> normal-hidden (number and price only)
+ *   Normal  + description, hide off    -> normal
+ *   Compact + price-only (hide auto on)-> compact
+ *   Compact + description, hide on     -> compact
+ *   Compact + description, hide off    -> normal
+ */
+export function receiptLayout(
+  bill: { hideNames?: boolean; lines: LayoutLine[] },
+  settings: { receiptStyle?: ReceiptStyle | string; hiddenReceipt?: HiddenReceipt | string },
+): ReceiptLayout {
+  const priceOnly = isPriceOnly(bill);
+  const hide = bill.hideNames === true;
+  if (receiptStyleOf(settings) === 'compact' && (hide || priceOnly)) return 'compact';
+  if (hide && !priceOnly) return 'normal-hidden';
+  return 'normal';
+}
+
+/** Settings for History's on-screen view, which always shows the normal layout. */
+export function historyViewSettings<S extends Settings>(settings: S): S {
+  return { ...settings, receiptStyle: 'normal', hiddenReceipt: undefined };
+}
+
 export function buildReceipt(
   bill: Bill,
   settings: Settings,
@@ -279,9 +330,10 @@ export function buildReceipt(
 
   /*
    * The shop's compact slip for a bill with its descriptions hidden: no table at all, only
-   * "1)110, 2)170, 3)550" wrapped at the paper width, then TOTAL. Settings.hiddenReceipt.
+   * "1)110, 2)170, 3)550" wrapped at the paper width, then TOTAL. See receiptLayout.
    */
-  const compact = bill.hideNames === true && settings.hiddenReceipt === 'compact';
+  const layout = receiptLayout(bill, settings);
+  const compact = layout === 'compact';
   const compactEntries: string[] = [];
 
   if (compact) rows.push({ t: 'sep' });
@@ -391,7 +443,7 @@ export function buildReceipt(
     else if (compact) {
       compactEntries.push(shared.no + ')' + shared.amount);
     }
-    else if (bill.hideNames === true) {
+    else if (layout === 'normal-hidden') {
       // Descriptions hidden: the line's number and its price, nothing else -- no name, no
       // quantity or unit, no "@ rate" under it. The shop asked for exactly "1 ... 170".
       rows.push({ t: 'item', no: shared.no, amount: shared.amount, name: '' });
@@ -505,7 +557,3 @@ export function billTotal(lines: BillLine[]): number {
   return round2(lines.reduce((sum, l) => sum + lineAmount(l.qty, l.rate), 0));
 }
 
-/** True when a line carries no description at all -- a bare price, which the shop does use. */
-export function isPriceOnly(line: BillLine): boolean {
-  return !line.nameKn && !line.nameEn && !(line.ink && line.ink.strokes.length > 0);
-}

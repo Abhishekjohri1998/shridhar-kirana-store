@@ -238,9 +238,12 @@ export type Settings = {
   /** Print the per-unit rate under each item name. The shop's paper slip does not, so this is off by default. */
   showRate: boolean;
   /**
-   * How a bill with its item descriptions hidden prints: 'list' (a numbered line per item, the
-   * default) or 'compact' (one wrapped run "1)110, 2)170, 3)550" and the total). Absent reads as list.
+   * Receipt style: 'normal' (a numbered line per item, the default) or 'compact' (one wrapped run
+   * "1)110, 2)170, 3)550" and the total) for a bill with its descriptions hidden or with no
+   * descriptions at all. See receiptLayout. Absent reads from the old hiddenReceipt, else normal.
    */
+  receiptStyle?: ReceiptStyle;
+  /** The setting receiptStyle replaced ('list' = normal). Still read, never written. */
   hiddenReceipt?: HiddenReceipt;
   /** A customer quiet for this many days is flagged as needing a nudge. */
   inactiveAfterDays: number;
@@ -253,6 +256,22 @@ export type Settings = {
 };
 
 export type HiddenReceipt = 'list' | 'compact';
+export type ReceiptStyle = 'normal' | 'compact';
+
+/** The shop's receipt style, reading the old hiddenReceipt field when the new one is absent. */
+export function receiptStyleOf(s: { receiptStyle?: ReceiptStyle | string; hiddenReceipt?: HiddenReceipt | string }): ReceiptStyle {
+  if (s.receiptStyle === 'compact' || s.receiptStyle === 'normal') return s.receiptStyle;
+  return s.hiddenReceipt === 'compact' ? 'compact' : 'normal';
+}
+
+/**
+ * Settings as stored, filled with the defaults and moved onto the current fields: the old
+ * hiddenReceipt becomes receiptStyle (list -> normal, compact -> compact) and is dropped.
+ */
+export function migrateSettings(stored: Partial<Settings> & Record<string, unknown>): Settings {
+  const { hiddenReceipt: _old, ...rest } = stored;
+  return { ...DEFAULT_SETTINGS, ...rest, receiptStyle: receiptStyleOf(stored) } as Settings;
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   shopName: 'Shridhar Kirani Stores',
@@ -264,7 +283,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shopNameKn: '',
   footerKn: '',
   showRate: false,
-  hiddenReceipt: 'list',
+  receiptStyle: 'normal',
   inactiveAfterDays: 30,
 };
 

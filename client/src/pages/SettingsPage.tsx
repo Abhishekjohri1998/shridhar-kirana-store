@@ -13,6 +13,7 @@ import {
   type Bill,
   type Lang,
   type PaperKey,
+  receiptStyleOf,
 } from '@shridhar/shared';
 import { ScriptField } from '../components/ScriptField';
 import { ApiError, api } from '../lib/api';
@@ -333,28 +334,18 @@ export function SettingsPage() {
             <span className="muted small">{t('set.showRateHint')}</span>
           </span>
         </label>
-        <div className="field">
-          <label>{t('set.hiddenReceipt')}</label>
-          <span className="stock-chips" role="radiogroup" aria-label={t('set.hiddenReceipt')}>
-            {(['list', 'compact'] as const).map((mode) => {
-              const on = (shop.settings.hiddenReceipt ?? 'list') === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  className="pay-all stock-chip"
-                  style={on ? { background: 'var(--brand-edge)', fontWeight: 700 } : undefined}
-                  onClick={() => { if (!on) void save({ hiddenReceipt: mode }, 'set.savedHiddenReceipt'); }}
-                >
-                  {t(mode === 'list' ? 'set.hiddenList' : 'set.hiddenCompact')}
-                </button>
-              );
-            })}
+        <label className="row" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={receiptStyleOf(shop.settings) === 'compact'}
+            onChange={(e) => void save({ receiptStyle: e.target.checked ? 'compact' : 'normal' }, 'set.savedReceiptStyle')}
+            style={{ width: 20, height: 20 }}
+          />
+          <span className="grow">
+            <span style={{ display: 'block' }}>{t('set.receiptStyle')}</span>
+            <span className="muted small">{t('set.receiptStyleHint')}</span>
           </span>
-          <span className="muted small">{t('set.hiddenReceiptHint')}</span>
-        </div>
+        </label>
       </section>
 
       <section className="card stack">

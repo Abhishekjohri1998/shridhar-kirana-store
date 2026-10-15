@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_SETTINGS, billTotal, liteBill, customerMatches, lastPriceOf, round2, roundToStep,
+  DEFAULT_SETTINGS, migrateSettings, billTotal, liteBill, customerMatches, lastPriceOf, round2, roundToStep,
   type Bill, type Customer, type Item, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -83,12 +83,12 @@ export async function createFileRepo(dir: string): Promise<Repo> {
 
 
     async getSettings() {
-      return { ...DEFAULT_SETTINGS, ...db.settings };
+      return migrateSettings(db.settings);
     },
 
     updateSettings(patch) {
       return serial(async () => {
-        db.settings = { ...DEFAULT_SETTINGS, ...db.settings, ...patch };
+        db.settings = migrateSettings({ ...db.settings, ...patch });
         await flush();
         return { ...db.settings };
       });

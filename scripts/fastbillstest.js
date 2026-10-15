@@ -116,7 +116,7 @@ function receipt() {
     check('WhatsApp on: qty × rate as before', on.includes('×'), on);
   }
   {
-    console.log('\nCompact hidden-items receipt (Settings.hiddenReceipt)');
+    console.log('\nCompact hidden-items receipt (Settings.receiptStyle)');
     const L = { bill: 'Bill ', total: 'Total', paid: 'Paid', balance: 'Balance' };
     const b79 = {
       no: 79, at: '2026-10-11T10:00:00.000Z', total: 830, paid: 830, balance: 0, showBalance: false, hideNames: true,
@@ -127,7 +127,7 @@ function receipt() {
         { itemId: 'c', nameKn: 'Oil', nameEn: 'Oil', qty: 1, rate: 550 },
       ],
     };
-    const cs = { ...settings, hiddenReceipt: 'compact' };
+    const cs = { ...settings, receiptStyle: 'compact' };
     const cd = shared.buildReceipt(b79, cs);
     const strip = (d) => d.rows.filter((r) => r.t !== 'space');
     const seps = cd.rows.map((r, i) => (r.t === 'sep' ? i : -1)).filter((i) => i >= 0);
@@ -155,7 +155,7 @@ function receipt() {
     const wide = shared.buildReceipt(many, { ...cs, paper: '80mm' }).rows.filter((r) => r.t === 'center' && /^\d+\)/.test(r.text));
     check('80mm: fewer lines than 58mm', wide.length < mruns.length);
     // List mode and hideNames off are untouched.
-    eq('list mode unchanged', JSON.stringify(shared.buildReceipt(b79, { ...settings, hiddenReceipt: 'list' })), JSON.stringify(shared.buildReceipt(b79, settings)));
+    eq('normal style unchanged', JSON.stringify(shared.buildReceipt(b79, { ...settings, receiptStyle: 'normal' })), JSON.stringify(shared.buildReceipt(b79, settings)));
     check('list mode still has its rows', shared.buildReceipt(b79, settings).rows.filter((r) => r.t === 'item').length === 4);
     const shown = { ...b79, hideNames: false };
     eq('compact with hideNames off: no change', JSON.stringify(shared.buildReceipt(shown, cs)), JSON.stringify(shared.buildReceipt(shown, settings)));
@@ -166,6 +166,102 @@ function receipt() {
       shared.billAsText({ ...shown, hiddenReceipt: 'compact' }, 'Shop', L), shared.billAsText(shown, 'Shop', L));
   }
   eq('printedLines drops only hidden ones', shared.printedLines(bill.lines).map((l) => l.itemId), ['a', 'c']);
+}
+
+/*
+ * Receipt style (APK 69): the client's six cases. Compact applies when the style is Compact AND
+ * (hide is on OR the bill is price-only). Print, reprint and WhatsApp all follow receiptLayout;
+ * History's on-screen view is always normal.
+ */
+const L6 = { bill: 'Bill ', total: 'Total', paid: 'Paid', balance: 'Balance' };
+const PRICE_ONLY = [
+  { itemId: 'p1', nameKn: '', nameEn: '', qty: 1, rate: 110 },
+  { itemId: 'p2', nameKn: '', nameEn: '', qty: 1, rate: 170 },
+];
+const WITH_DESC = [
+  { itemId: 'd1', nameKn: 'Rice', nameEn: 'Rice', qty: 1, rate: 110 },
+  { itemId: 'd2', nameKn: '', nameEn: '', qty: 1, rate: 170 },
+];
+const SIX = [
+  // [label, style, lines, hideNames, expected layout]
+  ['1 Normal, price-only', 'normal', PRICE_ONLY, false, 'normal'],
+  ['2 Normal, description, hide on', 'normal', WITH_DESC, true, 'normal-hidden'],
+  ['3 Normal, description, hide off', 'normal', WITH_DESC, false, 'normal'],
+  ['4 Compact, price-only (auto on)', 'compact', PRICE_ONLY, true, 'compact'],
+  ['5 Compact, description, hide on', 'compact', WITH_DESC, true, 'compact'],
+  ['6 Compact, description, hide off', 'compact', WITH_DESC, false, 'normal'],
+];
+function sixBill(lines, hideNames) {
+  return {
+    no: 90, at: '2026-10-15T10:00:00.000Z', total: 280, paid: 280, balance: 0, showBalance: false,
+    ...(hideNames ? { hideNames: true } : {}), lines,
+  };
+}
+/** What a built slip shows: 'compact', 'numbered' (number and price, no names) or 'named'. */
+function slipShape(doc) {
+  const items = doc.rows.filter((r) => r.t === 'item');
+  if (items.length === 0 && doc.rows.some((r) => r.t === 'center' && /^\d+\)/.test(r.text))) return 'compact';
+  const body = items.slice(1); // past the column heads
+  if (body.some((r) => /Rice/.test(r.name))) return 'named';
+  return body.length === 2 && body.every((r) => r.name === '') ? 'numbered' : '?';
+}
+function textShape(text) {
+  if (/1\)110, 2\)170 · Total 280/.test(text)) return 'compact';
+  if (/Rice/.test(text)) return 'normal';
+  if (/^1\. ₹110$/m.test(text)) return 'normal-hidden';
+  if (/— = ₹110/.test(text)) return 'normal';
+  return '?';
+}
+/** The slip expected for a layout: a price-only bill has no names to show either way. */
+function slipFor(want, lines) {
+  if (want === 'compact') return 'compact';
+  if (want === 'normal-hidden' || lines === PRICE_ONLY) return 'numbered';
+  return 'named';
+}
+function receiptStyleRules() {
+  console.log('\nReceipt style: the six cases (receiptLayout)');
+  const base = shared.DEFAULT_SETTINGS;
+  check('isPriceOnly: prices only', shared.isPriceOnly({ lines: PRICE_ONLY }));
+  check('isPriceOnly: a name is a description', !shared.isPriceOnly({ lines: WITH_DESC }));
+  check('isPriceOnly: handwriting is a description',
+    !shared.isPriceOnly({ lines: [{ ...PRICE_ONLY[0], ink: INK }] }));
+  check('isPriceOnly: a zero price is not', !shared.isPriceOnly({ lines: [{ ...PRICE_ONLY[0], rate: 0 }] }));
+  check('isPriceOnly: an empty bill is not', !shared.isPriceOnly({ lines: [] }));
+  check('isPriceOnly: still answers for one line', shared.isPriceOnly(PRICE_ONLY[0]));
+  for (const [label, style, lines, hide, want] of SIX) {
+    const settings = { ...base, receiptStyle: style };
+    const bill = sixBill(lines, hide);
+    eq(label + ': receiptLayout', shared.receiptLayout(bill, settings), want);
+    eq(label + ': print', slipShape(shared.buildReceipt(bill, settings)), slipFor(want, lines));
+    // A reprint is the saved bill through the same builder, with the shop's settings of today.
+    const saved = JSON.parse(JSON.stringify(bill));
+    eq(label + ': print again', slipShape(shared.buildReceipt(saved, settings)), slipFor(want, lines));
+    const wa = shared.billAsText({ ...saved, receiptStyle: style }, 'Shop', L6);
+    eq(label + ': WhatsApp', textShape(wa), want, wa);
+    // History's on-screen view: always the normal layout, whatever the style.
+    const view = slipShape(shared.buildReceipt(saved, shared.historyViewSettings(settings)));
+    eq(label + ': History screen is normal', view, slipFor(hide && lines !== PRICE_ONLY ? 'normal-hidden' : 'normal', lines));
+  }
+  eq('Normal, price-only, hide on: still normal', shared.receiptLayout(sixBill(PRICE_ONLY, true), { receiptStyle: 'normal' }), 'normal');
+  eq('Compact, price-only, hide off (an old bill): compact', shared.receiptLayout(sixBill(PRICE_ONLY, false), { receiptStyle: 'compact' }), 'compact');
+
+  console.log('\nAuto hide on the bill screen (shouldAutoHide)');
+  const blank = { itemId: 'z', nameKn: '', nameEn: '', qty: 1, rate: 0 };
+  check('Compact + price-only: turns on', shared.shouldAutoHide([...PRICE_ONLY, blank], { receiptStyle: 'compact' }));
+  check('Compact + a description: does not', !shared.shouldAutoHide(WITH_DESC, { receiptStyle: 'compact' }));
+  check('Normal + price-only: does not', !shared.shouldAutoHide(PRICE_ONLY, { receiptStyle: 'normal' }));
+  check('an empty bill: does not', !shared.shouldAutoHide([blank], { receiptStyle: 'compact' }));
+
+  console.log('\nThe old hiddenReceipt setting migrates');
+  eq('list -> normal', shared.migrateSettings({ hiddenReceipt: 'list' }).receiptStyle, 'normal');
+  eq('compact -> compact', shared.migrateSettings({ hiddenReceipt: 'compact' }).receiptStyle, 'compact');
+  eq('absent -> normal', shared.migrateSettings({}).receiptStyle, 'normal');
+  eq('the new field wins', shared.migrateSettings({ hiddenReceipt: 'compact', receiptStyle: 'normal' }).receiptStyle, 'normal');
+  check('the old field is dropped', !('hiddenReceipt' in shared.migrateSettings({ hiddenReceipt: 'compact' })));
+  eq('receiptLayout reads the old field too',
+    shared.receiptLayout(sixBill(WITH_DESC, true), { hiddenReceipt: 'compact' }), 'compact');
+  eq('billAsText accepts the old field',
+    textShape(shared.billAsText({ ...sixBill(WITH_DESC, true), hiddenReceipt: 'compact' }, 'Shop', L6)), 'compact');
 }
 
 function perItemRounding() {
@@ -234,6 +330,7 @@ async function main() {
   offlineFlag();
   receipt();
   perItemRounding();
+  receiptStyleRules();
   screens();
 
   fs.mkdirSync(DATA, { recursive: true });
@@ -380,6 +477,24 @@ async function main() {
     eq('PATCH turns it off', (await call('/bills/' + plain.no, 'PATCH', { hideNames: false })).body.hideNames, undefined);
     eq('other fields are refused', (await call('/bills/' + plain.no, 'PATCH', { hideNames: true, total: 1 })).status, 400);
     eq('a missing bill is 404', (await call('/bills/999999', 'PATCH', { hideNames: true })).status, 404);
+
+    console.log('\nReceipt style on the server (migration and reprint)');
+    eq('a fresh shop reads normal', (await call('/settings')).body.receiptStyle, 'normal');
+    const old = (await call('/settings', 'PUT', { hiddenReceipt: 'compact' })).body;
+    eq('an old app sending hiddenReceipt compact: compact', old.receiptStyle, 'compact');
+    check('and the old field is not echoed back', !('hiddenReceipt' in old), JSON.stringify(old));
+    eq('it survives a reread', (await call('/settings')).body.receiptStyle, 'compact');
+    eq('list from an old app -> normal', (await call('/settings', 'PUT', { hiddenReceipt: 'list' })).body.receiptStyle, 'normal');
+    eq('the switch: compact', (await call('/settings', 'PUT', { receiptStyle: 'compact' })).body.receiptStyle, 'compact');
+    eq('a bad style is refused', (await call('/settings', 'PUT', { receiptStyle: 'tiny' })).status, 400);
+    const st = (await call('/settings')).body;
+    for (const [label, style, lines, hide, want] of SIX) {
+      const made = (await call('/bills', 'POST', { lines, ...(hide ? { hideNames: true } : {}) })).body;
+      const again = (await call('/bills/' + made.no)).body;
+      eq(label + ': reprint of the saved bill', shared.receiptLayout(again, { ...st, receiptStyle: style }), want);
+      eq(label + ': reprint slip', slipShape(shared.buildReceipt(again, { ...st, receiptStyle: style })), slipFor(want, lines));
+    }
+    await call('/settings', 'PUT', { receiptStyle: 'normal' });
   } finally {
     child.kill();
     await sleep(300);

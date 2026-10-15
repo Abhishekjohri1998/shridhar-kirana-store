@@ -92,6 +92,8 @@ const settingsBody = z.object({
   shopNameKn: z.string().trim().max(80).optional(),
   footerKn: z.string().trim().max(120).optional(),
   showRate: z.boolean().optional(),
+  receiptStyle: z.enum(['normal', 'compact']).optional(),
+  // The old name, from an app that predates receiptStyle: accepted and moved across below.
   hiddenReceipt: z.enum(['list', 'compact']).optional(),
   showGstin: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
@@ -219,6 +221,10 @@ api.put('/settings', handler(async (req, res) => {
   // Normalised here rather than trusted from the browser, like every other figure: the number
   // prints on paper, so it should read the same whichever app typed it and however it was spaced.
   if (patch.gstin != null) patch.gstin = checkGstin(patch.gstin).value;
+  if (patch.hiddenReceipt != null) {
+    if (patch.receiptStyle == null) patch.receiptStyle = patch.hiddenReceipt === 'compact' ? 'compact' : 'normal';
+    delete patch.hiddenReceipt;
+  }
   res.json(await getRepo().updateSettings(patch));
 }));
 
