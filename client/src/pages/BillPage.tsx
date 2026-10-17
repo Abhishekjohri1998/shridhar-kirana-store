@@ -708,7 +708,9 @@ export function BillPage() {
 
       {/* Pinned at the top, above the writing. Forty lines into a bill these fields used to be
           off-screen, so attaching somebody meant scrolling back and losing your place. */}
-      <CustomerBar focusRef={customerFocus} />
+      {/* Keyed by bill: its open/typing state belongs to one bill. Unkeyed, "Change" on one tab left
+            the shared bar open, and every other tab lost its chip to an empty entry row. */}
+        <CustomerBar key={shop.activeDraftId} focusRef={customerFocus} />
 
       <div className="slip-pane">
         {error ? <p className="error" role="alert">{error}</p> : null}

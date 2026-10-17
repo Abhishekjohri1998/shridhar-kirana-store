@@ -857,7 +857,9 @@ export function BillScreen() {
       </ScrollView>
 
       <View style={styles.top}>
-        <CustomerBar focusRef={customerFocus} />
+        {/* Keyed by bill: its open/typing state belongs to one bill. Unkeyed, "Change" on one tab left
+            the shared bar open, and every other tab lost its chip to an empty entry row. */}
+        <CustomerBar key={shop.activeDraftId} focusRef={customerFocus} />
         {error ? <ErrorText onDismiss={() => setError(null)}>{error}</ErrorText> : null}
 
         {/* Offered here rather than only from History: the moment a customer asks for a copy is

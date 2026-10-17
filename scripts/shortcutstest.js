@@ -224,6 +224,17 @@ console.log('\nThe unit list F6 opens (build 67)');
   check('travel uses the measured width', app.includes('outputRange: [0, barWidth / TABS.length]'));
 }
 
+{
+  console.log('\nCustomer bar state is per bill (removing one bill\'s customer must not open the others)');
+  const fs = require('node:fs');
+  const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
+  for (const [label, file] of [['mobile', ['mobile', 'src', 'screens', 'BillScreen.tsx']], ['client', ['client', 'src', 'pages', 'BillPage.tsx']]]) {
+    const src = read(...file);
+    const uses = src.match(/<CustomerBar\b[^>]*>/g) || [];
+    check(label + ': every CustomerBar is keyed by the active draft', uses.length > 0 && uses.every((u) => u.includes('key={shop.activeDraftId}')), uses.join(' | '));
+  }
+}
+
 console.log('');
 if (failures) {
   console.log(failures + ' check(s) failed');
