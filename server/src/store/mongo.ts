@@ -183,6 +183,8 @@ const settingsSchema = new Schema<SettingsDoc>(
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
     // No default on purpose: absent means "never set", which the first start fills from stock.
     roundTo: { type: Number, required: false },
+    // Customer id -> ISO date the quiet notice was dismissed. Absent until the first dismissal.
+    dismissedInactive: { type: Schema.Types.Mixed, required: false },
   },
   { versionKey: false },
 );

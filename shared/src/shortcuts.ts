@@ -30,7 +30,8 @@ export type ShortcutAction =
   | 'tickAll'
   | 'preview'
   | 'save'
-  | 'print';
+  | 'print'
+  | 'calculator';
 
 export interface Shortcut {
   chord: string;
@@ -65,6 +66,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { chord: 'Ctrl+P', action: 'preview', labelKey: 'keys.preview' },
   { chord: 'Ctrl+S', action: 'save', labelKey: 'keys.save' },
   { chord: 'Ctrl+Shift+P', action: 'print', labelKey: 'keys.print' },
+  // F10 (build 71): the calculator pop-up; "Put in box" fills the last price or qty box.
+  { chord: 'F10', action: 'calculator', labelKey: 'keys.calculator' },
 ];
 
 /** A key press as either app sees it. `key` is a KeyboardEvent.key or the native key name. */

@@ -253,6 +253,11 @@ export type Settings = {
    * and absent reads as 0. Deliberately not in DEFAULT_SETTINGS, so "never set" stays visible.
    */
   roundTo?: number;
+  /**
+   * "Haven't come back" notices dismissed: customer id -> when (ISO). On the server so every
+   * device agrees; a customer shows again once a newer bill makes them quiet again.
+   */
+  dismissedInactive?: Record<string, string>;
 };
 
 export type HiddenReceipt = 'list' | 'compact';
@@ -341,6 +346,11 @@ export type StockItem = {
   id: string; nameEn: string; nameKn: string; units: StockUnit[];
   /** The unit code stock sells this item in by default; else its first unit. */
   sellUnit?: string;
+  /**
+   * The unit of the other name (alias) the search matched through, when that alias carries one:
+   * "HG box" finds HG with matchedUnit 'box'. Stock sets it; billing picks that unit first.
+   */
+  matchedUnit?: string;
 };
 
 export type StockQuote = {

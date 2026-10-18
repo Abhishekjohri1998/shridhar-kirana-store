@@ -1056,7 +1056,7 @@ async function main() {
 
     // A number of its own: 9000000001 is the quiet-customer fixture, and selling to them here
     // would make them active and quietly gut the test below.
-    const settled = await post('/api/customers', { name: 'Paid Up', phone: '9000000077' });
+    const settled = await post('/api/customers', { name: 'Paid Up', phone: '9871200071' });
     const cash = await post('/api/bills', { lines: [{ itemId: 'y', qty: 1, rate: 50 }], customerId: settled.body.id });
     eq('a customer who pays in full carries nothing', cash.body.previousBalance, 0);
     check('and is offered no date', cash.body.previousBalanceAt == null);
@@ -1140,6 +1140,48 @@ async function main() {
     eq('a nonsense window is rejected', (await call('/api/settings', {
       method: 'PUT', headers: auth, body: JSON.stringify({ inactiveAfterDays: 0 }),
     })).status, 400);
+
+    console.log('\nAPI: "not come for N days" and dismissed notices (build 71)');
+    {
+      const never = await post('/api/customers', { name: 'Never Billed Seventyone' });
+      const nc = (await call('/api/customers/inactive?days=15&never=1', { headers: auth })).body;
+      eq('the filter answers with its days', nc.days, 15);
+      check('it lists a customer with no bills', nc.customers.some((c) => c.id === never.body.id));
+      check('and the one last seen 90 days ago', nc.customers.some((c) => c.id === 'p9000000001'));
+      check('but not one who bought just now', !nc.customers.some((c) => c.id === created.body.id));
+      const at = (c) => (c.lastVisit ? Date.parse(c.lastVisit) : -Infinity);
+      check('longest gone first', nc.customers.every((c, i, l) => i === 0 || at(l[i - 1]) <= at(c)));
+      check('never-billed come before the billed', at(nc.customers[0]) === -Infinity);
+      check('without never=1 the nudge list leaves the never-billed out',
+        !(await call('/api/customers/inactive?days=15', { headers: auth })).body.customers.some((c) => c.id === never.body.id));
+
+      const { visibleInactive, dismissInactive, notSeenFor } = shared;
+      const quiet = (await call('/api/customers/inactive', { headers: auth })).body.customers;
+      check('someone is quiet to dismiss', quiet.length > 0);
+      const first = quiet[0];
+      const map = dismissInactive({ gone: '2020-01-01T00:00:00.000Z' }, [first.id], quiet.map((c) => c.id));
+      check('a dismissal drops customers no longer quiet', !('gone' in map));
+      const saved = await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ dismissedInactive: map }) });
+      eq('dismissals save in settings', saved.status, 200);
+      eq('and come back from the server, for every device',
+        (await call('/api/settings', { headers: auth })).body.dismissedInactive[first.id], map[first.id]);
+      const vis = visibleInactive(quiet, map);
+      check('the dismissed customer is hidden', !vis.some((c) => c.id === first.id));
+      eq('so the badge counts one fewer', vis.length, quiet.length - 1);
+      const later = { ...first, lastVisit: new Date(Date.parse(map[first.id]) + 1000).toISOString() };
+      check('a newer bill after the dismissal brings them back', visibleInactive([later], map).length === 1);
+      eq('dismiss all clears the badge',
+        visibleInactive(quiet, dismissInactive(map, quiet.map((c) => c.id), quiet.map((c) => c.id))).length, 0);
+      eq('a bad map is refused', (await call('/api/settings', {
+        method: 'PUT', headers: auth, body: JSON.stringify({ dismissedInactive: { x: 5 } }),
+      })).status, 400);
+      const now = new Date('2026-10-18T00:00:00Z');
+      const list = [{ lastVisit: '2026-10-10T00:00:00Z' }, { lastVisit: null }, { lastVisit: '2026-09-01T00:00:00Z' }, { lastVisit: '2026-10-17T00:00:00Z' }];
+      eq('notSeenFor 7: never, then oldest', JSON.stringify(notSeenFor(list, 7, now).map((c) => c.lastVisit)),
+        JSON.stringify([null, '2026-09-01T00:00:00Z', '2026-10-10T00:00:00Z']));
+      eq('notSeenFor 30', notSeenFor(list, 30, now).length, 2);
+      await call('/api/customers/' + never.body.id, { method: 'DELETE', headers: auth });
+    }
 
     console.log('\nAPI: settings');
     // The catalogue is gone: every line of a bill is written by hand now, so there is no item

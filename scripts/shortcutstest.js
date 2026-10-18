@@ -38,6 +38,7 @@ const want = [
   [{ key: 'F6' }, 'lineUnit'],
   [{ key: 'F7' }, 'linePrice'],
   [{ key: 'F8' }, 'lineTick'],
+  [{ key: 'F10' }, 'calculator'],
   [{ key: 'a', ctrl: true }, 'tickAll'],
   [{ key: 'p', ctrl: true }, 'preview'],
   [{ key: 's', ctrl: true }, 'save'],
@@ -232,6 +233,43 @@ console.log('\nThe unit list F6 opens (build 67)');
     const src = read(...file);
     const uses = src.match(/<CustomerBar\b[^>]*>/g) || [];
     check(label + ': every CustomerBar is keyed by the active draft', uses.length > 0 && uses.every((u) => u.includes('key={shop.activeDraftId}')), uses.join(' | '));
+  }
+}
+
+console.log('\nThe calculator (build 71): F10, the safe parser, Put in box');
+{
+  eq('F10 opens the calculator', S.shortcutFor({ key: 'F10' }), 'calculator');
+  check('F10 is in the help list', S.SHORTCUTS.some((k) => k.chord === 'F10' && k.labelKey === 'keys.calculator'));
+  const plugin = require(require('node:path').join(__dirname, '..', 'mobile', 'plugins', 'withStylus.js'));
+  check('and in the native key list', plugin.BILL_CHORDS.includes('F10') && plugin.moduleSource('x.y').includes('KEYCODE_F10 -> "F10"'));
+  const fs = require('node:fs');
+  const kt = path.join(__dirname, '..', 'mobile', 'android', 'app', 'src', 'main', 'java', 'com', 'shridhar', 'billing', 'stylus', 'ShridharNativeModule.kt');
+  if (fs.existsSync(kt)) check('the generated android module matches the plugin', fs.readFileSync(kt, 'utf8') === plugin.moduleSource('com.shridhar.billing'));
+  const e = S.evaluateCalc;
+  const cases = [
+    ['2+3*4', 14], ['(2+3)*4', 20], ['2 × 3', 6], ['10 ÷ 4', 2.5], ['9 − 4', 5], ['1.5+.5', 2],
+    ['200*5%', 10], ['200+5%', 210], ['200-10%', 180], ['50%', 0.5], ['((1+1))*3', 6], ['-3+5', 2],
+    ['10/0', null], ['2+', null], ['(1+2', null], ['1+2)', null], ['', null], ['1..2', null],
+    ['eval(1)', null], ['alert(1)', null], ['0x1f', null], ['1e3', null], ['2**3', null],
+  ];
+  for (const [sum, want] of cases) eq('calc ' + JSON.stringify(sum), e(sum), want);
+  const bus = S.createCalcBus();
+  eq('no box focused yet: nothing to put into', bus.put(5), false);
+  let got = null;
+  bus.setTarget((t) => { got = 'price:' + t; });
+  bus.setTarget((t) => { got = 'qty:' + t; });
+  eq('the last focused box takes the answer', bus.put(12.5), true);
+  eq('as text', got, 'qty:12.5');
+  bus.clearTarget();
+  eq('a cleared box takes nothing', bus.put(1), false);
+  let opened = 0;
+  const off = bus.onOpen(() => { opened += 1; });
+  bus.open(); off(); bus.open();
+  eq('F10 and the button open it through the bus', opened, 1);
+  const rd = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
+  for (const f of ['client/src/App.tsx', 'mobile/App.tsx']) check(f + ' shows the calculator', rd(f).includes('<Calculator />'));
+  for (const f of ['client/src/components/Calculator.tsx', 'mobile/src/components/Calculator.tsx']) {
+    check(f + ' uses no eval', !/\beval\(|new Function/.test(rd(f)) && rd(f).includes('evaluateCalc'));
   }
 }
 

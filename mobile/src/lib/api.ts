@@ -323,7 +323,9 @@ export const api = {
         })
       : request<Customer>('/customers', { method: 'POST', body: JSON.stringify(input) }),
   deleteCustomer: (id: string) => request<void>('/customers/' + encodeURIComponent(id), { method: 'DELETE' }),
-  inactiveCustomers: () => request<{ days: number; customers: Customer[] }>('/customers/inactive'),
+  inactiveCustomers: (days?: number, never?: boolean) => request<{ days: number; customers: Customer[] }>(
+    '/customers/inactive' + (days ? '?days=' + days + (never ? '&never=1' : '') : ''),
+  ),
 
   /*
    * The stock app, through this server. Billing only shows what comes back; see the server's

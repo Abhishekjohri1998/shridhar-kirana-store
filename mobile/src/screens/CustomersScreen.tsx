@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   checkCustomer, customerMatches, customerName, customerPhones, localInput, money, parseLocalInput,
-  stamp, type Bill, type Customer, type Payment,
+  stamp, type Bill, type Customer, type Payment, whatsappNumber,
 } from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
@@ -10,7 +10,7 @@ import { ScriptField } from '../components/ScriptField';
 import { Button, Empty, ErrorText, Field, Notice } from '../components/ui';
 import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
-import { C } from '../theme';
+import { C, R } from '../theme';
 import { CustomersIcon } from '../components/Icons';
 
 function daysSince(iso: string | null): number | null {
@@ -59,12 +59,26 @@ export function CustomersScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop.dataVersion]);
 
+  /** "Not come for N days": the days picked (null = off), what the server listed, the custom box. */
+  const [notCome, setNotCome] = useState<number | null>(null);
+  const [notComeList, setNotComeList] = useState<Customer[]>([]);
+  const [customDays, setCustomDays] = useState('');
+  useEffect(() => {
+    if (notCome == null) return;
+    let alive = true;
+    api.inactiveCustomers(notCome, true)
+      .then((r) => { if (alive) setNotComeList(r.customers); })
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { alive = false; };
+  }, [notCome, customers]);
+
   const results = useMemo(() => {
+    if (notCome != null) return query.trim() ? notComeList.filter((c) => customerMatches(c, query)) : notComeList;
     if (!query.trim()) return customers;
     // One matcher, shared with the suggestions under the bill screen and with both stores, so
     // "who exists" cannot get a different answer depending on which box you typed in.
     return customers.filter((c) => customerMatches(c, query));
-  }, [query, customers]);
+  }, [query, customers, notCome, notComeList]);
 
   const owing = customers.filter((c) => c.balance > 0);
 
@@ -188,6 +202,31 @@ export function CustomersScreen() {
               quietList}
           </Notice>
         ) : null}
+        {shop.inactive.length > 0 ? (
+          <View style={[styles.chips, { marginBottom: 12 }]}>
+            {shop.inactive.slice(0, 6).map((c) => {
+              const who = customerName(c, shop.lang) || c.phone || t('cs.unnamed');
+              return (
+                <Pressable
+                  key={c.id}
+                  style={styles.chip}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('cs.dismissOne', { name: who })}
+                  onPress={() => void shop.dismissInactive([c.id])}
+                >
+                  <Text style={styles.chipText}>{who + '  ×'}</Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              style={styles.chip}
+              accessibilityRole="button"
+              onPress={() => void shop.dismissInactive(shop.inactive.map((c) => c.id))}
+            >
+              <Text style={styles.chipText}>{t('cs.dismissAll')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.stats}>
           <View style={styles.stat}>
@@ -215,6 +254,46 @@ export function CustomersScreen() {
           <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '' })} style={styles.slim} />
         </View>
 
+        {/* "Not come for N days": billed before the cutoff, or never; longest gone first. */}
+        <View style={[styles.chips, { alignItems: 'center', marginBottom: 10 }]}>
+          <Text style={styles.small}>{t('cs.notCome')}</Text>
+          {[7, 15, 30].map((n) => (
+            <Pressable
+              key={n}
+              style={[styles.chip, notCome === n && styles.chipOn]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: notCome === n }}
+              onPress={() => setNotCome(notCome === n ? null : n)}
+            >
+              <Text style={[styles.chipText, notCome === n && styles.chipTextOn]}>{t('cs.notComeDays', { n })}</Text>
+            </Pressable>
+          ))}
+          <TextInput
+            style={[styles.search, { flex: 0, width: 90, minHeight: 40, paddingVertical: 6 }]}
+            keyboardType="number-pad"
+            placeholder={t('cs.notComeCustom')}
+            placeholderTextColor={C.soft}
+            accessibilityLabel={t('cs.notComeAria')}
+            value={customDays}
+            onChangeText={(text) => {
+              const v = text.replace(/\D/g, '').slice(0, 4);
+              setCustomDays(v);
+              const n = Number(v);
+              if (n >= 1) setNotCome(n);
+            }}
+          />
+          {notCome != null ? (
+            <Pressable style={styles.chip} accessibilityRole="button" onPress={() => { setNotCome(null); setCustomDays(''); }}>
+              <Text style={styles.chipText}>{t('cs.notComeOff')}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {notCome != null ? (
+          <Text style={[styles.small, { marginBottom: 8 }]}>
+            {results.length === 0 ? t('cs.notComeNone', { n: notCome }) : t('cs.notComeCount', { n: results.length, days: notCome })}
+          </Text>
+        ) : null}
+
         {loading ? (
           <Text style={styles.empty}>{t('cs.loading')}</Text>
         ) : results.length === 0 ? (
@@ -228,11 +307,14 @@ export function CustomersScreen() {
               (c.phone || t('cs.noNumber')) +
               ' · ' +
               (c.billCount === 0
-                ? t('cs.noBillsYet')
+                ? (notCome != null ? t('cs.neverBilled') : t('cs.noBillsYet'))
                 : (c.billCount === 1 ? t('cs.oneBill') : t('cs.nBills', { n: c.billCount })) +
                   (quiet == null ? '' : quiet === 0 ? t('cs.lastInToday') : t('cs.lastInDays', { n: quiet })));
+            const who = customerName(c, shop.lang) || c.phone || t('cs.unnamed');
+            const wa = whatsappNumber(c);
             return (
-              <Pressable key={c.id} style={styles.row} onPress={() => void openCustomer(c)}>
+              <View key={c.id}>
+              <Pressable style={styles.row} onPress={() => void openCustomer(c)}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.name}>{c.name || t('cs.unnamed')}</Text>
                   <Text style={styles.small}>{detail}</Text>
@@ -248,6 +330,23 @@ export function CustomersScreen() {
                   )}
                 </View>
               </Pressable>
+              {notCome != null && (c.phone || wa) ? (
+                <View style={[styles.chips, { marginTop: -2, marginBottom: 8 }]}>
+                  {c.phone ? (
+                    <Pressable style={styles.chip} accessibilityRole="button" accessibilityLabel={t('cs.callAria', { name: who })}
+                      onPress={() => void Linking.openURL('tel:' + c.phone).catch(() => undefined)}>
+                      <Text style={styles.chipText}>{'📞 ' + t('cs.call')}</Text>
+                    </Pressable>
+                  ) : null}
+                  {wa ? (
+                    <Pressable style={styles.chip} accessibilityRole="button" accessibilityLabel={t('cs.whatsappAria', { name: who })}
+                      onPress={() => void Linking.openURL('https://wa.me/' + wa).catch(() => undefined)}>
+                      <Text style={styles.chipText}>{t('cust.whatsapp')}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+              </View>
             );
           })
         )}
@@ -575,4 +674,12 @@ const styles = StyleSheet.create({
   moreRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   moreRemove: { paddingHorizontal: 8, paddingVertical: 6 },
   moreRemoveText: { fontSize: 22, color: C.soft },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: {
+    borderWidth: 1, borderColor: C.accentEdge, backgroundColor: C.accentWash,
+    borderRadius: R.pill, paddingHorizontal: 12, paddingVertical: 7,
+  },
+  chipText: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
+  chipOn: { backgroundColor: C.accent, borderColor: C.accent },
+  chipTextOn: { color: C.accentInk },
 });

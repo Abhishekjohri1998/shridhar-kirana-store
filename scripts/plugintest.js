@@ -128,7 +128,7 @@ check('checked before the text-box test, so any focus works', mod.indexOf('if (o
 check('off unless JavaScript says so', mod.includes('@Volatile private var shortcutLevel = 0') && mod.includes('if (level <= 0) return false'));
 check('the global chords at level 1', mod.includes('if (chord in GLOBAL_CHORDS) return true') && mod.includes('return level >= 2 && chord in BILL_CHORDS'));
 check('emitted once per press, used up whole', mod.includes('if (ev.action == KeyEvent.ACTION_DOWN) {\n        takenDown.add(ev.keyCode)\n        if (ev.repeatCount == 0) instance?.emitShortcut('));
-for (const k of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'PAGE_UP', 'PAGE_DOWN', 'H', 'B', 'C', 'A', 'P', 'S']) {
+for (const k of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'PAGE_UP', 'PAGE_DOWN', 'H', 'B', 'C', 'A', 'P', 'S']) {
   check('reads KEYCODE_' + k, mod.includes('KeyEvent.KEYCODE_' + k + ' -> '));
 }
 check('modifier order is Ctrl, Shift, Alt as in JS', mod.includes('(if (ctrl) "Ctrl+" else "") + (if (shift) "Shift+" else "") + (if (alt) "Alt+" else "") + key'));

@@ -9,7 +9,7 @@ import {
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
-  rateText, unitMenuStart, unitMenuStep,
+  rateText, unitMenuStart, unitMenuStep, matchedLabel, calcBus,
 } from '@shridhar/shared';
 import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
 import { Dialog } from '../components/Dialog';
@@ -791,6 +791,7 @@ export function BillScreen() {
       case 'preview': if (hasSomething) setPreview(draft()); return;
       case 'save': if (hasSomething && !saving) void onSave(); return;
       case 'print': if (hasSomething && !saving && !printer.busy) void onPrint(); return;
+      case 'calculator': calcBus.open(); return;
       default: return; // toggleApp and history belong to the shell.
     }
   };
@@ -1121,6 +1122,12 @@ export function BillScreen() {
                             focusRow(line.itemId);
                             setView('items');
                             setQtyText((prev) => ({ ...prev, [line.itemId]: '' }));
+                            // The calculator's "Put in box" lands here until another box is focused.
+                            calcBus.setTarget((text) => {
+                              setQtyText((prev) => ({ ...prev, [line.itemId]: text }));
+                              const qty = Number(text);
+                              if (Number.isFinite(qty)) stock.onQty(index, line, qty);
+                            });
                           }}
                           onBlur={() => {
                             blurRow();
@@ -1190,6 +1197,7 @@ export function BillScreen() {
                                 {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
                                   ? lineName(item, shop.lang) + ' · ' + lineName(item, shop.lang === 'kn' ? 'en' : 'kn')
                                   : item.nameKn || item.nameEn}
+                                {matchedLabel(item, shop.lang) ? ' · ' + matchedLabel(item, shop.lang) : ''}
                               </Text>
                             </Pressable>
                             <View style={styles.stockChips}>
@@ -1272,7 +1280,10 @@ export function BillScreen() {
                   // raise it again -- a flicker on every single line.
                   blurOnSubmit={false}
                   onSubmitEditing={() => submitPrice(index)}
-                  onFocus={() => { focusRow(line.itemId); setView('items'); setTakeEnter(true); }}
+                  onFocus={() => {
+                    focusRow(line.itemId); setView('items'); setTakeEnter(true);
+                    calcBus.setTarget((text) => onPrice(index, line.itemId, text));
+                  }}
                   // The line is done; bring the fresh blank one into view.
                   // Leaving a field never moves the page. It used to turn to the newest line,
                   // which meant tapping out at line 27 and dragging up towards line 2 was

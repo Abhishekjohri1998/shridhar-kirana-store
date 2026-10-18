@@ -60,7 +60,7 @@ const GLOBAL_CHORDS = ['F1', 'Alt+B', 'Alt+S', 'F9', 'Alt+C'];
 /** The chords used up at shortcut level 2 only. Keep in step with SHORTCUTS. */
 const BILL_CHORDS = [
   'Ctrl+PageUp', 'Ctrl+PageDown', 'Alt+H', 'F2', 'Shift+F2', 'F3', 'F4', 'F5', 'F6',
-  'F7', 'F8', 'Ctrl+H', 'Ctrl+A', 'Ctrl+P', 'Ctrl+S', 'Ctrl+Shift+P',
+  'F7', 'F8', 'Ctrl+H', 'Ctrl+A', 'Ctrl+P', 'Ctrl+S', 'Ctrl+Shift+P', 'F10',
 ];
 
 /** Adds lines just inside the class's closing brace. */
@@ -312,6 +312,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
       KeyEvent.KEYCODE_F7 -> "F7"
       KeyEvent.KEYCODE_F8 -> "F8"
       KeyEvent.KEYCODE_F9 -> "F9"
+      KeyEvent.KEYCODE_F10 -> "F10"
       KeyEvent.KEYCODE_PAGE_UP -> "PageUp"
       KeyEvent.KEYCODE_PAGE_DOWN -> "PageDown"
       KeyEvent.KEYCODE_H -> "H"

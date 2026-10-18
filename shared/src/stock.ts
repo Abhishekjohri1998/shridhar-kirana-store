@@ -10,6 +10,15 @@ export function sellUnitOf(item: Pick<StockItem, 'units' | 'sellUnit'>): StockUn
 }
 
 /**
+ * The unit a pick from a search fills the line with: the unit of the alias the search matched
+ * through ("HG box" -> box), else the selling unit.
+ */
+export function pickUnitOf(item: Pick<StockItem, 'units' | 'sellUnit' | 'matchedUnit'>): StockUnit | undefined {
+  const units = Array.isArray(item.units) ? item.units : [];
+  return (item.matchedUnit && units.find((u) => u.code === item.matchedUnit)) || sellUnitOf(item);
+}
+
+/**
  * The unit a typed line carries when stock does not know the item: "numbers", the shop's own
  * word for a count of anything. Shown on every typed row that has not been matched to stock.
  */
@@ -65,4 +74,12 @@ export function lastPriceApplies(
   if (line.stockItemId) return false;
   if (line.unit !== asked.unit) return false;
   return asked.seq === nowSeq;
+}
+
+/** The label of the unit the search matched through ("HG box" -> "Box"), for the suggestion row. */
+export function matchedLabel(item: Pick<StockItem, 'units' | 'matchedUnit'>, lang: string): string {
+  if (!item.matchedUnit) return '';
+  const u = (Array.isArray(item.units) ? item.units : []).find((x) => x.code === item.matchedUnit);
+  if (!u) return '';
+  return (lang === 'kn' && u.labelKn) || u.label || u.code;
 }

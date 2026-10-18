@@ -16,6 +16,7 @@ import { PrintProvider } from './src/lib/usePrint';
 import { ShopProvider, useShop } from './src/lib/useShop';
 import { reportInsets, useHeldInsets } from './src/lib/screenEdges';
 import { BillScreen } from './src/screens/BillScreen';
+import { Calculator } from './src/components/Calculator';
 import { CustomersScreen } from './src/screens/CustomersScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
@@ -250,6 +251,7 @@ function Shell() {
           <Text style={[styles.headerText, handFont(shopName, 19)]} numberOfLines={1}>
             {shopName}
           </Text>
+          {app === 'billing' ? <Calculator /> : null}
           {app === 'billing' ? (
             <Text style={styles.badge}>{shop.t('app.today', { amount: money(shop.today.total) })}</Text>
           ) : null}

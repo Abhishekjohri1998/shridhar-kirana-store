@@ -3,7 +3,7 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
-  LINK_RETRY_MS, createLinkWatch, roundLines, shouldAutoHide,
+  LINK_RETRY_MS, createLinkWatch, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -120,6 +120,8 @@ type Shop = {
   note: string;
   /** Customers who have not been in for `settings.inactiveAfterDays`. */
   inactive: Customer[];
+  /** Hide the "haven't come back" notice for these customers, on every device (build 71). */
+  dismissInactive: (ids: string[]) => Promise<void>;
   /** Interface language, and the translator for it. */
   lang: Lang;
   t: T;
@@ -216,7 +218,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(cached?.settings ?? DEFAULT_SETTINGS);
   const [bills, setBills] = useState<Bill[]>([]);
   const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
-  const [inactive, setInactive] = useState<Customer[]>([]);
+  const [inactiveAll, setInactive] = useState<Customer[]>([]);
 
   /*
    * Several bills at once, one of them showing.
@@ -846,6 +848,18 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
 
 
+  // Only the quiet customers not dismissed: the notice and the badge both count these.
+  const inactive = useMemo(() => visibleInactive(inactiveAll, settings.dismissedInactive), [inactiveAll, settings.dismissedInactive]);
+  const dismissInactiveNow = useCallback(async (ids: string[]) => {
+    const dismissedInactive = dismissInactive(settings.dismissedInactive, ids, inactiveAll.map((c) => c.id));
+    setSettings((s) => ({ ...s, dismissedInactive }));
+    try {
+      setSettings(await api.updateSettings({ dismissedInactive }));
+    } catch {
+      // Offline: hidden on this device for now; the next dismissal saves the whole map again.
+    }
+  }, [settings.dismissedInactive, inactiveAll]);
+
   const saveSettings = useCallback(async (patch: Partial<Settings>) => {
     const next = await api.updateSettings(patch);
     setSettings(next);
@@ -861,7 +875,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     () => ({
       ready, signedIn, offline, settings, bills, today, cart,
       cartTotal: roundedCart, cartRoundOff: 0, setLineHidden,
-      customer, inactive, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
+      customer, inactive, dismissInactive: dismissInactiveNow, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
       lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
@@ -873,7 +887,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       saveSettings, forgetEverything, dataVersion,
     }),
     [
-      ready, signedIn, offline, settings, bills, today, cart, customer, inactive,
+      ready, signedIn, offline, settings, bills, today, cart, customer, inactive, dismissInactiveNow,
       paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,

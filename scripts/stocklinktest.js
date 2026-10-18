@@ -63,6 +63,11 @@ const SLABBED = {
   ],
 };
 
+const HG = {
+  id: 'it_hg', nameEn: 'HG soap', nameKn: 'ಎಚ್‌ಜಿ', sellUnit: 'pc',
+  units: [{ code: 'pc', label: 'Pc', price: 10 }, { code: 'box', label: 'Box', labelKn: 'ಬಾಕ್ಸ್', price: 220 }],
+};
+
 /** Stock's accounts, as the fake knows them. */
 const PEOPLE = {
   '9000000001': { pin: '1111', role: 'admin', name: 'Owner' },
@@ -89,6 +94,11 @@ function startFakeStock(port) {
       // A stock server that has stopped answering: billing must give up, not wait with it.
       if (q === 'slow') {
         setTimeout(() => send(200, { items: [PARLE] }), 6000);
+        return;
+      }
+      // Alias units (build 71): "HG box" matches HG through an alias carrying the box unit.
+      if (q.startsWith('hg')) {
+        send(200, { items: [q.includes('box') ? { ...HG, matchedUnit: 'box' } : HG] });
         return;
       }
       if (q.startsWith('slab')) {
@@ -301,6 +311,21 @@ async function main() {
     eq('and say so', three.body.slab, true);
     eq('an unknown unit is quietly unavailable', (await on.call('/stock/quote?item=it_parle&unit=box&qty=1')).status, 503);
     eq('a quote with no quantity is refused', (await on.call('/stock/quote?item=it_parle&unit=pack')).status, 400);
+
+    console.log('\nAlias units (build 71)');
+    {
+      const { pickUnitOf, matchedLabel } = require(path.join(ROOT, 'shared', 'dist', 'cjs', 'index.js'));
+      const box = (await on.call('/stock/items?q=' + encodeURIComponent('HG box'))).body.items[0];
+      eq('matchedUnit comes through the proxy', box.matchedUnit, 'box');
+      eq('"HG box" picks Box', pickUnitOf(box).code, 'box');
+      eq('and the row shows it', matchedLabel(box, 'en'), 'Box');
+      eq('in Kannada too', matchedLabel(box, 'kn'), 'ಬಾಕ್ಸ್');
+      const plain = (await on.call('/stock/items?q=HG')).body.items[0];
+      eq('"HG" has no matchedUnit', plain.matchedUnit, undefined);
+      eq('"HG" picks the sell unit', pickUnitOf(plain).code, 'pc');
+      eq('and the row shows no unit', matchedLabel(plain, 'en'), '');
+      eq('an unknown matchedUnit falls back to the sell unit', pickUnitOf({ ...HG, matchedUnit: 'crate' }).code, 'pc');
+    }
 
     console.log('\nA slab item picked (build 66): 1-9 pc at 10, 10+ at 9.17');
     {

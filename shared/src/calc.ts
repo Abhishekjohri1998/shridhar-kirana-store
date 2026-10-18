@@ -100,3 +100,96 @@ function fold(tokens: Token[]): number | null {
 
   return Number.isFinite(total) ? round2(total) : null;
 }
+
+/**
+ * The pop-up calculator's sum (build 71): + - x / with brackets, decimals and %, still with no
+ * eval. `%` after a number is a percentage of it (`200*5%` is 10); after `a +` or `a -` it is
+ * a percentage of `a` (`200+5%` is 210), the way a shop calculator does it. Null when the sum
+ * is not finished or not a sum.
+ */
+export function evaluateCalc(raw: string): number | null {
+  const text = raw.replace(/[x×]/gi, '*').replace(/÷/g, '/').replace(/[−–—]/g, '-').replace(/\s+/g, '');
+  if (!text) return null;
+  let i = 0;
+  const peek = () => text[i];
+  const fail = { bad: true };
+  const num = (): number => {
+    const m = /^(?:\d+(?:\.\d*)?|\.\d+)/.exec(text.slice(i));
+    if (!m) throw fail;
+    i += m[0].length;
+    return Number(m[0]);
+  };
+  const atom = (): number => {
+    if (peek() === '-') { i += 1; return -atom(); }
+    if (peek() === '(') {
+      i += 1;
+      const v = expr();
+      if (peek() !== ')') throw fail;
+      i += 1;
+      return v;
+    }
+    return num();
+  };
+  // A factor, with a trailing % meaning "of a hundred" (callers adjust for + and -).
+  const factor = (): { v: number; pct: boolean } => {
+    const v = atom();
+    if (peek() === '%') { i += 1; return { v: v / 100, pct: true }; }
+    return { v, pct: false };
+  };
+  const term = (): { v: number; pct: boolean } => {
+    let { v, pct } = factor();
+    while (peek() === '*' || peek() === '/') {
+      const op = text[i++];
+      const r = factor().v;
+      if (op === '/' && r === 0) throw fail;
+      v = op === '*' ? v * r : v / r;
+      pct = false;
+    }
+    return { v, pct };
+  };
+  function expr(): number {
+    let v = term().v;
+    while (peek() === '+' || peek() === '-') {
+      const op = text[i++];
+      const r = term();
+      const add = r.pct ? v * r.v : r.v;
+      v = op === '+' ? v + add : v - add;
+    }
+    return v;
+  }
+  try {
+    const v = expr();
+    if (i !== text.length || !Number.isFinite(v)) return null;
+    return Math.round(v * 1e6) / 1e6;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where the calculator's "Put in box" goes (build 71): the price or qty box last focused on the
+ * bill registers itself here, and the pop-up in the top bar puts its answer through it. One per
+ * app; plain functions, so the web page and the tablet screen share it unchanged. F10 and the
+ * top-bar button both open the pop-up through `open`.
+ */
+export function createCalcBus() {
+  let target: { put: (text: string) => void } | null = null;
+  const openers = new Set<() => void>();
+  return {
+    /** A price or qty box took focus: it is where the next answer goes. */
+    setTarget(put: (text: string) => void) { target = { put }; },
+    /** A box that went away (its line removed, the bill closed). */
+    clearTarget() { target = null; },
+    hasTarget() { return target != null; },
+    /** The answer into the last box. False when no box has been focused yet. */
+    put(value: number): boolean {
+      if (!target || !Number.isFinite(value)) return false;
+      target.put(String(Math.round(value * 1000) / 1000));
+      return true;
+    },
+    onOpen(fn: () => void) { openers.add(fn); return () => { openers.delete(fn); }; },
+    open() { for (const fn of openers) fn(); },
+  };
+}
+
+export const calcBus = createCalcBus();

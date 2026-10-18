@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { money, pickLang, shortcutFor } from '@shridhar/shared';
 import { SECTION_ICONS } from './components/Icons';
 import { Mark } from './components/Mark';
+import { Calculator } from './components/Calculator';
 import { PrintProvider } from './lib/usePrint';
 import { useShop } from './lib/useShop';
 import { BillPage } from './pages/BillPage';
@@ -56,7 +57,10 @@ export function App() {
 
         <header className="topbar">
           <h1>{pickLang(shop.settings.shopName, shop.settings.shopNameKn, shop.lang)}</h1>
-          <span className="badge">{shop.t('app.today', { amount: money(shop.today.total) })}</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Calculator />
+            <span className="badge">{shop.t('app.today', { amount: money(shop.today.total) })}</span>
+          </span>
         </header>
 
         <main className="main">

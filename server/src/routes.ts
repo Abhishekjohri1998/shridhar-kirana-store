@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ERASE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, roundedRate } from '@shridhar/shared';
+import { ERASE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, roundedRate, notSeenFor } from '@shridhar/shared';
 import { issueToken, pinMatches, requireAuth, secretMatches } from './auth';
 import { env } from './env';
 import { HttpError, handler } from './http';
@@ -97,6 +97,8 @@ const settingsBody = z.object({
   hiddenReceipt: z.enum(['list', 'compact']).optional(),
   showGstin: z.boolean().optional(),
   inactiveAfterDays: z.coerce.number().int().min(1).max(3650).optional(),
+  // "Haven't come back" notices dismissed, customer id -> when (build 71). Whole map each time.
+  dismissedInactive: z.record(z.string().min(1).max(80), z.string().max(40)).refine((m) => Object.keys(m).length <= 5000).optional(),
   // Each bill's total lands on this many rupees: 0 (none), 1, 5 or 10.
   roundTo: z.coerce.number().refine((v) => v === 0 || v === 1 || v === 5 || v === 10, {
     message: 'Round to 0, 1, 5 or 10',
@@ -245,6 +247,12 @@ api.get('/customers/inactive', handler(async (req, res) => {
   const settings = await getRepo().getSettings();
   const days = z.coerce.number().int().min(1).max(3650).default(settings.inactiveAfterDays)
     .parse(req.query.days ?? settings.inactiveAfterDays);
+  // never=1: the "not come for N days" filter, which also lists customers with no bill at all,
+  // longest gone first. Without it, the nudge list as before (billed customers only).
+  if (req.query.never === '1') {
+    res.json({ days, customers: notSeenFor(await getRepo().listCustomers(), days) });
+    return;
+  }
   res.json({ days, customers: await getRepo().inactiveCustomers(days) });
 }));
 

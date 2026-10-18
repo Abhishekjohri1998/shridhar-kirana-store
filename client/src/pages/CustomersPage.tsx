@@ -11,6 +11,7 @@ import {
   type Bill,
   type Customer,
   type Payment,
+  whatsappNumber,
 } from '@shridhar/shared';
 import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
@@ -91,12 +92,26 @@ export function CustomersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop.dataVersion]);
 
+  /** "Not come for N days": the days picked (null = off), what the server listed, the custom box. */
+  const [notCome, setNotCome] = useState<number | null>(null);
+  const [notComeList, setNotComeList] = useState<Customer[]>([]);
+  const [customDays, setCustomDays] = useState('');
+  useEffect(() => {
+    if (notCome == null) return;
+    let alive = true;
+    api.inactiveCustomers(notCome, true)
+      .then((r) => { if (alive) setNotComeList(r.customers); })
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { alive = false; };
+  }, [notCome, customers]);
+
   const results = useMemo(() => {
+    if (notCome != null) return query.trim() ? notComeList.filter((c) => customerMatches(c, query)) : notComeList;
     if (!query.trim()) return customers;
     // One matcher, shared with the suggestions under the bill screen and with both stores, so
     // "who exists" cannot get a different answer depending on which box you typed in.
     return customers.filter((c) => customerMatches(c, query));
-  }, [query, customers]);
+  }, [query, customers, notCome, notComeList]);
 
   const owing = useMemo(() => customers.filter((c) => c.balance > 0), [customers]);
   const owedTotal = useMemo(() => owing.reduce((s, c) => s + c.balance, 0), [owing]);
@@ -158,6 +173,14 @@ export function CustomersPage() {
       {/* The nudge list the shop asked for: regulars who have gone quiet. */}
       {shop.inactive.length > 0 ? (
         <section className="notice" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className="pay-all"
+            style={{ float: 'right' }}
+            onClick={() => void shop.dismissInactive(shop.inactive.map((c) => c.id))}
+          >
+            {t('cs.dismissAll')}
+          </button>
           <strong>
             {shop.inactive.length === 1
               ? t('cs.inactiveOne', { days: shop.settings.inactiveAfterDays })
@@ -169,6 +192,16 @@ export function CustomersPage() {
                 {customerName(c, shop.lang) || c.phone || t('cs.unnamed')}
                 {c.phone && customerName(c, shop.lang) ? ' · ' + c.phone : ''} — {t('cs.inactiveRow', { n: daysSince(c.lastVisit) ?? 0 })}
                 {c.balance > 0 ? t('cs.inactiveOwes', { amount: money(c.balance) }) : ''}
+                {' '}
+                <button
+                  type="button"
+                  className="pay-all"
+                  title={t('cs.dismiss')}
+                  aria-label={t('cs.dismissOne', { name: customerName(c, shop.lang) || c.phone || t('cs.unnamed') })}
+                  onClick={() => void shop.dismissInactive([c.id])}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>
@@ -215,6 +248,46 @@ export function CustomersPage() {
         </button>
       </div>
 
+      {/* "Not come for N days": billed before the cutoff, or never; longest gone first. */}
+      <div className="stock-chips" style={{ flexWrap: 'wrap', alignItems: 'center', margin: '0 0 12px' }}>
+        <span className="muted small">{t('cs.notCome')}</span>
+        {[7, 15, 30].map((n) => (
+          <button
+            key={n}
+            type="button"
+            className={'pay-all' + (notCome === n ? ' on' : '')}
+            aria-pressed={notCome === n}
+            onClick={() => setNotCome(notCome === n ? null : n)}
+          >
+            {t('cs.notComeDays', { n })}
+          </button>
+        ))}
+        <input
+          className="input"
+          style={{ width: 90 }}
+          inputMode="numeric"
+          placeholder={t('cs.notComeCustom')}
+          aria-label={t('cs.notComeAria')}
+          value={customDays}
+          onChange={(e) => {
+            const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+            setCustomDays(v);
+            const n = Number(v);
+            if (n >= 1) setNotCome(n);
+          }}
+        />
+        {notCome != null ? (
+          <button type="button" className="pay-all" onClick={() => { setNotCome(null); setCustomDays(''); }}>
+            {t('cs.notComeOff')}
+          </button>
+        ) : null}
+      </div>
+      {notCome != null ? (
+        <p className="muted small" style={{ margin: '0 0 8px' }}>
+          {results.length === 0 ? t('cs.notComeNone', { n: notCome }) : t('cs.notComeCount', { n: results.length, days: notCome })}
+        </p>
+      ) : null}
+
       {loading ? (
         <p className="muted center small">{t('cs.loading')}</p>
       ) : results.length === 0 ? (
@@ -225,13 +298,18 @@ export function CustomersPage() {
         <div className="list">
           {results.map((c) => {
             const quiet = daysSince(c.lastVisit);
+            const who = customerName(c, shop.lang) || c.phone || t('cs.unnamed');
+            const wa = whatsappNumber(c);
             return (
-              <button key={c.id} className="list-row" onClick={() => void openCustomer(c)}>
+              <div key={c.id}>
+              <button className="list-row" onClick={() => void openCustomer(c)}>
                 <span className="grow">
                   <span style={{ display: 'block', fontWeight: 700 }}>{customerName(c, shop.lang) || t('cs.unnamed')}</span>
                   <span className="muted small">
                     {c.phone || t('cs.noNumber')} ·{' '}
-                    {c.billCount === 0
+                    {notCome != null && c.billCount === 0
+                      ? t('cs.neverBilled')
+                      : c.billCount === 0
                       ? t('cs.noBillsYet')
                       : (c.billCount === 1 ? t('cs.oneBill') : t('cs.nBills', { n: c.billCount })) +
                         (quiet == null ? '' : quiet === 0 ? t('cs.lastInToday') : t('cs.lastInDays', { n: quiet }))}
@@ -249,6 +327,21 @@ export function CustomersPage() {
                   )}
                 </span>
               </button>
+              {notCome != null && (c.phone || wa) ? (
+                <div className="stock-chips" style={{ margin: '4px 0 8px' }}>
+                  {c.phone ? (
+                    <a className="pay-all" href={'tel:' + c.phone} aria-label={t('cs.callAria', { name: who })}>
+                      📞 {t('cs.call')}
+                    </a>
+                  ) : null}
+                  {wa ? (
+                    <a className="pay-all" href={'https://wa.me/' + wa} target="_blank" rel="noopener" aria-label={t('cs.whatsappAria', { name: who })}>
+                      {t('cust.whatsapp')}
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+              </div>
             );
           })}
         </div>

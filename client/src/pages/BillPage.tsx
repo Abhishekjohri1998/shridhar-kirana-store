@@ -23,7 +23,7 @@ import {
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, lineMoveFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
   type BillLine, type LineColumn, type ShortcutAction,
-  rateText, unitMenuStart, unitMenuStep,
+  rateText, unitMenuStart, unitMenuStep, matchedLabel, calcBus,
 } from '@shridhar/shared';
 import { useNavigate } from 'react-router-dom';
 import { CustomerBar, type CustomerFocus } from '../components/CustomerBar';
@@ -621,6 +621,7 @@ export function BillPage() {
       case 'preview': if (hasSomething) setPreview(draft()); return;
       case 'save': if (hasSomething && !saving) void onSave(); return;
       case 'print': if (hasSomething && !saving && !printer.busy) void onPrint(); return;
+      case 'calculator': calcBus.open(); return;
       default: return; // toggleApp: nothing to switch to on the web; bill and settings: App.tsx.
     }
   };
@@ -878,7 +879,15 @@ export function BillPage() {
                             // is typed rather than deleted first. Left empty, the old one stays.
                             value={qtyText[line.itemId] ?? (line.rate > 0 ? String(line.qty) : '')}
                             placeholder="1"
-                            onFocus={() => setQtyText((prev) => ({ ...prev, [line.itemId]: '' }))}
+                            onFocus={() => {
+                              setQtyText((prev) => ({ ...prev, [line.itemId]: '' }));
+                              // The calculator's "Put in box" lands here until another box is focused.
+                              calcBus.setTarget((text) => {
+                                setQtyText((prev) => ({ ...prev, [line.itemId]: text }));
+                                const qty = Number(text);
+                                if (Number.isFinite(qty)) stock.onQty(index, line, qty);
+                              });
+                            }}
                             onKeyDown={(e) => {
                               if (e.key !== 'Enter') return;
                               e.preventDefault();
@@ -968,6 +977,7 @@ export function BillPage() {
                                 {item.nameKn && item.nameEn && item.nameKn !== item.nameEn
                                   ? lineName(item, shop.lang) + ' · ' + lineName(item, shop.lang === 'kn' ? 'en' : 'kn')
                                   : item.nameKn || item.nameEn}
+                                {matchedLabel(item, shop.lang) ? ' · ' + matchedLabel(item, shop.lang) : ''}
                               </button>
                               <span className="stock-chips">
                                 {item.units.map((u) => {
@@ -1039,6 +1049,7 @@ export function BillPage() {
                     placeholder={t('bill.price')}
                     value={priceText[line.itemId] ?? (line.rate > 0 ? money(roundedLineAmount(line.qty, line.rate, shop.settings.roundTo ?? 0)) : '')}
                     onChange={(e) => onPrice(index, line.itemId, e.target.value)}
+                    onFocus={() => calcBus.setTarget((text) => onPrice(index, line.itemId, text))}
                     onBlur={() => {
                       wantFlip.current = true;
                       // Show the total worked out from the rate again once the box is left.

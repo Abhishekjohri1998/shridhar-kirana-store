@@ -925,6 +925,8 @@ button, input, select, textarea {
   white-space: nowrap;
 }
 .pay-all:hover { background: var(--brand-edge); }
+.pay-all.on { background: var(--brand-edge); border-color: var(--brand-700); }
+a.pay-all { text-decoration: none; display: inline-block; }
 
 .total-row {
   display: flex;
@@ -1894,3 +1896,26 @@ select.input {
 .stock-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .stock-chip { align-self: auto; padding: 7px 12px; }
 .stock-warn { display: block; margin-top: 2px; font-size: 0.78rem; color: var(--gold-600); }
+
+/* The calculator pop-up (build 71): under the top bar, kept inside the window at any width. */
+.calc-pop {
+  position: fixed;
+  top: 60px;
+  right: var(--pad);
+  z-index: 30;
+  width: min(320px, calc(100vw - 2 * var(--pad)));
+  max-height: calc(100vh - 76px);
+  overflow-y: auto;
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+  padding: var(--pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+.calc-head { display: flex; align-items: center; justify-content: space-between; }
+.calc-answer { margin: 0; font-weight: 700; color: var(--ink-900); text-align: right; }
+.calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.calc-keys .pay-all { align-self: stretch; }

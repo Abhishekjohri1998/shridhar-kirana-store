@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FALLBACK_UNIT, bestMatch, lastPriceApplies, pickRate, sellUnitOf } from '@shridhar/shared';
+import { FALLBACK_UNIT, bestMatch, lastPriceApplies, pickRate, pickUnitOf } from '@shridhar/shared';
 import type { BillLine, StockItem, StockUnit } from '@shridhar/shared';
 import { api } from './api';
 import { useShop } from './useShop';
@@ -166,7 +166,7 @@ export function useStockSuggest() {
         .catch(() => [] as StockItem[]);
     }
     const chosen = (highlight >= 0 && list === items && items[highlight]) || bestMatch(list, typed);
-    const unit = chosen ? sellUnitOf(chosen) : undefined;
+    const unit = chosen ? pickUnitOf(chosen) : undefined;
     if (chosen && unit) {
       pick(index, line, chosen, unit);
       return true;
@@ -176,7 +176,7 @@ export function useStockSuggest() {
 
   /** A tap on the item itself: it goes on in stock's selling unit. */
   const pickItem = (index: number, line: BillLine, item: StockItem) => {
-    const unit = sellUnitOf(item);
+    const unit = pickUnitOf(item);
     if (unit) pick(index, line, item, unit);
   };
 
