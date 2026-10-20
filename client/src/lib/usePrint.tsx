@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { buildReceipt, paperProfile, type Bill, type ReceiptDoc, type Settings } from '@shridhar/shared';
+import { buildReceipt, paperProfile, printSpeedOf, type Bill, type ReceiptDoc, type Settings } from '@shridhar/shared';
 import { ReceiptView } from '../components/ReceiptView';
 import {
   applyPaperToPrintSheet,
@@ -80,8 +80,8 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       // in hidden markup costs nothing on the direct paths.
       setDoc(built);
       try {
-        if (mode === 'bluetooth') await printViaBluetooth(built);
-        else if (mode === 'serial') await printViaSerial(built);
+        if (mode === 'bluetooth') await printViaBluetooth(built, printSpeedOf(settings));
+        else if (mode === 'serial') await printViaSerial(built, printSpeedOf(settings));
         else await printViaSystem();
       } finally {
         setBusy(false);

@@ -226,6 +226,11 @@ export type Settings = {
   footer: string;
   /** Which roll the shop's printer takes. Decides how wide the receipt is laid out. */
   paper: PaperKey;
+  /**
+   * How fast slips are fed to a direct (Bluetooth / serial) printer: 'normal', or 'safe' -- half
+   * the rate, for a printer that drops data and prints garbage partway down a long bill.
+   */
+  printSpeed?: 'normal' | 'safe';
   /** Interface and receipt language. */
   language: Lang;
   /** The shop's GST number. Prints under the shop name when it is filled in. */
@@ -282,6 +287,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shopName: 'Shridhar Kirani Stores',
   footer: 'Thank you, Visit again!',
   paper: '58mm',
+  printSpeed: 'safe',
   language: 'en',
   gstin: '',
   showGstin: true,

@@ -1,3 +1,5 @@
+import { planPrintWrites, type PrintSpeed } from '@shridhar/shared';
+
 /**
  * Direct ESC/POS printing over Web Bluetooth.
  *
@@ -112,7 +114,7 @@ export async function chooseBluetoothPrinter(): Promise<string> {
   );
 }
 
-export async function printBytesOverBluetooth(bytes: Uint8Array): Promise<void> {
+export async function printBytesOverBluetooth(bytes: Uint8Array, speed: PrintSpeed = 'safe'): Promise<void> {
   if (!connected || !connected.device.gatt?.connected) {
     throw new BluetoothPrintError('No Bluetooth printer is connected. Choose one first.');
   }
@@ -120,13 +122,18 @@ export async function printBytesOverBluetooth(bytes: Uint8Array): Promise<void> 
 
   const acknowledged = characteristic.properties.write;
 
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
-    if (acknowledged) {
-      await characteristic.writeValue(slice as unknown as BufferSource);
-    } else {
-      await characteristic.writeValueWithoutResponse(slice as unknown as BufferSource);
-      if (i + CHUNK < bytes.length) await sleep(CHUNK_PAUSE_MS);
+  // Band by band, paced to the head (planPrintWrites); each planned write still goes out in
+  // MTU-sized pieces.
+  for (const step of planPrintWrites(bytes, speed)) {
+    for (let i = 0; i < step.bytes.length; i += CHUNK) {
+      const slice = step.bytes.subarray(i, Math.min(i + CHUNK, step.bytes.length));
+      if (acknowledged) {
+        await characteristic.writeValue(slice as unknown as BufferSource);
+      } else {
+        await characteristic.writeValueWithoutResponse(slice as unknown as BufferSource);
+        if (i + CHUNK < step.bytes.length) await sleep(CHUNK_PAUSE_MS);
+      }
     }
+    if (step.waitAfterMs > 0) await sleep(step.waitAfterMs);
   }
 }

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { buildReceipt, money, pickLang, whatsappNumber, type Bill, type Settings } from '@shridhar/shared';
+import { buildReceipt, money, pickLang, printSpeedOf, whatsappNumber, type Bill, type Settings } from '@shridhar/shared';
 import { api } from './api';
 import { shareToWhatsApp } from './native';
 import { RasterBridge, type RasterHandle } from '../print/RasterBridge';
@@ -60,7 +60,7 @@ export function PrintProvider({ children }: { children: ReactNode }) {
         const doc = buildReceipt(bill, settings, shop.receiptLabels);
         const dots = await raster.current?.rasterize(doc);
         if (!dots) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
-        await printBytes(printer.address, rasterToEscPos(dots));
+        await printBytes(printer.address, rasterToEscPos(dots), printSpeedOf(settings));
       } finally {
         setBusy(false);
       }

@@ -1,4 +1,4 @@
-import type { PaperProfile, ReceiptDoc } from '@shridhar/shared';
+import type { PaperProfile, PrintSpeed, ReceiptDoc } from '@shridhar/shared';
 import { rasterToEscPos } from './escpos';
 import { rasterize } from './raster';
 import { printBytesOverBluetooth } from './bluetooth';
@@ -82,16 +82,16 @@ export async function printViaSystem(): Promise<void> {
 }
 
 /** Send the receipt to a BLE printer as ESC/POS raster dots. */
-export async function printViaBluetooth(doc: ReceiptDoc): Promise<void> {
+export async function printViaBluetooth(doc: ReceiptDoc, speed: PrintSpeed = 'safe'): Promise<void> {
   await atMost(document.fonts?.ready, 1500);
-  await printBytesOverBluetooth(rasterToEscPos(rasterize(doc)));
+  await printBytesOverBluetooth(rasterToEscPos(rasterize(doc)), speed);
 }
 
 /** Send the receipt down a serial port -- which is what a Bluetooth Classic printer looks like
  *  once the operating system has paired it. */
-export async function printViaSerial(doc: ReceiptDoc): Promise<void> {
+export async function printViaSerial(doc: ReceiptDoc, speed: PrintSpeed = 'safe'): Promise<void> {
   await atMost(document.fonts?.ready, 1500);
-  await printBytesOverSerial(rasterToEscPos(rasterize(doc)));
+  await printBytesOverSerial(rasterToEscPos(rasterize(doc)), speed);
 }
 
 export { chooseBluetoothPrinter, connectedPrinterName, isWebBluetoothAvailable, BluetoothPrintError } from './bluetooth';

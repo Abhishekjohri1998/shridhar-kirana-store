@@ -14,6 +14,9 @@ import {
   type Lang,
   type PaperKey,
   receiptStyleOf,
+  PRINT_SPEEDS,
+  printSpeedOf,
+  type PrintSpeed,
 } from '@shridhar/shared';
 import { ScriptField } from '../components/ScriptField';
 import { ApiError, api } from '../lib/api';
@@ -386,6 +389,20 @@ export function SettingsPage() {
         <p className="muted small" style={{ margin: 0 }}>
           {t('set.paperNote', { mm: paper.printableMm, dots: paper.dots })}
         </p>
+        <div className="field">
+          <label htmlFor="s-print-speed">{t('set.printSpeed')}</label>
+          <select
+            id="s-print-speed"
+            className="input"
+            value={printSpeedOf(shop.settings)}
+            onChange={(e) => void save({ printSpeed: e.target.value as PrintSpeed }, 'set.savedPrintSpeed')}
+          >
+            {PRINT_SPEEDS.map((key) => (
+              <option key={key} value={key}>{key === 'safe' ? t('set.printSpeedSafe') : t('set.printSpeedNormal')}</option>
+            ))}
+          </select>
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>{t('set.printSpeedNote')}</p>
       </section>
 
       {/* Billing's own now; it used to live in the stock app's settings. */}

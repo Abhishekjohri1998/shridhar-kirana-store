@@ -5,7 +5,7 @@ const GS = 0x1d;
 
 /** Rows per GS v 0 command. These printers have small input buffers and garble or drop a single
  *  tall image, so the receipt goes out as a stack of short bands instead. */
-const BAND = 64;
+const BAND = 24;
 
 export function rasterToEscPos(raster: Raster): Uint8Array {
   const bytesPerRow = Math.ceil(raster.width / 8);

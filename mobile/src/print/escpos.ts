@@ -6,7 +6,7 @@ const GS = 0x1d;
 
 /** Rows per GS v 0 command. These printers have small input buffers and garble or drop a single
  *  tall image, so the receipt goes out as a stack of short bands instead. */
-const BAND = 64;
+const BAND = 24;
 
 /** Wrap the rendered dots in the ESC/POS commands a thermal printer expects. */
 export function rasterToEscPos(raster: Raster): Uint8Array {

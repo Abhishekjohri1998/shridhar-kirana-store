@@ -12,6 +12,9 @@ import {
   parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
   receiptStyleOf,
+  PRINT_SPEEDS,
+  printSpeedOf,
+  type PrintSpeed,
 } from '@shridhar/shared';
 import { Dialog } from '../components/Dialog';
 import { ScriptField } from '../components/ScriptField';
@@ -404,6 +407,13 @@ export function SettingsScreen() {
           onChange={(next) => void save({ paper: next }, 'set.savedPaper')}
         />
         <Text style={styles.hint}>{t('set.paperNote', { mm: paper.printableMm, dots: paper.dots })}</Text>
+        <Text style={styles.label}>{t('set.printSpeed')}</Text>
+        <Choice<PrintSpeed>
+          options={PRINT_SPEEDS.map((key) => ({ key, label: key === 'safe' ? t('set.printSpeedSafe') : t('set.printSpeedNormal') }))}
+          value={printSpeedOf(shop.settings)}
+          onChange={(next) => void save({ printSpeed: next }, 'set.savedPrintSpeed')}
+        />
+        <Text style={styles.hint}>{t('set.printSpeedNote')}</Text>
       </Card>
 
       {/* Billing's own now; it used to live in the stock app's settings. */}

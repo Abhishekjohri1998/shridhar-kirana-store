@@ -363,7 +363,7 @@ const CASES = [
 
 const ESC = 0x1b;
 const GS = 0x1d;
-const BAND = 64;
+const BAND = 24;
 
 /**
  * Walk an ESC/POS stream and describe it, refusing to guess: an unexpected byte is an error, not
@@ -468,11 +468,120 @@ for (const [label, theBill, patch] of CASES) {
 }
 
 /* ================================================================== *
+ * 1b. Pacing: band by band, at the speed the head burns them           *
+ * ================================================================== */
+console.log('');
+console.log('Paced to the printer');
+
+function concat(plan) {
+  const out = new Uint8Array(plan.reduce((n, w) => n + w.bytes.length, 0));
+  let at = 0;
+  for (const w of plan) { out.set(w.bytes, at); at += w.bytes.length; }
+  return out;
+}
+function same(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+/** A fake raster, width dots by height rows, bytes patterned so a misplaced row shows. */
+function fakeRaster(width, height) {
+  const bpr = Math.ceil(width / 8);
+  const bits = new Uint8Array(bpr * height);
+  for (let i = 0; i < bits.length; i++) bits[i] = (i * 31 + 7) & 0xff;
+  return { width, height, bits };
+}
+
+check('the shared band size is 24 rows', shared.PRINT_BAND_ROWS === 24 && BAND === 24);
+check('the default speed is Safe', shared.DEFAULT_SETTINGS.printSpeed === 'safe' && shared.printSpeedOf({}) === 'safe');
+check('a stored Normal reads as Normal', shared.printSpeedOf({ printSpeed: 'normal' }) === 'normal');
+
+{
+  // 1000 rows: 41 full bands of 24 and one of 16.
+  const r = fakeRaster(384, 1000);
+  const bytes = webEscPos(r);
+  const parsed = parseEscPos(bytes);
+  check('every band is at most 24 rows', parsed.bands.every((b) => b.rows <= 24));
+  check('42 bands for 1000 rows', parsed.bands.length === 42 && parsed.bands[41].rows === 16);
+  let at = 5;
+  let headersOk = true;
+  for (let y = 0; y < 1000; y += 24) {
+    const h = Math.min(24, 1000 - y);
+    const want = [0x1d, 0x76, 0x30, 0x00, 48, 0, h & 0xff, h >> 8];
+    for (let k = 0; k < 8; k++) if (bytes[at + k] !== want[k]) headersOk = false;
+    if (!same(bytes.subarray(at + 8, at + 8 + h * 48), r.bits.subarray(y * 48, (y + h) * 48))) headersOk = false;
+    at += 8 + h * 48;
+  }
+  check('each band is GS v 0 with xL=48 xH=0 yL/yH = its rows, carrying its own image rows', headersOk);
+  check('total bytes = image + band headers + init/align/feed', bytes.length === r.bits.length + 42 * 8 + 5 + 3, bytes.length + ' bytes');
+  check('mobile banding is byte-identical', same(bytes, phoneEscPos({ width: 384, height: 1000, data: Buffer.from(r.bits).toString('base64') })));
+
+  for (const speed of ['normal', 'safe']) {
+    const plan = shared.planPrintWrites(bytes, speed);
+    const prof = shared.paceProfile(speed);
+    check(speed + ': plan reassembles to the exact stream', same(concat(plan), bytes));
+    check(speed + ': no write over 256 bytes', plan.every((w) => w.bytes.length <= 256));
+    check(speed + ': ESC @ goes first, then a 150 ms settle', plan[0].bytes[0] === 0x1b && plan[0].bytes[1] === 0x40 && plan[0].waitAfterMs === 150);
+    const fullBand = Math.max(prof.minBandWaitMs, Math.ceil((24 / prof.rowsPerSecond) * 1000));
+    const lastBand = Math.max(prof.minBandWaitMs, Math.ceil((16 / prof.rowsPerSecond) * 1000));
+    const waits = plan.map((w) => w.waitAfterMs);
+    const bandWaits = waits.slice(1).filter((w) => w >= prof.minBandWaitMs);
+    check(speed + ': one burn wait per band', bandWaits.length === 42, bandWaits.length + ' band waits');
+    check(speed + ': a 24-row band waits ' + fullBand + ' ms', bandWaits.slice(0, 41).every((w) => w === fullBand), JSON.stringify(bandWaits.slice(0, 3)));
+    check(speed + ': the short last band waits ' + lastBand + ' ms', bandWaits[41] === lastBand, String(bandWaits[41]));
+    check(speed + ': chunks inside a band pause ' + prof.chunkPauseMs + ' ms',
+      waits.slice(1).filter((w) => w !== 0 && w < prof.minBandWaitMs).every((w) => w === prof.chunkPauseMs));
+    check(speed + ': the feed goes last with no trailing wait', waits[waits.length - 1] === 0 && plan[plan.length - 1].bytes[0] === 0x1b);
+  }
+  const n = shared.paceProfile('normal');
+  const sf = shared.paceProfile('safe');
+  check('Normal is 250 rows/s, 60 ms floor, 20 ms chunk pause', n.rowsPerSecond === 250 && n.minBandWaitMs === 60 && n.chunkPauseMs === 20 && n.chunk === 256);
+  check('Safe halves the rate and doubles the pauses', sf.rowsPerSecond === 125 && sf.minBandWaitMs === 120 && sf.chunkPauseMs === 40);
+  const total = (sp) => shared.planPrintWrites(bytes, sp).reduce((t, w) => t + w.waitAfterMs, 0);
+  check('Safe takes longer than Normal', total('safe') > total('normal'), total('normal') + ' vs ' + total('safe') + ' ms');
+}
+
+{
+  const bytes = webEscPos(fakeRaster(384, 13000));
+  const plan = shared.planPrintWrites(bytes, 'normal');
+  const gaps = plan.filter((w) => w.waitAfterMs === 500).length;
+  check('a 13000-row slip goes out in 3 parts (2 gaps of 500 ms)', gaps === 2, gaps + ' gaps');
+  check('and still reassembles exactly', same(concat(plan), bytes));
+  const one = shared.planPrintWrites(webEscPos(fakeRaster(384, 6000)), 'normal');
+  check('6000 rows is a single part', one.every((w) => w.waitAfterMs !== 500));
+}
+
+{
+  // The bill that broke: 16 handwritten lines.
+  const lines = [];
+  for (let i = 0; i < 16; i++) lines.push({ itemId: 'ink-' + i, nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 10 + i });
+  let doc = null;
+  try {
+    doc = shared.buildReceipt(bill({ lines, total: 280, paid: 280 }), settingsFor({}), shared.receiptLabelsFor('en'));
+  } catch (e) {
+    check('16-line handwritten bill builds', false, String(e && e.message));
+  }
+  if (doc) {
+    const dots = webRasterize(doc);
+    const bytes = webEscPos(dots);
+    const parsed = parseEscPos(bytes);
+    check('16-line handwritten bill: all ' + dots.height + ' rows in ' + Math.ceil(dots.height / 24) + ' bands of <=24',
+      parsed.rows === dots.height && parsed.bands.length === Math.ceil(dots.height / 24) && parsed.bands.every((b) => b.rows <= 24));
+    const plan = shared.planPrintWrites(bytes, 'safe');
+    check('16-line handwritten bill: paced plan reassembles exactly', same(concat(plan), bytes));
+    check('16-line handwritten bill: one burn wait per band', plan.slice(1).filter((w) => w.waitAfterMs >= 120).length === parsed.bands.length);
+  }
+}
+
+/* ================================================================== *
  * 2. The Bluetooth transport delivers all of it                       *
  * ================================================================== */
 async function transportChecks() {
   console.log('');
   console.log('Bluetooth Classic transport');
+
+  const slept = [];
+  bt.setPrintSleepForTests(async (ms) => { slept.push(ms); });
 
   const settings = settingsFor({});
   const doc = shared.buildReceipt(bill(), settings, shared.receiptLabelsFor('en'));
@@ -506,10 +615,24 @@ async function transportChecks() {
     );
     check('connects once, not per chunk', p.log.filter((l) => l.startsWith('connectToDevice')).length === 1);
     check('sends base64 down the bridge', p.log.filter((l) => l.startsWith('write:base64:')).length === p.chunks.length);
+    const plan = shared.planPrintWrites(slip, 'safe');
+    check('writes follow the paced plan (Safe by default)', p.chunks.length === plan.length && p.chunks.every((c, i) => c.length === plan[i].bytes.length));
+    check('and waits exactly as planned', JSON.stringify(slept) === JSON.stringify(plan.map((w) => w.waitAfterMs).filter((w) => w > 0)));
+    check('no write over 256 bytes', p.chunks.every((c) => c.length <= 256));
     check(
       'reassembles to a slip the printer can parse',
       (() => { try { parseEscPos(got); return true; } catch { return false; } })(),
     );
+  }
+
+  {
+    slept.length = 0;
+    const p = fakePrinter();
+    nativeState.module = p.api;
+    await bt.printBytes(ADDR, slip, 'normal');
+    const plan = shared.planPrintWrites(slip, 'normal');
+    check('Normal speed follows the Normal plan', JSON.stringify(slept) === JSON.stringify(plan.map((w) => w.waitAfterMs).filter((w) => w > 0)));
+    check('and still every byte', p.received().length === slip.length);
   }
 
   // --- a printer already connected from the last slip ---

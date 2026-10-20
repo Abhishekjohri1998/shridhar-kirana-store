@@ -85,6 +85,7 @@ const settingsBody = z.object({
   shopName: z.string().trim().min(1).max(80).optional(),
   footer: z.string().trim().max(120).optional(),
   paper: z.enum(['58mm', '80mm']).optional(),
+  printSpeed: z.enum(['normal', 'safe']).optional(),
   language: z.enum(['en', 'kn']).optional(),
   // Accepted as typed and normalised by checkGstin on the way in: a number the shop insists on
   // is the shop's business, and a settings screen that refuses to save is not a validator.

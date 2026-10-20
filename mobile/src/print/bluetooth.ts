@@ -1,5 +1,6 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { planPrintWrites, type PrintSpeed } from '@shridhar/shared';
 import { bytesToBase64 } from '../lib/base64';
 
 const PRINTER_KEY = 'shridhar.printer';
@@ -98,13 +99,18 @@ async function connected(bt: any, address: string): Promise<boolean> {
   }
 }
 
-/** These printers hold a few hundred bytes and silently drop whatever overruns. */
-const CHUNK = 512;
-const CHUNK_PAUSE_MS = 40;
+let sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Tests swap the clock out so a paced slip does not take seconds per case. */
+export function setPrintSleepForTests(fn: (ms: number) => Promise<void>): void {
+  sleep = fn;
+}
 
-export async function printBytes(address: string, bytes: Uint8Array): Promise<void> {
+/**
+ * Writes the slip band by band, paced to the speed the head burns it (see planPrintWrites). These
+ * printers hold a few hundred bytes and silently drop whatever overruns.
+ */
+export async function printBytes(address: string, bytes: Uint8Array, speed: PrintSpeed = 'safe'): Promise<void> {
   const bt = requireModule();
   await ensurePermissions();
 
@@ -119,13 +125,12 @@ export async function printBytes(address: string, bytes: Uint8Array): Promise<vo
     await bt.connectToDevice(address, { CONNECTOR_TYPE: 'rfcomm', DELIMITER: '', READ_SIZE: 1024 });
   }
 
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
-    const ok = await bt.writeToDevice(address, bytesToBase64(slice), 'base64');
+  for (const step of planPrintWrites(bytes, speed)) {
+    const ok = await bt.writeToDevice(address, bytesToBase64(step.bytes), 'base64');
     if (ok === false) {
       throw new PrinterError('The printer stopped accepting data. Check it is on and in range.');
     }
-    if (i + CHUNK < bytes.length) await sleep(CHUNK_PAUSE_MS);
+    if (step.waitAfterMs > 0) await sleep(step.waitAfterMs);
   }
 }
 

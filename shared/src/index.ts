@@ -20,3 +20,4 @@ export * from './lastPrice';
 export * from './link';
 export * from './shortcuts';
 export * from './quiet';
+export * from './printPace';

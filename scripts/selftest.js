@@ -683,12 +683,12 @@ async function main() {
   console.log('\nESC/POS framing');
   const bytes = rasterToEscPos(raster);
   eq('starts with ESC @ (initialise)', bytes[0] + ',' + bytes[1], '27,64');
-  const bands = Math.ceil(raster.height / 64);
+  const bands = Math.ceil(raster.height / 24);
   let found = 0;
   for (let i = 0; i < bytes.length - 3; i++) {
     if (bytes[i] === 0x1d && bytes[i + 1] === 0x76 && bytes[i + 2] === 0x30 && bytes[i + 3] === 0x00) found++;
   }
-  eq('one GS v 0 command per 64-row band', found, bands);
+  eq('one GS v 0 command per 24-row band', found, bands);
   eq('the 58mm header declares 48 bytes per row', bytes[9], 48);
   eq('total length is header + bands + dots', bytes.length, 2 + 3 + bands * 8 + raster.bits.length + 3);
   eq('ends by feeding the paper out', bytes[bytes.length - 3] + ',' + bytes[bytes.length - 2], '27,100');

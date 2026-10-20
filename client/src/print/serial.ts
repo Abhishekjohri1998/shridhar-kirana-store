@@ -1,3 +1,5 @@
+import { planPrintWrites, type PrintSpeed } from '@shridhar/shared';
+
 /**
  * Printing over a serial port.
  *
@@ -100,20 +102,23 @@ export async function disconnectSerial(): Promise<void> {
   }
 }
 
-/** Chunked so the printer's few hundred bytes of buffer are never overrun. */
-const CHUNK = 512;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export async function printBytesOverSerial(bytes: Uint8Array): Promise<void> {
+/**
+ * Band by band, paced to the head (see planPrintWrites). write() resolving only means the OS took
+ * the bytes -- an SPP port takes them far faster than the printer burns them, which is how a long
+ * slip used to overrun the printer and print garbage after item 8.
+ */
+export async function printBytesOverSerial(bytes: Uint8Array, speed: PrintSpeed = 'safe'): Promise<void> {
   if (!connected) throw new SerialPrintError('No serial printer is connected. Choose a port first.');
   const { port } = connected;
   if (!port.writable) throw new SerialPrintError('That port is no longer writable. Reconnect the printer.');
 
   const writer = port.writable.getWriter();
   try {
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      // write() resolves once the data has been handed on, so the loop paces itself and needs no
-      // timer -- which matters because browsers throttle timers in background tabs.
-      await writer.write(bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+    for (const step of planPrintWrites(bytes, speed)) {
+      await writer.write(step.bytes);
+      if (step.waitAfterMs > 0) await sleep(step.waitAfterMs);
     }
   } finally {
     writer.releaseLock();
