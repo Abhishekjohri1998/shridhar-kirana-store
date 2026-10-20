@@ -85,7 +85,7 @@ const settingsBody = z.object({
   shopName: z.string().trim().min(1).max(80).optional(),
   footer: z.string().trim().max(120).optional(),
   paper: z.enum(['58mm', '80mm']).optional(),
-  printSpeed: z.enum(['normal', 'safe']).optional(),
+  printSpeed: z.enum(['fast', 'normal', 'safe']).optional(),
   language: z.enum(['en', 'kn']).optional(),
   // Accepted as typed and normalised by checkGstin on the way in: a number the shop insists on
   // is the shop's business, and a settings screen that refuses to save is not a validator.
@@ -224,6 +224,10 @@ api.put('/settings', handler(async (req, res) => {
   // Normalised here rather than trusted from the browser, like every other figure: the number
   // prints on paper, so it should read the same whichever app typed it and however it was spaced.
   if (patch.gstin != null) patch.gstin = checkGstin(patch.gstin).value;
+  // A speed picked now is the shop's choice: marked, so the one-time Safe -> Fast move
+  // (migrateSettings) never overrides it.
+  const marked: typeof patch & { printSpeedV?: number } = patch;
+  if (patch.printSpeed != null) marked.printSpeedV = 2;
   if (patch.hiddenReceipt != null) {
     if (patch.receiptStyle == null) patch.receiptStyle = patch.hiddenReceipt === 'compact' ? 'compact' : 'normal';
     delete patch.hiddenReceipt;

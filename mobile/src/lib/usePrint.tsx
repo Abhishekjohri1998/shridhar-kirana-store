@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { buildReceipt, money, pickLang, printSpeedOf, whatsappNumber, type Bill, type Settings } from '@shridhar/shared';
+import { buildReceipt, receiptAsText, money, pickLang, printSpeedOf, whatsappNumber, type Bill, type Settings } from '@shridhar/shared';
 import { api } from './api';
 import { shareToWhatsApp } from './native';
 import { RasterBridge, type RasterHandle } from '../print/RasterBridge';
@@ -58,9 +58,16 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       setBusy(true);
       try {
         const doc = buildReceipt(bill, settings, shop.receiptLabels);
-        const dots = await raster.current?.rasterize(doc);
-        if (!dots) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
-        await printBytes(printer.address, rasterToEscPos(dots), printSpeedOf(settings));
+        const speed = printSpeedOf(settings);
+        // A typed English bill goes out as the printer's own text: no image, prints at once.
+        // Handwriting or Kannada anywhere needs the picture.
+        let bytes = receiptAsText(doc);
+        if (!bytes) {
+          const dots = await raster.current?.rasterize(doc);
+          if (!dots) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
+          bytes = rasterToEscPos(dots, speed);
+        }
+        await printBytes(printer.address, bytes, speed);
       } finally {
         setBusy(false);
       }

@@ -110,7 +110,7 @@ export function setPrintSleepForTests(fn: (ms: number) => Promise<void>): void {
  * Writes the slip band by band, paced to the speed the head burns it (see planPrintWrites). These
  * printers hold a few hundred bytes and silently drop whatever overruns.
  */
-export async function printBytes(address: string, bytes: Uint8Array, speed: PrintSpeed = 'safe'): Promise<void> {
+export async function printBytes(address: string, bytes: Uint8Array, speed: PrintSpeed = 'fast'): Promise<void> {
   const bt = requireModule();
   await ensurePermissions();
 

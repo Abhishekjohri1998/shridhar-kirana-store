@@ -409,7 +409,7 @@ export function SettingsScreen() {
         <Text style={styles.hint}>{t('set.paperNote', { mm: paper.printableMm, dots: paper.dots })}</Text>
         <Text style={styles.label}>{t('set.printSpeed')}</Text>
         <Choice<PrintSpeed>
-          options={PRINT_SPEEDS.map((key) => ({ key, label: key === 'safe' ? t('set.printSpeedSafe') : t('set.printSpeedNormal') }))}
+          options={PRINT_SPEEDS.map((key) => ({ key, label: key === 'safe' ? t('set.printSpeedSafe') : key === 'normal' ? t('set.printSpeedNormal') : t('set.printSpeedFast') }))}
           value={printSpeedOf(shop.settings)}
           onChange={(next) => void save({ printSpeed: next }, 'set.savedPrintSpeed')}
         />

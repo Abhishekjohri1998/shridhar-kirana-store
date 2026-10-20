@@ -369,7 +369,7 @@ const BAND = 24;
  * Walk an ESC/POS stream and describe it, refusing to guess: an unexpected byte is an error, not
  * something to skip. If this parses, a printer's firmware will not be surprised either.
  */
-function parseEscPos(bytes) {
+function parseEscPos(bytes, maxBand = 48) {
   let at = 0;
   const expect = (label, ...want) => {
     for (const b of want) {
@@ -385,22 +385,54 @@ function parseEscPos(bytes) {
   expect('align left', ESC, 0x61, 0x00);
 
   const bands = [];
-  while (at < bytes.length && bytes[at] === GS) {
-    expect('raster header', GS, 0x76, 0x30, 0x00);
-    const bpr = bytes[at] | (bytes[at + 1] << 8);
-    at += 2;
-    const rows = bytes[at] | (bytes[at + 1] << 8);
-    at += 2;
-    if (rows < 1 || rows > BAND) throw new Error('band of ' + rows + ' rows at ' + at);
-    const need = bpr * rows;
-    if (at + need > bytes.length) throw new Error('band claims ' + need + ' bytes, only ' + (bytes.length - at) + ' left');
-    bands.push({ bpr, rows, data: bytes.subarray(at, at + need) });
-    at += need;
+  const feeds = [];
+  // What the paper ends up carrying, row by row: band rows as sent, fed rows blank.
+  const pieces = [];
+  let bpr = 0;
+  for (;;) {
+    if (bytes[at] === GS) {
+      expect('raster header', GS, 0x76, 0x30, 0x00);
+      bpr = bytes[at] | (bytes[at + 1] << 8);
+      at += 2;
+      const rows = bytes[at] | (bytes[at + 1] << 8);
+      at += 2;
+      if (rows < 1 || rows > maxBand) throw new Error('band of ' + rows + ' rows at ' + at);
+      const need = bpr * rows;
+      if (at + need > bytes.length) throw new Error('band claims ' + need + ' bytes, only ' + (bytes.length - at) + ' left');
+      bands.push({ bpr, rows, data: bytes.subarray(at, at + need) });
+      pieces.push({ rows, data: bytes.subarray(at, at + need) });
+      at += need;
+    } else if (bytes[at] === ESC && bytes[at + 1] === 0x4a) {
+      const n = bytes[at + 2];
+      if (!(n >= 1)) throw new Error('empty feed at ' + at);
+      if (bands.length === 0) throw new Error('a feed before any image at ' + at);
+      feeds.push(n);
+      pieces.push({ rows: n, data: null });
+      at += 3;
+    } else break;
   }
 
   expect('feed', ESC, 0x64, 0x04);
   if (at !== bytes.length) throw new Error(bytes.length - at + ' trailing byte(s) after the feed');
-  return { bands, rows: bands.reduce((n, b) => n + b.rows, 0), bpr: bands[0] ? bands[0].bpr : 0 };
+  const rows = pieces.reduce((n, p) => n + p.rows, 0);
+  const image = new Uint8Array(rows * bpr);
+  let y = 0;
+  for (const p of pieces) {
+    if (p.data) image.set(p.data, y * bpr);
+    y += p.rows;
+  }
+  return { bands, feeds, rows, bpr: bands[0] ? bands[0].bpr : 0, image };
+}
+
+/** The rows of a raster from its first inked row to its last: what the printer must reproduce. */
+function inkedPart(bits, width, height) {
+  const bpr = Math.ceil(width / 8);
+  const blank = (y) => { for (let i = y * bpr; i < (y + 1) * bpr; i++) if (bits[i]) return false; return true; };
+  let top = 0;
+  while (top < height && blank(top)) top++;
+  let bottom = height - 1;
+  while (bottom >= top && blank(bottom)) bottom--;
+  return { top, bottom, rows: bottom - top + 1, bits: bits.subarray(top * bpr, (bottom + 1) * bpr) };
 }
 
 /* ================================================================== *
@@ -416,9 +448,15 @@ for (const [label, theBill, patch] of CASES) {
   let web;
   let phone;
   let height;
+  let webBits;
+  let webWidth;
+  let webDotsKept;
   try {
     const webDots = webRasterize(doc);
     height = webDots.height;
+    webBits = webDots.bits;
+    webWidth = webDots.width;
+    webDotsKept = webDots;
     web = webEscPos(webDots);
     phone = phoneEscPos(phoneRasterize(doc));
   } catch (e) {
@@ -450,21 +488,23 @@ for (const [label, theBill, patch] of CASES) {
   );
   // Every dot row the rasteriser produced has to appear in exactly one band. A band count that
   // comes up short prints a truncated slip, and one that runs over prints garbage after the total.
+  const inked = inkedPart(webBits, webWidth, height);
   check(
-    label + ': all ' + height + ' dot rows reach the printer',
-    parsed.rows === height,
-    parsed.rows + ' rows in ' + parsed.bands.length + ' band(s), receipt is ' + height + ' rows',
+    label + ': every row from the first dot to the last reaches the paper, in place',
+    parsed.rows === inked.rows && same(parsed.image, inked.bits),
+    parsed.rows + ' rows (' + parsed.bands.length + ' bands, ' + parsed.feeds.length + ' feeds), inked part is ' + inked.rows,
   );
-  check(
-    label + ': banded in ' + Math.ceil(height / BAND) + ', as the buffer requires',
-    parsed.bands.length === Math.ceil(height / BAND),
-    parsed.bands.length + ' bands',
-  );
-  check(
-    label + ': banded, not one tall image',
-    parsed.bands.every((b) => b.rows <= BAND) && parsed.bands.length >= 1,
-    'largest band ' + Math.max(...parsed.bands.map((b) => b.rows)) + ' rows',
-  );
+  check(label + ': Fast bands are at most 48 rows', parsed.bands.every((b) => b.rows <= 48));
+  check(label + ': blank margins are not sent', parsed.rows < height, parsed.rows + ' of ' + height);
+  check(label + ': gaps of 8+ blank rows are feeds, not image',
+    !(() => { let run = 0; for (const b of parsed.bands) for (let r = 0; r < b.rows; r++) {
+      let empty = true; for (let i = r * b.bpr; i < (r + 1) * b.bpr; i++) if (b.data[i]) { empty = false; break; }
+      run = empty ? run + 1 : 0; if (run >= 8) return true; } return false; })());
+  {
+    const normal = parseEscPos(webEscPos(webDotsKept, 'normal'), 24);
+    check(label + ': Normal bands are at most 24 rows and print the same paper',
+      normal.bands.every((b) => b.rows <= 24) && same(normal.image, parsed.image));
+  }
 }
 
 /* ================================================================== *
@@ -492,15 +532,24 @@ function fakeRaster(width, height) {
   return { width, height, bits };
 }
 
-check('the shared band size is 24 rows', shared.PRINT_BAND_ROWS === 24 && BAND === 24);
-check('the default speed is Safe', shared.DEFAULT_SETTINGS.printSpeed === 'safe' && shared.printSpeedOf({}) === 'safe');
+check('the band sizes are 24 rows, 48 on Fast', shared.PRINT_BAND_ROWS === 24 && shared.FAST_BAND_ROWS === 48
+  && shared.bandRowsFor('fast') === 48 && shared.bandRowsFor('normal') === 24 && shared.bandRowsFor('safe') === 24);
+check('the default speed is Fast', shared.DEFAULT_SETTINGS.printSpeed === 'fast' && shared.printSpeedOf({}) === 'fast'
+  && shared.printSpeedOf({ printSpeed: 'nonsense' }) === 'fast');
 check('a stored Normal reads as Normal', shared.printSpeedOf({ printSpeed: 'normal' }) === 'normal');
+check('Settings offers Fast, Normal, Safe in that order', JSON.stringify(shared.PRINT_SPEEDS) === '["fast","normal","safe"]');
+check('a Safe saved before Fast existed moves to Fast, once',
+  shared.migrateSettings({ printSpeed: 'safe' }).printSpeed === 'fast'
+  && shared.migrateSettings({ printSpeed: 'safe' }).printSpeedV === 2);
+check('a Safe chosen after that is kept', shared.migrateSettings({ printSpeed: 'safe', printSpeedV: 2 }).printSpeed === 'safe');
+check('a saved Normal is kept', shared.migrateSettings({ printSpeed: 'normal' }).printSpeed === 'normal');
+check('settings with no speed read as Fast', shared.migrateSettings({}).printSpeed === 'fast');
 
 {
-  // 1000 rows: 41 full bands of 24 and one of 16.
+  // 1000 rows: on Normal/Safe 41 full bands of 24 and one of 16; on Fast 20 of 48 and one of 40.
   const r = fakeRaster(384, 1000);
-  const bytes = webEscPos(r);
-  const parsed = parseEscPos(bytes);
+  const bytes = webEscPos(r, 'normal');
+  const parsed = parseEscPos(bytes, 24);
   check('every band is at most 24 rows', parsed.bands.every((b) => b.rows <= 24));
   check('42 bands for 1000 rows', parsed.bands.length === 42 && parsed.bands[41].rows === 16);
   let at = 5;
@@ -514,31 +563,74 @@ check('a stored Normal reads as Normal', shared.printSpeedOf({ printSpeed: 'norm
   }
   check('each band is GS v 0 with xL=48 xH=0 yL/yH = its rows, carrying its own image rows', headersOk);
   check('total bytes = image + band headers + init/align/feed', bytes.length === r.bits.length + 42 * 8 + 5 + 3, bytes.length + ' bytes');
-  check('mobile banding is byte-identical', same(bytes, phoneEscPos({ width: 384, height: 1000, data: Buffer.from(r.bits).toString('base64') })));
+  check('mobile banding is byte-identical', same(bytes, phoneEscPos({ width: 384, height: 1000, data: Buffer.from(r.bits).toString('base64') }, 'normal')));
+  const fast = parseEscPos(webEscPos(r, 'fast'), 48);
+  check('Fast: 21 bands of up to 48 rows, the same image', fast.bands.length === 21 && fast.bands[20].rows === 40 && same(fast.image, r.bits));
 
-  for (const speed of ['normal', 'safe']) {
-    const plan = shared.planPrintWrites(bytes, speed);
+  for (const speed of ['fast', 'normal', 'safe']) {
+    const band = shared.bandRowsFor(speed);
+    const sb = webEscPos(r, speed);
+    const plan = shared.planPrintWrites(sb, speed);
     const prof = shared.paceProfile(speed);
-    check(speed + ': plan reassembles to the exact stream', same(concat(plan), bytes));
-    check(speed + ': no write over 256 bytes', plan.every((w) => w.bytes.length <= 256));
+    const nBands = Math.ceil(1000 / band);
+    const lastRows = 1000 - (nBands - 1) * band;
+    check(speed + ': plan reassembles to the exact stream', same(concat(plan), sb));
+    check(speed + ': no write over ' + prof.chunk + ' bytes', plan.every((w) => w.bytes.length <= prof.chunk));
     check(speed + ': ESC @ goes first, then a 150 ms settle', plan[0].bytes[0] === 0x1b && plan[0].bytes[1] === 0x40 && plan[0].waitAfterMs === 150);
-    const fullBand = Math.max(prof.minBandWaitMs, Math.ceil((24 / prof.rowsPerSecond) * 1000));
-    const lastBand = Math.max(prof.minBandWaitMs, Math.ceil((16 / prof.rowsPerSecond) * 1000));
+    const fullBand = Math.max(prof.minBandWaitMs, Math.ceil((band / prof.rowsPerSecond) * 1000));
+    const lastBand = Math.max(prof.minBandWaitMs, Math.ceil((lastRows / prof.rowsPerSecond) * 1000));
     const waits = plan.map((w) => w.waitAfterMs);
     const bandWaits = waits.slice(1).filter((w) => w >= prof.minBandWaitMs);
-    check(speed + ': one burn wait per band', bandWaits.length === 42, bandWaits.length + ' band waits');
-    check(speed + ': a 24-row band waits ' + fullBand + ' ms', bandWaits.slice(0, 41).every((w) => w === fullBand), JSON.stringify(bandWaits.slice(0, 3)));
-    check(speed + ': the short last band waits ' + lastBand + ' ms', bandWaits[41] === lastBand, String(bandWaits[41]));
+    check(speed + ': one burn wait per band', bandWaits.length === nBands, bandWaits.length + ' band waits');
+    check(speed + ': a ' + band + '-row band waits ' + fullBand + ' ms', bandWaits.slice(0, nBands - 1).every((w) => w === fullBand), JSON.stringify(bandWaits.slice(0, 3)));
+    check(speed + ': the short last band waits ' + lastBand + ' ms', bandWaits[nBands - 1] === lastBand, String(bandWaits[nBands - 1]));
     check(speed + ': chunks inside a band pause ' + prof.chunkPauseMs + ' ms',
       waits.slice(1).filter((w) => w !== 0 && w < prof.minBandWaitMs).every((w) => w === prof.chunkPauseMs));
     check(speed + ': the feed goes last with no trailing wait', waits[waits.length - 1] === 0 && plan[plan.length - 1].bytes[0] === 0x1b);
   }
+  const f = shared.paceProfile('fast');
   const n = shared.paceProfile('normal');
   const sf = shared.paceProfile('safe');
+  check('Fast is 600 rows/s, 15 ms floor, 512-byte chunks, 5 ms pause', f.rowsPerSecond === 600 && f.minBandWaitMs === 15 && f.chunk === 512 && f.chunkPauseMs === 5);
   check('Normal is 250 rows/s, 60 ms floor, 20 ms chunk pause', n.rowsPerSecond === 250 && n.minBandWaitMs === 60 && n.chunkPauseMs === 20 && n.chunk === 256);
   check('Safe halves the rate and doubles the pauses', sf.rowsPerSecond === 125 && sf.minBandWaitMs === 120 && sf.chunkPauseMs === 40);
-  const total = (sp) => shared.planPrintWrites(bytes, sp).reduce((t, w) => t + w.waitAfterMs, 0);
-  check('Safe takes longer than Normal', total('safe') > total('normal'), total('normal') + ' vs ' + total('safe') + ' ms');
+  const total = (sp) => shared.planPrintWrites(webEscPos(r, sp), sp).reduce((t, w) => t + w.waitAfterMs, 0);
+  check('Safe > Normal > Fast in time', total('safe') > total('normal') && total('normal') > total('fast'),
+    total('fast') + ' / ' + total('normal') + ' / ' + total('safe') + ' ms');
+}
+
+{
+  // Blank-row compression: margins dropped, long gaps fed, short gaps kept in the image.
+  const width = 384;
+  const bpr = 48;
+  const height = 300;
+  const bits = new Uint8Array(bpr * height);
+  const ink = (y) => { for (let i = 0; i < bpr; i++) bits[y * bpr + i] = ((y * 7 + i) & 0xff) | 1; };
+  for (let y = 20; y < 60; y++) ink(y); // 0-19 blank: top margin, dropped
+  for (let y = 65; y < 100; y++) ink(y); // 60-64 blank: 5 rows, kept in the image
+  for (let y = 120; y < 130; y++) ink(y); // 100-119 blank: a 20-row feed
+  for (let y = 135; y < 140; y++) ink(y); // 130-134 blank: kept
+  // 140-299 blank: bottom margin, dropped
+  const bytes = shared.encodeRasterEscPos(bits, width, height, 'fast');
+  const parsed = parseEscPos(bytes, 48);
+  const inked = inkedPart(bits, width, height);
+  check('blank rows: top 20 and bottom 160 are not sent', inked.top === 20 && inked.bottom === 139 && parsed.rows === 120);
+  check('blank rows: the paper carries exactly the inked part, gaps in place', same(parsed.image, inked.bits));
+  check('blank rows: the 20-row gap is one ESC J 20', JSON.stringify(parsed.feeds) === '[20]', JSON.stringify(parsed.feeds));
+  const imageRows = parsed.bands.reduce((k, b) => k + b.rows, 0);
+  check('blank rows: the 5-row gaps stay in the image', imageRows === 100, imageRows + ' image rows');
+  check('blank rows: bytes = init/align + bands + feed + trailer',
+    bytes.length === 5 + parsed.bands.length * 8 + imageRows * bpr + 3 + 3, bytes.length + ' bytes');
+  const empty = shared.encodeRasterEscPos(new Uint8Array(0), 384, 0, 'fast');
+  check('an empty raster is just init, align and feed', same(empty, Uint8Array.from([0x1b, 0x40, 0x1b, 0x61, 0, 0x1b, 0x64, 4])));
+  // A 600-row gap is more than one ESC J can carry.
+  const tall = new Uint8Array(bpr * 602);
+  for (let i = 0; i < bpr; i++) { tall[i] = 0xff; tall[601 * bpr + i] = 0xff; }
+  const tp = parseEscPos(shared.encodeRasterEscPos(tall, width, 602, 'normal'), 24);
+  check('a 600-row gap is ESC J 255, 255, 90', JSON.stringify(tp.feeds) === '[255,255,90]' && tp.rows === 602 && same(tp.image, tall));
+  const plan = shared.planPrintWrites(bytes, 'fast');
+  check('blank rows: the plan still reassembles exactly', same(concat(plan), bytes));
+  check('blank rows: the plan waits for the feed', plan.some((w) => w.bytes.length === 3 && w.bytes[1] === 0x4a && w.waitAfterMs >= 15));
 }
 
 {
@@ -563,13 +655,111 @@ check('a stored Normal reads as Normal', shared.printSpeedOf({ printSpeed: 'norm
   }
   if (doc) {
     const dots = webRasterize(doc);
-    const bytes = webEscPos(dots);
-    const parsed = parseEscPos(bytes);
-    check('16-line handwritten bill: all ' + dots.height + ' rows in ' + Math.ceil(dots.height / 24) + ' bands of <=24',
-      parsed.rows === dots.height && parsed.bands.length === Math.ceil(dots.height / 24) && parsed.bands.every((b) => b.rows <= 24));
+    const bytes = webEscPos(dots, 'safe');
+    const parsed = parseEscPos(bytes, 24);
+    const inked = inkedPart(dots.bits, dots.width, dots.height);
+    check('16-line handwritten bill: every inked row reaches the paper in bands of <=24',
+      parsed.rows === inked.rows && same(parsed.image, inked.bits) && parsed.bands.every((b) => b.rows <= 24));
+    check('16-line handwritten bill keeps the image path', shared.receiptAsText(doc) === null);
     const plan = shared.planPrintWrites(bytes, 'safe');
     check('16-line handwritten bill: paced plan reassembles exactly', same(concat(plan), bytes));
-    check('16-line handwritten bill: one burn wait per band', plan.slice(1).filter((w) => w.waitAfterMs >= 120).length === parsed.bands.length);
+    check('16-line handwritten bill: one burn wait per band and per feed',
+      plan.slice(1).filter((w) => w.waitAfterMs >= 120).length === parsed.bands.length + parsed.feeds.length);
+  }
+}
+
+/* ================================================================== *
+ * 1c. A typed English bill prints as the printer's own text            *
+ * ================================================================== */
+console.log('');
+console.log('Typed English bills as text');
+
+{
+  const EN_LINES = [
+    { itemId: 'rice', nameKn: '', nameEn: 'Sona masoori rice', qty: 2, unit: 'kg', rate: 60, stockItemId: 's-rice' },
+    { itemId: 'oil', nameKn: '', nameEn: 'Sunflower oil 1L', qty: 1, rate: 145 },
+    { itemId: 'soap', nameKn: '', nameEn: 'Soap', qty: 3, rate: 30, given: false },
+  ];
+  const enBill = (extra) => bill({ lines: EN_LINES, total: 355, paid: 355, ...extra });
+  const labels = shared.receiptLabelsFor('en');
+  /** Every piece of text the slip carries, from the ReceiptDoc the image would be drawn from. */
+  const docTexts = (doc) => doc.rows.flatMap((r) =>
+    r.t === 'center' ? [r.text] : r.t === 'kv' ? [r.left, r.right] : r.t === 'item' ? [r.no, r.name, r.amount, r.note] : [])
+    .filter((t) => t && t.trim());
+  const flat = (lines) => lines.join('\n').replace(/\s+/g, ' ');
+  const contentMatches = (doc, lines) => docTexts(doc).every((t) => flat(lines).includes(t.replace(/\s+/g, ' ')));
+
+  for (const paper of ['58mm', '80mm']) {
+    const cols = paper === '58mm' ? 32 : 48;
+    const settings = settingsFor({ paper, gstin: '29ABCDE1234F1Z5' });
+    const doc = shared.buildReceipt(enBill({ roundOff: -0.5, note: 'Deliver by 5 pm' }), settings, labels);
+    const bytes = shared.receiptAsText(doc);
+    check(paper + ': an all-English typed bill goes out as text', bytes instanceof Uint8Array);
+    if (!bytes) continue;
+    const lines = shared.receiptTextLines(doc);
+    check(paper + ': ' + cols + ' columns', shared.textColumns(doc.width) === cols);
+    check(paper + ': no line wider than the paper', lines.every((l) => l.length <= cols), lines.find((l) => l.length > cols));
+    check(paper + ': carries everything buildReceipt put on the slip', contentMatches(doc, lines),
+      docTexts(doc).find((t) => !flat(lines).includes(t.replace(/\s+/g, ' '))));
+    check(paper + ': shop name, GSTIN, bill number, TOTAL, round off, note, footer',
+      ['Shridhar Kirani Stores', '29ABCDE1234F1Z5', labels.bill + '42', labels.total, labels.roundOff, 'Deliver by 5 pm', 'Thank you, Visit again!']
+        .every((t) => flat(lines).includes(t)));
+    check(paper + ': quantity and unit with the name', flat(lines).includes('2 kg Sona masoori rice'));
+    check(paper + ': each line\'s amount at the right edge',
+      ['120', '145', '90'].every((a) => lines.some((l) => l.endsWith(a) && l.length === cols)));
+    check(paper + ': rule lines across the paper', lines.filter((l) => l === '-'.repeat(cols)).length >= 3);
+    check(paper + ': far smaller than the image', bytes.length < 1500, bytes.length + ' bytes');
+    let printable = true;
+    for (const b of bytes) if (b >= 0x7f) printable = false;
+    check(paper + ': nothing but ASCII and control codes', printable);
+    check(paper + ': starts ESC @, ends ESC d 4', bytes[0] === 0x1b && bytes[1] === 0x40
+      && bytes[bytes.length - 3] === 0x1b && bytes[bytes.length - 2] === 0x64 && bytes[bytes.length - 1] === 4);
+    const plan = shared.planPrintWrites(bytes, 'fast');
+    check(paper + ': text plan reassembles exactly', same(concat(plan), bytes));
+    const lfs = [...bytes].filter((b) => b === 0x0a).length;
+    check(paper + ': one paced write per printed line', plan.filter((w) => w.bytes[w.bytes.length - 1] === 0x0a).length === lfs && lfs === lines.length);
+  }
+
+  {
+    const settings = settingsFor({ showRate: true });
+    const doc = shared.buildReceipt(enBill({
+      customer: { id: 'p1', name: 'Ramesh', phone: '9886012345' },
+      paid: 300, balance: 555, showBalance: true, previousBalance: 500, previousBalanceAt: '2026-08-02T10:00:00',
+    }), settings, labels);
+    const lines = shared.receiptTextLines(doc);
+    check('show rate: "@ rate" under each item', lines.filter((l) => l.trim().startsWith('@ ')).length === 3);
+    check('balance: old balance line, paid and balance', contentMatches(doc, lines)
+      && flat(lines).includes(labels.oldBalance) && flat(lines).includes(labels.paid + ' 300') && flat(lines).includes(labels.balance + ' 555'));
+    check('balance: TOTAL includes what was carried', flat(lines).includes('855'));
+    check('customer name and phone on one line', lines.some((l) => l.startsWith('Ramesh') && l.endsWith('9886012345')));
+  }
+
+  {
+    const doc = shared.buildReceipt(enBill({ hideNames: true }), settingsFor({}), labels);
+    const lines = shared.receiptTextLines(doc);
+    check('hidden names: number and price only', shared.receiptAsText(doc) !== null
+      && !flat(lines).includes('Sona') && !flat(lines).includes('Soap') && contentMatches(doc, lines));
+  }
+
+  {
+    const doc = shared.buildReceipt(enBill({ hideNames: true }), settingsFor({ receiptStyle: 'compact' }), labels);
+    const lines = shared.receiptTextLines(doc);
+    check('compact: "1)120, 2)145, 3)90" then TOTAL', flat(lines).includes('1)120, 2)145, 3)90') && contentMatches(doc, lines));
+  }
+
+  {
+    const kn = shared.buildReceipt(bill(), settingsFor({}), labels);
+    check('a bill with a Kannada item name keeps the image path', shared.receiptAsText(kn) === null);
+    const knShop = shared.buildReceipt(enBill(), settingsFor({ language: 'kn', shopNameKn: 'ಶ್ರೀಧರ್' }), shared.receiptLabelsFor('kn'));
+    check('a Kannada shop keeps the image path', shared.receiptAsText(knShop) === null);
+    const knFooter = shared.buildReceipt(enBill(), settingsFor({ footer: 'ಧನ್ಯವಾದಗಳು' }), labels);
+    check('a Kannada footer alone keeps the image path', shared.receiptAsText(knFooter) === null);
+    const inked = shared.buildReceipt(enBill({
+      lines: [...EN_LINES, { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40 }],
+    }), settingsFor({}), labels);
+    check('a bill with handwriting keeps the image path', shared.receiptAsText(inked) === null);
+    const ticked = shared.buildReceipt(enBill({ lines: EN_LINES.map((l) => ({ ...l, given: true })) }), settingsFor({}), labels);
+    check('a ticked (given) bill keeps the image path: the tick is not ASCII', shared.receiptAsText(ticked) === null);
   }
 }
 
@@ -615,10 +805,10 @@ async function transportChecks() {
     );
     check('connects once, not per chunk', p.log.filter((l) => l.startsWith('connectToDevice')).length === 1);
     check('sends base64 down the bridge', p.log.filter((l) => l.startsWith('write:base64:')).length === p.chunks.length);
-    const plan = shared.planPrintWrites(slip, 'safe');
-    check('writes follow the paced plan (Safe by default)', p.chunks.length === plan.length && p.chunks.every((c, i) => c.length === plan[i].bytes.length));
+    const plan = shared.planPrintWrites(slip, 'fast');
+    check('writes follow the paced plan (Fast by default)', p.chunks.length === plan.length && p.chunks.every((c, i) => c.length === plan[i].bytes.length));
     check('and waits exactly as planned', JSON.stringify(slept) === JSON.stringify(plan.map((w) => w.waitAfterMs).filter((w) => w > 0)));
-    check('no write over 256 bytes', p.chunks.every((c) => c.length <= 256));
+    check('no write over 512 bytes', p.chunks.every((c) => c.length <= 512));
     check(
       'reassembles to a slip the printer can parse',
       (() => { try { parseEscPos(got); return true; } catch { return false; } })(),

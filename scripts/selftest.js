@@ -681,17 +681,38 @@ async function main() {
   check('an empty receipt still has height', rasterize({ width: 384, rows: [] }).height >= 1);
 
   console.log('\nESC/POS framing');
-  const bytes = rasterToEscPos(raster);
+  const bytes = rasterToEscPos(raster, 'normal');
   eq('starts with ESC @ (initialise)', bytes[0] + ',' + bytes[1], '27,64');
-  const bands = Math.ceil(raster.height / 24);
-  let found = 0;
-  for (let i = 0; i < bytes.length - 3; i++) {
-    if (bytes[i] === 0x1d && bytes[i + 1] === 0x76 && bytes[i + 2] === 0x30 && bytes[i + 3] === 0x00) found++;
+  // Walk it: GS v 0 bands of at most 24 rows, ESC J feeds for blank gaps, ESC d 4 to finish.
+  const bprOf = Math.ceil(raster.width / 8);
+  let at = 5;
+  let bandCount = 0;
+  let tallest = 0;
+  const paper = [];
+  while (bytes[at] === 0x1d || (bytes[at] === 0x1b && bytes[at + 1] === 0x4a)) {
+    if (bytes[at] === 0x1d) {
+      const rows = bytes[at + 6] | (bytes[at + 7] << 8);
+      tallest = Math.max(tallest, rows);
+      bandCount++;
+      for (let r = 0; r < rows; r++) paper.push(bytes.subarray(at + 8 + r * bprOf, at + 8 + (r + 1) * bprOf));
+      at += 8 + rows * bprOf;
+    } else {
+      for (let r = 0; r < bytes[at + 2]; r++) paper.push(new Uint8Array(bprOf));
+      at += 3;
+    }
   }
-  eq('one GS v 0 command per 24-row band', found, bands);
+  check('banded in GS v 0 commands of at most 24 rows', bandCount > 0 && tallest <= 24, bandCount + ' bands, tallest ' + tallest);
   eq('the 58mm header declares 48 bytes per row', bytes[9], 48);
-  eq('total length is header + bands + dots', bytes.length, 2 + 3 + bands * 8 + raster.bits.length + 3);
-  eq('ends by feeding the paper out', bytes[bytes.length - 3] + ',' + bytes[bytes.length - 2], '27,100');
+  const rowBlank = (y) => raster.bits.subarray(y * bprOf, (y + 1) * bprOf).every((b) => b === 0);
+  let top = 0;
+  while (top < raster.height && rowBlank(top)) top++;
+  let bottom = raster.height - 1;
+  while (bottom >= top && rowBlank(bottom)) bottom--;
+  const sameRows = paper.length === bottom - top + 1
+    && paper.every((row, i) => row.every((b, k) => b === raster.bits[(top + i) * bprOf + k]));
+  check('every row from the first dot to the last reaches the paper, in place', sameRows,
+    paper.length + ' rows sent, inked part ' + (bottom - top + 1));
+  eq('ends by feeding the paper out', at === bytes.length - 3 && bytes[at] + ',' + bytes[at + 1], '27,100');
 
   // ------------------------------------------------------------ the API, against the JSON store
   console.log('\nAPI (JSON store, no MongoDB needed)');

@@ -109,7 +109,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * the bytes -- an SPP port takes them far faster than the printer burns them, which is how a long
  * slip used to overrun the printer and print garbage after item 8.
  */
-export async function printBytesOverSerial(bytes: Uint8Array, speed: PrintSpeed = 'safe'): Promise<void> {
+export async function printBytesOverSerial(bytes: Uint8Array, speed: PrintSpeed = 'fast'): Promise<void> {
   if (!connected) throw new SerialPrintError('No serial printer is connected. Choose a port first.');
   const { port } = connected;
   if (!port.writable) throw new SerialPrintError('That port is no longer writable. Reconnect the printer.');

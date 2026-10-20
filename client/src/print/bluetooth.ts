@@ -114,7 +114,7 @@ export async function chooseBluetoothPrinter(): Promise<string> {
   );
 }
 
-export async function printBytesOverBluetooth(bytes: Uint8Array, speed: PrintSpeed = 'safe'): Promise<void> {
+export async function printBytesOverBluetooth(bytes: Uint8Array, speed: PrintSpeed = 'fast'): Promise<void> {
   if (!connected || !connected.device.gatt?.connected) {
     throw new BluetoothPrintError('No Bluetooth printer is connected. Choose one first.');
   }

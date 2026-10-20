@@ -227,10 +227,16 @@ export type Settings = {
   /** Which roll the shop's printer takes. Decides how wide the receipt is laid out. */
   paper: PaperKey;
   /**
-   * How fast slips are fed to a direct (Bluetooth / serial) printer: 'normal', or 'safe' -- half
-   * the rate, for a printer that drops data and prints garbage partway down a long bill.
+   * How fast slips are fed to a direct (Bluetooth / serial) printer: 'fast' (the default),
+   * 'normal', or 'safe' -- the slowest, for a printer that drops data and prints garbage partway
+   * down a long bill.
    */
-  printSpeed?: 'normal' | 'safe';
+  printSpeed?: 'fast' | 'normal' | 'safe';
+  /**
+   * 2 once printSpeed has been through the Fast migration (APK 73): a 'safe' saved before then
+   * reads as 'fast', once; one chosen after it is kept. Absent on settings from before.
+   */
+  printSpeedV?: number;
   /** Interface and receipt language. */
   language: Lang;
   /** The shop's GST number. Prints under the shop name when it is filled in. */
@@ -280,14 +286,19 @@ export function receiptStyleOf(s: { receiptStyle?: ReceiptStyle | string; hidden
  */
 export function migrateSettings(stored: Partial<Settings> & Record<string, unknown>): Settings {
   const { hiddenReceipt: _old, ...rest } = stored;
-  return { ...DEFAULT_SETTINGS, ...rest, receiptStyle: receiptStyleOf(stored) } as Settings;
+  // The shop asked for faster printing: a 'safe' saved before Fast existed moves to Fast once.
+  // A speed saved after that (printSpeedV 2) is the shop's own choice and is left alone.
+  const printSpeed = stored.printSpeedV == null && (stored.printSpeed == null || stored.printSpeed === 'safe')
+    ? 'fast'
+    : stored.printSpeed;
+  return { ...DEFAULT_SETTINGS, ...rest, printSpeed, printSpeedV: 2, receiptStyle: receiptStyleOf(stored) } as Settings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   shopName: 'Shridhar Kirani Stores',
   footer: 'Thank you, Visit again!',
   paper: '58mm',
-  printSpeed: 'safe',
+  printSpeed: 'fast',
   language: 'en',
   gstin: '',
   showGstin: true,

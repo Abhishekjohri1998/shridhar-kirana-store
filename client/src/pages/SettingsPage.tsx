@@ -398,7 +398,7 @@ export function SettingsPage() {
             onChange={(e) => void save({ printSpeed: e.target.value as PrintSpeed }, 'set.savedPrintSpeed')}
           >
             {PRINT_SPEEDS.map((key) => (
-              <option key={key} value={key}>{key === 'safe' ? t('set.printSpeedSafe') : t('set.printSpeedNormal')}</option>
+              <option key={key} value={key}>{key === 'safe' ? t('set.printSpeedSafe') : key === 'normal' ? t('set.printSpeedNormal') : t('set.printSpeedFast')}</option>
             ))}
           </select>
         </div>

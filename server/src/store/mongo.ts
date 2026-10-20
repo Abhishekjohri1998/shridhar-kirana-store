@@ -169,7 +169,8 @@ const settingsSchema = new Schema<SettingsDoc>(
     footer: { type: String, required: true },
     paper: { type: String, required: true, default: DEFAULT_SETTINGS.paper },
     language: { type: String, required: true, default: DEFAULT_SETTINGS.language },
-    printSpeed: { type: String, required: false, default: 'safe' },
+    printSpeed: { type: String, required: false, default: 'fast' },
+    printSpeedV: { type: Number, required: false },
     // Optional with a plain default, never `required: true` alongside one -- that pairing is
     // what made every print return 500 once, and schematest exists because of it.
     gstin: { type: String, required: false, default: '' },
