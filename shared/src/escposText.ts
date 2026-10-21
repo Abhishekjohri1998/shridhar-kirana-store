@@ -114,7 +114,7 @@ function layout(doc: ReceiptDoc): Piece[] {
  */
 export function receiptAsText(doc: ReceiptDoc): Uint8Array | null {
   if (!canPrintAsText(doc)) return null;
-  const bytes: number[] = [ESC, 0x40, ESC, 0x74, 0x00];
+  const bytes: number[] = [ESC, 0x40, ESC, 0x74, 0x00, ESC, 0x33, 30]; // ESC 3 30: fixed line spacing
   for (const p of layout(doc)) {
     if ('feed' in p) {
       if (p.feed > 0) bytes.push(ESC, 0x4a, Math.min(255, Math.round(p.feed)));
@@ -126,7 +126,7 @@ export function receiptAsText(doc: ReceiptDoc): Uint8Array | null {
     for (let i = 0; i < p.text.length; i++) bytes.push(p.text.charCodeAt(i));
     bytes.push(LF);
   }
-  bytes.push(ESC, 0x61, 0, GS, 0x21, 0, ESC, 0x45, 0);
+  bytes.push(ESC, 0x61, 0, GS, 0x21, 0, ESC, 0x45, 0, ESC, 0x32); // ESC 2: default spacing back
   bytes.push(ESC, 0x64, 0x04); // clear the tear bar, as the image path does
   return Uint8Array.from(bytes);
 }

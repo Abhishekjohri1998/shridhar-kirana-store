@@ -496,8 +496,9 @@ for (const [label, theBill, patch] of CASES) {
   );
   check(label + ': Fast bands are at most 48 rows', parsed.bands.every((b) => b.rows <= 48));
   check(label + ': blank margins are not sent', parsed.rows < height, parsed.rows + ' of ' + height);
-  check(label + ': gaps of 8+ blank rows are feeds, not image',
-    !(() => { let run = 0; for (const b of parsed.bands) for (let r = 0; r < b.rows; r++) {
+  check(label + ': no ESC J feeds, blank gaps go as image rows', parsed.feeds.length === 0);
+  check(label + ': (gaps of 8+ blank rows are present in the image)',
+    !!(() => { let run = 0; for (const b of parsed.bands) for (let r = 0; r < b.rows; r++) {
       let empty = true; for (let i = r * b.bpr; i < (r + 1) * b.bpr; i++) if (b.data[i]) { empty = false; break; }
       run = empty ? run + 1 : 0; if (run >= 8) return true; } return false; })());
   {
@@ -600,7 +601,7 @@ check('settings with no speed read as Fast', shared.migrateSettings({}).printSpe
 }
 
 {
-  // Blank-row compression: margins dropped, long gaps fed, short gaps kept in the image.
+  // Blank rows: margins dropped, every inner gap kept in the image.
   const width = 384;
   const bpr = 48;
   const height = 300;
@@ -616,21 +617,21 @@ check('settings with no speed read as Fast', shared.migrateSettings({}).printSpe
   const inked = inkedPart(bits, width, height);
   check('blank rows: top 20 and bottom 160 are not sent', inked.top === 20 && inked.bottom === 139 && parsed.rows === 120);
   check('blank rows: the paper carries exactly the inked part, gaps in place', same(parsed.image, inked.bits));
-  check('blank rows: the 20-row gap is one ESC J 20', JSON.stringify(parsed.feeds) === '[20]', JSON.stringify(parsed.feeds));
+  check('blank rows: no ESC J feeds at all', parsed.feeds.length === 0, JSON.stringify(parsed.feeds));
   const imageRows = parsed.bands.reduce((k, b) => k + b.rows, 0);
-  check('blank rows: the 5-row gaps stay in the image', imageRows === 100, imageRows + ' image rows');
-  check('blank rows: bytes = init/align + bands + feed + trailer',
-    bytes.length === 5 + parsed.bands.length * 8 + imageRows * bpr + 3 + 3, bytes.length + ' bytes');
+  check('blank rows: every gap goes as image rows, exact height 120', imageRows === 120, imageRows + ' image rows');
+  check('blank rows: bytes = init/align + bands + trailer',
+    bytes.length === 5 + parsed.bands.length * 8 + imageRows * bpr + 3, bytes.length + ' bytes');
   const empty = shared.encodeRasterEscPos(new Uint8Array(0), 384, 0, 'fast');
   check('an empty raster is just init, align and feed', same(empty, Uint8Array.from([0x1b, 0x40, 0x1b, 0x61, 0, 0x1b, 0x64, 4])));
-  // A 600-row gap is more than one ESC J can carry.
+  // A 600-row gap goes as 602 image rows.
   const tall = new Uint8Array(bpr * 602);
   for (let i = 0; i < bpr; i++) { tall[i] = 0xff; tall[601 * bpr + i] = 0xff; }
   const tp = parseEscPos(shared.encodeRasterEscPos(tall, width, 602, 'normal'), 24);
-  check('a 600-row gap is ESC J 255, 255, 90', JSON.stringify(tp.feeds) === '[255,255,90]' && tp.rows === 602 && same(tp.image, tall));
+  check('a 600-row gap is 602 image rows, no feeds', tp.feeds.length === 0 && tp.rows === 602
+    && tp.bands.reduce((k, b) => k + b.rows, 0) === 602 && same(tp.image, tall));
   const plan = shared.planPrintWrites(bytes, 'fast');
   check('blank rows: the plan still reassembles exactly', same(concat(plan), bytes));
-  check('blank rows: the plan waits for the feed', plan.some((w) => w.bytes.length === 3 && w.bytes[1] === 0x4a && w.waitAfterMs >= 15));
 }
 
 {
@@ -714,6 +715,8 @@ console.log('Typed English bills as text');
     check(paper + ': nothing but ASCII and control codes', printable);
     check(paper + ': starts ESC @, ends ESC d 4', bytes[0] === 0x1b && bytes[1] === 0x40
       && bytes[bytes.length - 3] === 0x1b && bytes[bytes.length - 2] === 0x64 && bytes[bytes.length - 1] === 4);
+    check(paper + ': header sets line spacing ESC 3 30', bytes[5] === 0x1b && bytes[6] === 0x33 && bytes[7] === 30);
+    check(paper + ': spacing reset with ESC 2 before the final feed', bytes[bytes.length - 5] === 0x1b && bytes[bytes.length - 4] === 0x32);
     const plan = shared.planPrintWrites(bytes, 'fast');
     check(paper + ': text plan reassembles exactly', same(concat(plan), bytes));
     const lfs = [...bytes].filter((b) => b === 0x0a).length;
