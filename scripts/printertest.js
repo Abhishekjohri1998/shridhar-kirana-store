@@ -369,7 +369,7 @@ const BAND = 24;
  * Walk an ESC/POS stream and describe it, refusing to guess: an unexpected byte is an error, not
  * something to skip. If this parses, a printer's firmware will not be surprised either.
  */
-function parseEscPos(bytes, maxBand = 48) {
+function parseEscPos(bytes, maxBand = 24) {
   let at = 0;
   const expect = (label, ...want) => {
     for (const b of want) {
@@ -494,7 +494,7 @@ for (const [label, theBill, patch] of CASES) {
     parsed.rows === inked.rows && same(parsed.image, inked.bits),
     parsed.rows + ' rows (' + parsed.bands.length + ' bands, ' + parsed.feeds.length + ' feeds), inked part is ' + inked.rows,
   );
-  check(label + ': Fast bands are at most 48 rows', parsed.bands.every((b) => b.rows <= 48));
+  check(label + ': Fast bands are at most 24 rows', parsed.bands.every((b) => b.rows <= 24));
   check(label + ': blank margins are not sent', parsed.rows < height, parsed.rows + ' of ' + height);
   check(label + ': no ESC J feeds, blank gaps go as image rows', parsed.feeds.length === 0);
   check(label + ': (gaps of 8+ blank rows are present in the image)',
@@ -533,8 +533,8 @@ function fakeRaster(width, height) {
   return { width, height, bits };
 }
 
-check('the band sizes are 24 rows, 48 on Fast', shared.PRINT_BAND_ROWS === 24 && shared.FAST_BAND_ROWS === 48
-  && shared.bandRowsFor('fast') === 48 && shared.bandRowsFor('normal') === 24 && shared.bandRowsFor('safe') === 24);
+check('the band sizes are 24 rows at every speed (48 squashed lines on cheap 58mm heads)', shared.PRINT_BAND_ROWS === 24 && shared.FAST_BAND_ROWS === 24
+  && shared.bandRowsFor('fast') === 24 && shared.bandRowsFor('normal') === 24 && shared.bandRowsFor('safe') === 24);
 check('the default speed is Fast', shared.DEFAULT_SETTINGS.printSpeed === 'fast' && shared.printSpeedOf({}) === 'fast'
   && shared.printSpeedOf({ printSpeed: 'nonsense' }) === 'fast');
 check('a stored Normal reads as Normal', shared.printSpeedOf({ printSpeed: 'normal' }) === 'normal');
@@ -547,7 +547,7 @@ check('a saved Normal is kept', shared.migrateSettings({ printSpeed: 'normal' })
 check('settings with no speed read as Fast', shared.migrateSettings({}).printSpeed === 'fast');
 
 {
-  // 1000 rows: on Normal/Safe 41 full bands of 24 and one of 16; on Fast 20 of 48 and one of 40.
+  // 1000 rows: on Normal/Safe 41 full bands of 24 and one of 16; on Fast the same.
   const r = fakeRaster(384, 1000);
   const bytes = webEscPos(r, 'normal');
   const parsed = parseEscPos(bytes, 24);
@@ -565,8 +565,9 @@ check('settings with no speed read as Fast', shared.migrateSettings({}).printSpe
   check('each band is GS v 0 with xL=48 xH=0 yL/yH = its rows, carrying its own image rows', headersOk);
   check('total bytes = image + band headers + init/align/feed', bytes.length === r.bits.length + 42 * 8 + 5 + 3, bytes.length + ' bytes');
   check('mobile banding is byte-identical', same(bytes, phoneEscPos({ width: 384, height: 1000, data: Buffer.from(r.bits).toString('base64') }, 'normal')));
-  const fast = parseEscPos(webEscPos(r, 'fast'), 48);
-  check('Fast: 21 bands of up to 48 rows, the same image', fast.bands.length === 21 && fast.bands[20].rows === 40 && same(fast.image, r.bits));
+  const fast = parseEscPos(webEscPos(r, 'fast'), 24);
+  check('Fast: 42 bands of up to 24 rows, the same image', fast.bands.length === 42 && fast.bands[41].rows === 16 && same(fast.image, r.bits));
+  for (const sp of ['fast', 'normal', 'safe', undefined]) check('no band over 24 rows on ' + sp, parseEscPos(webEscPos(r, sp), 1000).bands.every((b) => b.rows <= 24));
 
   for (const speed of ['fast', 'normal', 'safe']) {
     const band = shared.bandRowsFor(speed);
@@ -596,7 +597,7 @@ check('settings with no speed read as Fast', shared.migrateSettings({}).printSpe
   check('Normal is 250 rows/s, 60 ms floor, 20 ms chunk pause', n.rowsPerSecond === 250 && n.minBandWaitMs === 60 && n.chunkPauseMs === 20 && n.chunk === 256);
   check('Safe halves the rate and doubles the pauses', sf.rowsPerSecond === 125 && sf.minBandWaitMs === 120 && sf.chunkPauseMs === 40);
   const total = (sp) => shared.planPrintWrites(webEscPos(r, sp), sp).reduce((t, w) => t + w.waitAfterMs, 0);
-  check('Safe > Normal > Fast in time', total('safe') > total('normal') && total('normal') > total('fast'),
+  check('Fast is well below Normal and Safe in time (< 60% of Normal)', total('fast') < 0.6 * total('normal') && total('safe') > total('normal'),
     total('fast') + ' / ' + total('normal') + ' / ' + total('safe') + ' ms');
 }
 
@@ -613,7 +614,7 @@ check('settings with no speed read as Fast', shared.migrateSettings({}).printSpe
   for (let y = 135; y < 140; y++) ink(y); // 130-134 blank: kept
   // 140-299 blank: bottom margin, dropped
   const bytes = shared.encodeRasterEscPos(bits, width, height, 'fast');
-  const parsed = parseEscPos(bytes, 48);
+  const parsed = parseEscPos(bytes, 24);
   const inked = inkedPart(bits, width, height);
   check('blank rows: top 20 and bottom 160 are not sent', inked.top === 20 && inked.bottom === 139 && parsed.rows === 120);
   check('blank rows: the paper carries exactly the inked part, gaps in place', same(parsed.image, inked.bits));

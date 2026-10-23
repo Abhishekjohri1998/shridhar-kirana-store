@@ -13,7 +13,7 @@ const GS = 0x1d;
  *   - blank rows above the first dot and below the last are not sent at all;
  *   - blank rows inside the slip ARE sent as image rows. (APK 73 turned long blank runs into ESC J
  *     feeds; some printers feed less than asked, which squeezed the space between lines.)
- * Bands are at most bandRowsFor(speed) rows: 48 on Fast, 24 otherwise.
+ * Bands are at most bandRowsFor(speed) rows: 24 at every speed.
  */
 export function encodeRasterEscPos(
   bits: Uint8Array, width: number, height: number, speed: PrintSpeed | string | undefined,

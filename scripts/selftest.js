@@ -706,6 +706,12 @@ async function main() {
   check('no ESC J feeds: blank gaps go as image rows', !feedSeen);
   check('banded in GS v 0 commands of at most 24 rows', bandCount > 0 && tallest <= 24, bandCount + ' bands, tallest ' + tallest);
   eq('the 58mm header declares 48 bytes per row', bytes[9], 48);
+  for (const sp of ['fast', 'normal', 'safe']) {
+    const sb = rasterToEscPos(raster, sp);
+    let t = 0, ok = true;
+    for (let i = 5; i < sb.length - 3 && sb[i] === 0x1d; ) { const h = sb[i + 6] | (sb[i + 7] << 8); if (h > 24) ok = false; t = Math.max(t, h); i += 8 + h * bprOf; }
+    check(sp + ': no band over 24 rows', ok && t > 0, 'tallest ' + t);
+  }
   const rowBlank = (y) => raster.bits.subarray(y * bprOf, (y + 1) * bprOf).every((b) => b === 0);
   let top = 0;
   while (top < raster.height && rowBlank(top)) top++;

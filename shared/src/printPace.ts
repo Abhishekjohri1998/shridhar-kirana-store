@@ -15,8 +15,8 @@ export const DEFAULT_PRINT_SPEED: PrintSpeed = 'fast';
 
 /** Rows per GS v 0 band on Normal and Safe. 24 rows of a 58mm head is 1152 bytes. */
 export const PRINT_BAND_ROWS = 24;
-/** Rows per band on Fast: half the band headers and half the per-band floors. */
-export const FAST_BAND_ROWS = 48;
+/** Rows per band on Fast: also 24. 48-row bands (APK 73/74) overran cheap 58mm heads and squashed lines; Fast only paces quicker. */
+export const FAST_BAND_ROWS = 24;
 /** Taller than this and the slip goes out as separate parts with a gap between. */
 export const PRINT_PART_ROWS = 6000;
 
