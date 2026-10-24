@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { money, stamp, type Bill, type Payment } from '@shridhar/shared';
+import { historyView, money, stamp, type Bill, type Payment } from '@shridhar/shared';
 import { api } from '../lib/api';
 import { BillDialog } from '../components/BillDialog';
-import { useShop } from '../lib/useShop';
+import { useKeepFresh, useShop } from '../lib/useShop';
 import { Empty } from '../components/Empty';
 import { HistoryIcon } from '../components/Icons';
 
@@ -10,6 +10,14 @@ export function HistoryPage() {
   const shop = useShop();
 
   const [open, setOpen] = useState<Bill | null>(null);
+  useKeepFresh();
+  // "No bills yet" only after a load that worked, never because one failed.
+  const view = historyView(shop.loadState, shop.bills.length);
+  const [busy, setBusy] = useState(false);
+  const refresh = () => {
+    setBusy(true);
+    void shop.refresh().finally(() => setBusy(false));
+  };
 
   const t = shop.t;
   // Money received with no bill, listed among the bills at the time it was received.
@@ -37,9 +45,24 @@ export function HistoryPage() {
         </div>
       </div>
 
-      {shop.bills.length === 0 ? (
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button className="btn plain" onClick={refresh} disabled={busy} title={t('hist.refresh')} aria-label={t('hist.refresh')}>
+          ↻ {t('hist.refresh')}
+        </button>
+      </div>
+
+      {view.banner === 'failed' ? (
+        <div className="error" role="alert" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1 }}>{t('hist.loadFailed')}</span>
+          <button className="btn plain" onClick={refresh} disabled={busy}>{t('hist.retry')}</button>
+        </div>
+      ) : null}
+
+      {view.body === 'empty' ? (
         <Empty icon={<HistoryIcon />}>{t('hist.noBills')}</Empty>
-      ) : (
+      ) : view.body === 'loading' ? (
+        <p className="muted small">{t('hist.loadingBills')}</p>
+      ) : view.body === 'none' ? null : (
         <div className="list">
           {rows.map(({ bill, pay }) => pay ? (
             <div key={pay.id} className="list-row">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { money, stamp, type Bill, type Payment } from '@shridhar/shared';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { historyView, money, stamp, type Bill, type Payment } from '@shridhar/shared';
 import { api } from '../lib/api';
 import { BillDialog } from '../components/BillDialog';
 import { Empty } from '../components/ui';
@@ -12,6 +12,13 @@ export function HistoryScreen() {
   const shop = useShop();
   const t = shop.t;
   const [open, setOpen] = useState<Bill | null>(null);
+  // Pull to refresh; "No bills yet" only after a load that worked, never because one failed.
+  const [pulling, setPulling] = useState(false);
+  const onPull = () => {
+    setPulling(true);
+    void shop.refresh().finally(() => setPulling(false));
+  };
+  const view = historyView(shop.loadState, shop.bills.length);
   /* Money received with no bill, shown among the bills at the time it was received. Fetched
      again whenever the bills move, which is also when a payment is likely to have been taken. */
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -30,7 +37,11 @@ export function HistoryScreen() {
   ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
-    <ScrollView style={styles.wrap} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.wrap}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={pulling} onRefresh={onPull} colors={[C.accent]} tintColor={C.accent} />}
+    >
 
       {/* Not a reports module -- the one number the shopkeeper counts the drawer against. */}
       <View style={styles.summary}>
@@ -41,9 +52,20 @@ export function HistoryScreen() {
         </Text>
       </View>
 
-      {shop.bills.length === 0 ? (
+      {view.banner === 'failed' ? (
+        <View style={styles.failed}>
+          <Text style={styles.failedText}>{t('hist.loadFailed')}</Text>
+          <Pressable style={styles.retry} onPress={onPull} accessibilityRole="button">
+            <Text style={styles.retryText}>{t('hist.retry')}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {view.body === 'empty' ? (
         <Empty icon={<HistoryIcon size={26} color={C.faint} />}>{t('hist.noBills')}</Empty>
-      ) : (
+      ) : view.body === 'loading' ? (
+        <ActivityIndicator style={{ marginTop: 24 }} color={C.accent} accessibilityLabel={t('hist.loadingBills')} />
+      ) : view.body === 'none' ? null : (
         rows.map((row) => row.kind === 'pay' ? (
           <View key={row.pay.id} style={styles.row}>
             <View style={{ flex: 1 }}>
@@ -98,4 +120,11 @@ const styles = StyleSheet.create({
   no: { fontSize: 17, fontWeight: '700', color: C.ink },
   when: { fontSize: 13, color: C.soft, marginTop: 1 },
   total: { fontSize: 18, fontWeight: '700', color: C.ink },
+  failed: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: C.dangerWash, borderColor: C.dangerEdge,
+    borderWidth: 1, borderRadius: R.md, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10,
+  },
+  failedText: { flex: 1, fontSize: 15, fontWeight: '600', color: C.danger },
+  retry: { backgroundColor: C.card, borderColor: C.dangerEdge, borderWidth: 1, borderRadius: R.md, paddingHorizontal: 14, paddingVertical: 8 },
+  retryText: { fontSize: 15, fontWeight: '700', color: C.danger },
 });

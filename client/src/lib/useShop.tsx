@@ -3,7 +3,7 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
-  LINK_RETRY_MS, createLinkWatch, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
+  LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -60,7 +60,8 @@ function writeParked(parked: Parked): void {
 }
 
 
-type Cache = { settings: Settings };
+/** Settings, plus the last bills and today that loaded, so a failed reload never shows an empty book. */
+type Cache = { settings: Settings; bills?: Bill[]; today?: TodaySummary };
 
 /** The item list and shop name are cached so the billing screen still draws when the counter's
  *  wifi drops. Writing a bill still needs the server -- that is said plainly in the UI. */
@@ -98,6 +99,8 @@ type Shop = {
    * is set the app knocks again every 15 s (and when it comes back to the front).
    */
   offline: boolean;
+  /** Where the last load of bills / today / settings stands. `failed` keeps the last good list. */
+  loadState: LoadState;
   settings: Settings;
   bills: Bill[];
   today: TodaySummary;
@@ -142,6 +145,8 @@ type Shop = {
   /** Bumped when the books are emptied, so a page holding its own list knows to fetch again. */
   dataVersion: number;
   refreshInactive: () => Promise<void>;
+  /** Load bills, today and settings again now (Retry, the refresh button). */
+  refresh: () => Promise<void>;
 
   addItemToCart: (item: Item, qty?: number) => void;
   /** A line typed by hand, written by hand, or with no description at all -- all are allowed. */
@@ -216,8 +221,13 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     return onLink((ok) => (ok ? watch.ok() : watch.fail()));
   }, []);
   const [settings, setSettings] = useState<Settings>(cached?.settings ?? DEFAULT_SETTINGS);
-  const [bills, setBills] = useState<Bill[]>([]);
-  const [today, setToday] = useState<TodaySummary>({ count: 0, total: 0 });
+  // The last good book from the cache, shown until (or instead of, if it fails) the first load.
+  const [bills, setBills] = useState<Bill[]>(() => (Array.isArray(cached?.bills) ? cached!.bills! : []));
+  const [today, setToday] = useState<TodaySummary>(() => cached?.today ?? { count: 0, total: 0 });
+  const [loadState, setLoadState] = useState<LoadState>('loading');
+  /** Failed loads in a row, for the 5 / 15 / 30 / 60 s backoff; and a tick so each failure re-arms it. */
+  const failuresRef = useRef(0);
+  const [failTick, setFailTick] = useState(0);
   const [inactiveAll, setInactive] = useState<Customer[]>([]);
 
   /*
@@ -458,6 +468,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setReady(true);
       return;
     }
+    setLoadState((s) => (s === 'ok' ? 'ok' : 'loading'));
     try {
       const [loadedSettings, loadedBills, loadedToday] = await Promise.all([
         api.getSettings(),
@@ -468,9 +479,15 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setBills(loadedBills);
       setToday(loadedToday);
       setSignedIn(true);
-      writeCache({ settings: loadedSettings });
+      failuresRef.current = 0;
+      setLoadState('ok');
+      writeCache({ settings: loadedSettings, bills: loadedBills, today: loadedToday });
       void refreshInactive();
     } catch (e) {
+      // Never "No bills yet" because of this: the last good list stays, and a retry is scheduled.
+      failuresRef.current += 1;
+      setLoadState('failed');
+      setFailTick((n) => n + 1);
       if (e instanceof ApiError && e.status === 401) {
         setSignedIn(false);
       } else {
@@ -481,6 +498,41 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setReady(true);
     }
   }, [refreshInactive]);
+
+  /*
+   * Keeping the book fresh while the page sits open all day. Reload when the tab comes back into
+   * view or the network returns, at local midnight so "Today" turns over, and after a failed load
+   * on a 5 / 15 / 30 / 60 s backoff until it works. History and Bill add a 60 s reload while they
+   * show (useKeepFresh).
+   */
+  const busyRef = useRef(false);
+  const refresh = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try { await reload(); } finally { busyRef.current = false; }
+  }, [reload]);
+  useEffect(() => {
+    if (!signedIn) return;
+    const go = () => void refresh();
+    const onVisible = () => { if (document.visibilityState === 'visible') go(); };
+    window.addEventListener('online', go);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', go);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [signedIn, refresh]);
+  const [midnightTick, setMidnightTick] = useState(0);
+  useEffect(() => {
+    if (!signedIn) return;
+    const timer = setTimeout(() => { void refresh(); setMidnightTick((n) => n + 1); }, msUntilMidnight(new Date()));
+    return () => clearTimeout(timer);
+  }, [signedIn, refresh, midnightTick]);
+  useEffect(() => {
+    if (!signedIn || loadState !== 'failed') return;
+    const timer = setTimeout(() => void refresh(), retryDelay(failuresRef.current));
+    return () => clearTimeout(timer);
+  }, [signedIn, loadState, failTick, refresh]);
 
   /* While the server is missing, knock every 15 s, and load everything again once it answers. */
   useEffect(() => {
@@ -873,7 +925,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Shop>(
     () => ({
-      ready, signedIn, offline, settings, bills, today, cart,
+      ready, signedIn, offline, loadState, refresh, settings, bills, today, cart,
       cartTotal: roundedCart, cartRoundOff: 0, setLineHidden,
       customer, inactive, dismissInactive: dismissInactiveNow, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
       lang, t, receiptLabels,
@@ -887,7 +939,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       saveSettings, forgetEverything, dataVersion,
     }),
     [
-      ready, signedIn, offline, settings, bills, today, cart, customer, inactive, dismissInactiveNow,
+      ready, signedIn, offline, loadState, refresh, settings, bills, today, cart, customer, inactive, dismissInactiveNow,
       paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames, lang, t, receiptLabels,
       signIn, signOut, reload, refreshInactive,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
@@ -900,6 +952,20 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/** Reload every 60 s while the page using this (History, Bill) is open and the tab is in view. */
+export function useKeepFresh(active = true): void {
+  const shop = useContext(Ctx);
+  const refresh = shop?.refresh;
+  const on = active && !!shop?.signedIn;
+  useEffect(() => {
+    if (!on || !refresh) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh();
+    }, SCREEN_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [on, refresh]);
 }
 
 export function useShop(): Shop {

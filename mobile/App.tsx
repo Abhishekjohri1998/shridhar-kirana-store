@@ -13,7 +13,7 @@ import { money, pickLang, shortcutFor, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
 import { onHardwareShortcut, setShortcuts } from './src/lib/native';
 import { PrintProvider } from './src/lib/usePrint';
-import { ShopProvider, useShop } from './src/lib/useShop';
+import { ShopProvider, useKeepFresh, useShop } from './src/lib/useShop';
 import { reportInsets, useHeldInsets } from './src/lib/screenEdges';
 import { BillScreen } from './src/screens/BillScreen';
 import { Calculator } from './src/components/Calculator';
@@ -160,6 +160,8 @@ function Shell() {
     setShortcuts(!working ? 0 : app === 'billing' && tab === 'bill' ? 2 : 1);
   }, [working, app, tab]);
   useEffect(() => () => setShortcuts(0), []);
+  // History and the Bill screen reload every 60 s while they show (the tabs stay mounted).
+  useKeepFresh(working && app === 'billing' && (tab === 'bill' || tab === 'history'));
   useEffect(() => onHardwareShortcut((e) => {
     const global = shortcutFor(e, false);
     if (global === 'toggleApp') {

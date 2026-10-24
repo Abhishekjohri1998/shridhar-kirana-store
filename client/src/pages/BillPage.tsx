@@ -31,7 +31,7 @@ import { Dialog } from '../components/Dialog';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
 import { usePrint } from '../lib/usePrint';
-import { useShop } from '../lib/useShop';
+import { useKeepFresh, useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
 
 /**
@@ -82,6 +82,7 @@ function ScrollPad({ target }: { target: React.RefObject<HTMLOListElement | null
 
 export function BillPage() {
   const shop = useShop();
+  useKeepFresh();
   const printer = usePrint();
   const t = shop.t;
   const [error, setError] = useState<string | null>(null);

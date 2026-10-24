@@ -195,8 +195,23 @@ check('and ahead of the keyboard app', pkg.includes('if (ShridharNativeModule.on
 
 console.log('\nStylus writing in the stock WebView (build 69)');
 check('handwriting kept on for every WebView, Android 13+ only',
-  pkg.includes('Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !v.isAutoHandwritingEnabled')
-  && pkg.includes('v.setAutoHandwritingEnabled(true)'));
+  pkg.includes('if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return')
+  && pkg.includes('if (!v.isAutoHandwritingEnabled) v.setAutoHandwritingEnabled(true)'));
+
+console.log('\nStylus writing in the app\'s own text boxes (build 76)');
+check('every EditText gets setAutoHandwritingEnabled(true) too', pkg.includes('if (v is WebView || v is EditText) {')
+  && pkg.includes('import android.widget.EditText'));
+check('checked at every layout', pkg.includes('viewTreeObserver.addOnGlobalLayoutListener { enableHandwriting(this) }'));
+check('the catcher never takes focus', pkg.includes('isFocusable = false') && pkg.includes('isFocusableInTouchMode = false')
+  && pkg.includes('descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS'));
+check('pre-IME passes every non-shortcut key straight on',
+  /override fun dispatchKeyEventPreIme\(event: KeyEvent\): Boolean \{\n    if \(ShridharNativeModule\.onShortcut\(event\)\) return true\n    if \(ShridharNativeModule\.onUnitMenu\(event\)\) return true\n    return super\.dispatchKeyEventPreIme\(event\)\n  \}/.test(pkg));
+check('no stylus motion is touched by the catcher', !pkg.includes('MotionEvent') && !pkg.includes('onGenericMotionEvent'));
+check('onMotion cannot throw into dispatch', mod.includes('try { observeMotion(ev) } catch (e: Exception)'));
+check('the pen emit survives a reloading React instance', /emit\("penButton", map\)\n    \} catch \(e: Exception\)/.test(mod));
+check('a stuck shortcut down is forgotten when the window loses focus',
+  pkg.includes('if (!hasWindowFocus) ShridharNativeModule.clearTaken()') && mod.includes('fun clearTaken() { takenDown.clear() }'));
+check('onMotion only observes: no setAction / setLocation / recycle', !/ev\.(setAction|setLocation|offsetLocation|recycle)/.test(mod));
 check('the catcher has no touch hook at all', !pkg.includes('dispatchTouchEvent') && !pkg.includes('onInterceptTouchEvent'));
 check('onMotion never uses up a touch (it returns nothing)', mod.includes('fun onMotion(ev: MotionEvent) {'));
 check('MainActivity always passes touches on', once.includes('    ShridharNativeModule.onMotion(ev)\n    return super.dispatchTouchEvent(ev)'));

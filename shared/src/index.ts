@@ -23,3 +23,4 @@ export * from './quiet';
 export * from './printPace';
 export * from './escposRaster';
 export * from './escposText';
+export * from './freshness';

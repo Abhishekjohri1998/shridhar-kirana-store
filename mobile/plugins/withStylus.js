@@ -45,6 +45,14 @@
  *     matching up -- whatever has focus, at the pre-IME stage and again in dispatchKeyEvent.
  *  8. Stylus writing in the stock WebView (build 69). ShridharKeyCatcher keeps handwriting on for
  *     every WebView (Android 13+). No touch is ever used up by this plugin's code.
+ *  9. Stylus writing in the app's own text boxes (build 76). The S Pen "stopped writing after some
+ *     updates". Nothing here consumed a stylus event, but three things are now made certain:
+ *     every EditText found at layout has setAutoHandwritingEnabled(true) (Android 13+), like the
+ *     WebViews; the catcher never takes focus (FOCUS_AFTER_DESCENDANTS, not focusable) and passes
+ *     every key that is not a live shortcut straight on; and onMotion / onKey can never throw
+ *     into Android's dispatch (a React instance reloading after an update used to be the one
+ *     moment an emit could fail). A shortcut whose up never arrived (focus lost mid-press) is
+ *     forgotten when the window loses focus, so it cannot eat a later key.
  */
 const fs = require('fs');
 const path = require('path');
@@ -282,9 +290,13 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 
   private fun emit(down: Boolean) {
     if (!ctx.hasActiveReactInstance()) return
-    val map = Arguments.createMap()
-    map.putBoolean("down", down)
-    ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("penButton", map)
+    try {
+      val map = Arguments.createMap()
+      map.putBoolean("down", down)
+      ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("penButton", map)
+    } catch (e: Exception) {
+      // The React instance is reloading (an update): the pen button event is simply dropped.
+    }
   }
 
   companion object {
@@ -421,6 +433,15 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     /** Called by MainActivity for every touch and hover event, before anything else sees it. */
     @JvmStatic
     fun onMotion(ev: MotionEvent) {
+      // Read-only: the event is never changed or used up, and nothing here may throw into dispatch.
+      try { observeMotion(ev) } catch (e: Exception) { /* never break the pen over a button event */ }
+    }
+
+    /** Forget shortcut downs whose up never came (the window lost focus mid-press). */
+    @JvmStatic
+    fun clearTaken() { takenDown.clear() }
+
+    private fun observeMotion(ev: MotionEvent) {
       if (ev.pointerCount < 1) return
       val tool = ev.getToolType(0)
       if (tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) return
@@ -445,6 +466,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
+import android.widget.EditText
 import android.widget.FrameLayout
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
@@ -480,18 +502,31 @@ class ShridharKeyCatcher(context: Context) : FrameLayout(context) {
    * 13+), checked on each layout, so a stylus stroke in a focused web text box can start
    * Android's stylus handwriting wherever the installed WebView supports it.
    */
+  /*
+   * Build 76: the app's own text boxes too. Every EditText (React Native's TextInput) found at
+   * layout gets setAutoHandwritingEnabled(true), so a stylus stroke on it starts handwriting
+   * whatever a library or a theme set. The catcher itself never takes focus: it must stay a
+   * transparent wrapper, or a focused text box could lose the focus handwriting starts from.
+   */
   init {
-    viewTreeObserver.addOnGlobalLayoutListener { visitWebViews(this) }
+    isFocusable = false
+    isFocusableInTouchMode = false
+    descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+    viewTreeObserver.addOnGlobalLayoutListener { enableHandwriting(this) }
   }
 
-  private fun visitWebViews(v: View) {
-    if (v is WebView) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !v.isAutoHandwritingEnabled) {
-        v.setAutoHandwritingEnabled(true)
-      }
+  override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+    super.onWindowFocusChanged(hasWindowFocus)
+    if (!hasWindowFocus) ShridharNativeModule.clearTaken()
+  }
+
+  private fun enableHandwriting(v: View) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    if (v is WebView || v is EditText) {
+      if (!v.isAutoHandwritingEnabled) v.setAutoHandwritingEnabled(true)
       return
     }
-    if (v is ViewGroup) for (i in 0 until v.childCount) visitWebViews(v.getChildAt(i))
+    if (v is ViewGroup) for (i in 0 until v.childCount) enableHandwriting(v.getChildAt(i))
   }
 }
 `;
