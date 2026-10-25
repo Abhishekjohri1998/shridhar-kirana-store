@@ -149,6 +149,8 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   /** The shop-PIN note, once per opening, until dismissed or a stock session turns up. */
   const [noteOff, setNoteOff] = useState(false);
   const firstDone = useRef(false);
+  /** The session the window itself reported, so adopting it does not reload the window. */
+  const fromWindow = useRef<string | null>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
 
@@ -170,6 +172,15 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     // Once per mount: App remounts this window when the person changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Shop PIN: a stock session that arrives after the window opened (renewed quietly on start)
+     opens Stock signed in, and the "sign in with your phone" note goes. */
+  useEffect(() => {
+    const tok = shop.stockToken;
+    if (!firstLoad || !firstLoad.needPhone || shop.person || !tok || tok === fromWindow.current) return;
+    const next = stockFirstLoad(tok, false, Date.now());
+    if (next.hash) setFirstLoad({ hash: next.hash, forget: false, needPhone: false });
+  }, [shop.stockToken, shop.person, firstLoad]);
 
   const retryNow = useCallback(() => {
     if (retryTimer.current) clearTimeout(retryTimer.current);
@@ -230,7 +241,10 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
     if (msg.type === 'session') {
       // Only a shop-PIN sign-in adopts the window's session; a person's comes from their sign-in.
-      if (!shop.person) shop.keepStockToken(msg.token);
+      if (!shop.person) {
+        if (typeof msg.token === 'string') fromWindow.current = msg.token.trim();
+        shop.keepStockToken(msg.token);
+      }
       return;
     }
     if (msg.type === 'need-location') {

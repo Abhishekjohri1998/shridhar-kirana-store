@@ -149,6 +149,11 @@ function startFakeStock(port) {
       });
       return;
     }
+    if (req.method === 'POST' && p === '/api/billing-link/shop-auth') {
+      req.resume();
+      req.on('end', () => send(200, { token: 'stock-jwt-shop', person: { id: 'p_a', role: 'admin' } }));
+      return;
+    }
     if (req.method === 'POST' && p === '/api/billing-link/draft') {
       let raw = '';
       req.on('data', (d) => { raw += d; });
@@ -528,6 +533,16 @@ async function main() {
     eq('no phone is 400', (await on.call('/auth/person', { method: 'POST', body: JSON.stringify({ pin: '1' }) })).status, 400);
     eq('the shop PIN still works', (await on.post('/auth/login', { pin: PIN })).status, 200);
 
+    console.log('\nShop PIN opens Stock too');
+    const shopIn = await on.post('/auth/login', { pin: PIN });
+    eq('the shop PIN login carries a stock session', shopIn.body.stockToken, 'stock-jwt-shop');
+    eq('none with the link off', (await off.post('/auth/login', { pin: PIN })).body.stockToken, undefined);
+    const wrongIn = await wrong.post('/auth/login', { pin: PIN });
+    check('a refused link key still signs in, without one', wrongIn.status === 200 && !wrongIn.body.stockToken, JSON.stringify(wrongIn.body));
+    eq('/stock/session renews it', (await on.post('/stock/session', {})).body.stockToken, 'stock-jwt-shop');
+    eq('/stock/session needs a login', (await fetch('http://127.0.0.1:' + (BASE_PORT + 2) + '/api/stock/session', { method: 'POST' })).status, 401);
+    eq('/stock/session with the link off is 503', (await off.post('/stock/session', {})).status, 503);
+
     console.log('\nLast price for a typed line');
     const lpA = await on.post('/customers', { name: 'Last Price A', phone: '9000000881' });
     const lpB = await on.post('/customers', { name: 'Last Price B', phone: '9000000882' });
@@ -554,6 +569,8 @@ async function main() {
     eq('and a bill still saves, unrounded', alone.body.total, 253);
     const gone = await on.call('/auth/person', { method: 'POST', body: JSON.stringify({ phone: '9000000001', pin: '1111' }) });
     eq('signing in by person is 503', gone.status, 503);
+    const pinDown = await on.post('/auth/login', { pin: PIN });
+    check('the shop PIN still signs in with stock down, no stock session', pinDown.status === 200 && pinDown.body.token && !pinDown.body.stockToken, JSON.stringify(pinDown.body));
     check('and points at the shop PIN', /shop PIN/.test(gone.body.error || ''), gone.body.error);
   } finally {
     for (const s of [off, on, wrong]) s.child.kill();

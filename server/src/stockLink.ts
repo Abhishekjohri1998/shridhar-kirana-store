@@ -136,3 +136,12 @@ export async function stockAuth(phone: string, pin: string): Promise<StockAuthAn
     clearTimeout(timer);
   }
 }
+
+/**
+ * A stock session for the shop's admin, asked after the shop PIN is checked here, so the Stock
+ * tab opens signed in without a second sign-in. Null when off, down, slow or refused.
+ */
+export async function stockShopAuth(): Promise<string | null> {
+  const got = await ask<{ token?: unknown }>('/shop-auth', { method: 'POST', body: {} });
+  return isObj(got) && typeof got.token === 'string' && got.token ? got.token : null;
+}

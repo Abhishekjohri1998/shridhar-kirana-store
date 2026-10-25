@@ -7,7 +7,7 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
-  coldStart, acceptStockToken,
+  coldStart, acceptStockToken, tokenState,
   LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
@@ -650,6 +650,18 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         // Quietly, in the last week of the token: a fresh 30 days, or nothing changes.
         void api.refresh().then((r) => setToken(r.token)).catch(() => undefined);
       }
+      if (!who.person && stored.token && !start.needSignIn) {
+        // Signed in by shop PIN: a missing or ending stock session is renewed quietly, no PIN.
+        const st = tokenState(who.stockToken, Date.now());
+        if (st !== 'fresh') {
+          void api.stockSession().then((r) => {
+            const got = acceptStockToken(r.stockToken, Date.now());
+            if (!got || !alive) return;
+            void saveStockToken(got);
+            setStockToken(got);
+          }).catch(() => undefined);
+        }
+      }
       setServerUrlState(stored.baseUrl);
       // The cached settings let the slip draw with the shop's own name before the network answers.
       try {
@@ -688,13 +700,15 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (pin: string) => {
-      const { token } = await api.login(pin);
+      const { token, stockToken: st } = await api.login(pin);
       await setToken(token);
       await rememberPin(pin);
-      // The shop PIN is nobody in particular, and brings no stock session.
-      await savePerson(null, null);
+      // The shop PIN is nobody in particular; stock's session (when stock answered) is the shop admin's.
+      const got = acceptStockToken(st, Date.now());
+      await savePerson(null, got);
+      if (got) await markStockSignOut(false);
       setPerson(null);
-      setStockToken(null);
+      setStockToken(got);
       setSignedIn(true);
       setLocked(false);
       await loadEverything();
@@ -727,8 +741,13 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLocked(false);
       return;
     }
-    const { token } = await api.login(pin);
+    const { token, stockToken: st } = await api.login(pin);
     await setToken(token);
+    const got = acceptStockToken(st, Date.now());
+    if (got) {
+      await saveStockToken(got);
+      setStockToken(got);
+    }
     await rememberPin(pin);
     setLocked(false);
   }, [t, person]);

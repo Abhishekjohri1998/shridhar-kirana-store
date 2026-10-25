@@ -6,7 +6,7 @@ import { env } from './env';
 import { HttpError, handler } from './http';
 import { checkSignInBrake, noteSignInFailure } from './rateLimit';
 import { getRepo } from './store';
-import { stockAuth, stockDraft, stockItems, stockLinkOn, stockQuote } from './stockLink';
+import { stockAuth, stockDraft, stockItems, stockLinkOn, stockQuote, stockShopAuth } from './stockLink';
 import { ensureRoundTo } from './roundTo';
 import { DuplicateClientId } from './store/types';
 
@@ -167,7 +167,9 @@ api.post('/auth/login', handler(async (req, res) => {
     noteSignInFailure(req);
     throw new HttpError(401, 'That PIN is not right');
   }
-  res.json({ token: issueToken() });
+  // The Stock tab opens as the shop's admin too. Stock down or slow never fails the login.
+  const stockToken = await stockShopAuth();
+  res.json({ token: issueToken(), ...(stockToken ? { stockToken } : {}) });
 }));
 
 /**
@@ -211,6 +213,16 @@ api.post('/auth/person', handler(async (req, res) => {
 }));
 
 api.use(requireAuth);
+
+/**
+ * A fresh stock session for a shop-PIN sign-in, asked quietly on app start when none is saved or
+ * it is near its end. 503 when stock cannot give one; the app just tries again next start.
+ */
+api.post('/stock/session', handler(async (_req, res) => {
+  const stockToken = await stockShopAuth();
+  if (!stockToken) throw new HttpError(503, 'The stock server cannot give a session just now');
+  res.json({ stockToken });
+}));
 
 /**
  * A fresh 30-day token for a session that still works (build 77). The tablet asks quietly in the

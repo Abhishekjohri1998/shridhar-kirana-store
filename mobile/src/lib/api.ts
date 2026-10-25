@@ -256,7 +256,9 @@ export const api = {
   health: () => request<{ ok: boolean; storage: 'mongo' | 'file' }>('/health'),
   /** A new 30-day billing token for a session that still works (build 77). */
   refresh: () => request<{ token: string }>('/auth/refresh', { method: 'POST', body: '{}' }),
-  login: (pin: string) => request<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ pin }) }),
+  login: (pin: string) => request<{ token: string; stockToken?: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ pin }) }),
+  /** A fresh stock session for a shop-PIN sign-in, so Stock renews without the PIN. */
+  stockSession: () => request<{ stockToken: string }>('/stock/session', { method: 'POST', body: '{}' }),
   /** Phone and PIN of a stock account. Only an admin gets `token` (billing). */
   person: (phone: string, pin: string) =>
     request<{ role: PersonRole; name: string; stockToken: string; token?: string }>(
