@@ -90,5 +90,10 @@ check('forget is only injected on firstLoad.forget', /firstLoad\.forget && !firs
 check('Stock window reports its session back', /type: 'session'/.test(stock) && /keepStockToken/.test(stock));
 check('web refreshes the billing token quietly', /tokenState\(getToken\(\)/.test(web) && /api\.refresh\(\)/.test(web));
 
+check('Stock tab active wakes the window', /if \(active\) wake\(\)/.test(stock));
+check('app resume on Stock wakes the window', /state === 'active' && activeRef\.current\) wake\(\)/.test(stock));
+check('wake requests focus, refreshes handwriting, refocuses', /requestFocus/.test(stock) && /refreshHandwriting\(\)/.test(stock) && /injectJavaScript\(REFOCUS\)/.test(stock));
+check('last focused box tracked via focusin', /'focusin'/.test(stock) && /REPORT_SESSION \+ TRACK_FOCUS/.test(stock));
+check('DROP_FOCUS kept while hidden', /if \(!activeRef\.current\) \{ web\.current\?\.injectJavaScript\(DROP_FOCUS\)/.test(stock));
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

@@ -53,6 +53,9 @@
  *     into Android's dispatch (a React instance reloading after an update used to be the one
  *     moment an emit could fail). A shortcut whose up never arrived (focus lost mid-press) is
  *     forgotten when the window loses focus, so it cannot eat a later key.
+ * 10. Stock tab handwriting refresh (build 79): `refreshHandwriting()` finds the WebView(s) under
+ *     the root, switches handwriting on again and gives the shown one focus. The Stock screen calls
+ *     it when the tab comes to the front and when the app resumes on Stock.
  */
 const fs = require('fs');
 const path = require('path');
@@ -196,10 +199,13 @@ function moduleSource(appPackage) {
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import android.widget.EditText
 import androidx.core.content.FileProvider
 import com.facebook.react.bridge.Arguments
@@ -207,6 +213,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
 
@@ -231,6 +238,30 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 
   /** JavaScript says a line's unit list is open, so Left, Right, Enter and Escape are its (build 67). */
   @ReactMethod fun setUnitMenuOpen(open: Boolean) { unitMenuOpen = open }
+
+  /**
+   * Build 79: the Stock tab came to the front (or the app did, on Stock). The WebView was laid out
+   * hidden, so the S Pen would not write until Billing and back. Every WebView under the root gets
+   * handwriting on again and the focus, on the UI thread. Never throws.
+   */
+  @ReactMethod fun refreshHandwriting() {
+    val activity = currentActivity ?: return
+    UiThreadUtil.runOnUiThread {
+      try {
+        val root = activity.window?.decorView ?: return@runOnUiThread
+        refreshWebViews(root)
+      } catch (e: Throwable) { }
+    }
+  }
+
+  private fun refreshWebViews(v: View) {
+    if (v is WebView) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) v.setAutoHandwritingEnabled(true)
+      if (v.isShown) v.requestFocus()
+      return
+    }
+    if (v is ViewGroup) for (i in 0 until v.childCount) refreshWebViews(v.getChildAt(i))
+  }
 
   @ReactMethod
   fun shareToWhatsApp(phone: String, fileUri: String, text: String, promise: Promise) {

@@ -119,6 +119,11 @@ check('never in a multi-line box', mod.includes('InputType.TYPE_TEXT_FLAG_MULTI_
 check('Enter emitted once per press, not on repeats', mod.includes('ev.repeatCount == 0) instance?.emitKey(key)'));
 check('JS can say the list is open', mod.includes('@ReactMethod fun setSuggestOpen(open: Boolean)'));
 
+check('refreshHandwriting is a ReactMethod (build 79)', mod.includes('@ReactMethod fun refreshHandwriting()'));
+check('it walks the root for WebViews', mod.includes('activity.window?.decorView') && mod.includes('if (v is WebView) {'));
+check('re-enables handwriting and focuses', mod.includes('v.setAutoHandwritingEnabled(true)') && mod.includes('v.requestFocus()'));
+check('on the UI thread', mod.includes('UiThreadUtil.runOnUiThread'));
+
 console.log('\nKeyboard shortcuts (build 63)');
 check('JS can switch them on', mod.includes('@ReactMethod fun setShortcuts(level: Int)'));
 check('emits hwShortcut with the modifiers', mod.includes('.emit("hwShortcut", map)')

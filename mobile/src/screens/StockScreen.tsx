@@ -8,6 +8,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { markStockSignOut, stockSignOutPending } from '../lib/api';
+import { refreshHandwriting } from '../lib/native';
 import { useShop } from '../lib/useShop';
 import { stockFirstLoad } from '@shridhar/shared';
 import { C, R, TYPE } from '../theme';
@@ -104,6 +105,31 @@ true;
  * A page that puts the cursor in a box as it loads would raise the keyboard over billing while
  * this window is loading hidden. Loaded hidden, nothing on it keeps the focus.
  */
+/*
+ * Build 79: the S Pen would not write in stock's boxes until Billing and back, because the window
+ * was laid out hidden. The page remembers the last box that had the cursor (focusin), and when the
+ * tab comes to the front again that box gets the cursor back.
+ */
+const TRACK_FOCUS = `
+(function () {
+  if (window.__stockFocus) return;
+  window.__stockFocus = true;
+  document.addEventListener('focusin', function (e) {
+    var el = e.target;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) window.__lastFocus = el;
+  }, true);
+})();
+true;
+`;
+
+const REFOCUS = `
+try {
+  var el = window.__lastFocus;
+  if (el && el.isConnected && document.activeElement !== el && el.focus) el.focus();
+} catch (e) {}
+true;
+`;
+
 const DROP_FOCUS = `
 try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
 true;
@@ -225,6 +251,24 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     });
     return () => sub.remove();
   }, [retryNow]);
+
+  // Build 79: on screen again (tab or app resume) -- focus, handwriting on, last box refocused.
+  const wake = useCallback(() => {
+    const w = web.current;
+    if (!w) return;
+    try { (w as unknown as { requestFocus?: () => void }).requestFocus?.(); } catch { /* older webview */ }
+    refreshHandwriting();
+    w.injectJavaScript(REFOCUS);
+  }, []);
+  useEffect(() => {
+    if (active) wake();
+  }, [active, wake]);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && activeRef.current) wake();
+    });
+    return () => sub.remove();
+  }, [wake]);
 
   // Android's back button walks back through stock's own pages before it leaves the app.
   useEffect(() => {
@@ -351,7 +395,7 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           }
           if (!activeRef.current) { web.current?.injectJavaScript(DROP_FOCUS); }
         }}
-        injectedJavaScript={REPORT_SESSION}
+        injectedJavaScript={REPORT_SESSION + TRACK_FOCUS}
         onError={onFail}
         onHttpError={(e) => { if (e.nativeEvent.statusCode >= 500) onFail(); }}
         onNavigationStateChange={(s) => setCanBack(s.canGoBack)}

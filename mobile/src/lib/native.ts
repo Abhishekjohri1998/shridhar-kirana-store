@@ -15,6 +15,8 @@ type ShridharNative = {
   setShortcuts?: (level: number) => void;
   /** Absent in builds before 67. */
   setUnitMenuOpen?: (open: boolean) => void;
+  /** Absent in builds before 79. */
+  refreshHandwriting?: () => void;
 };
 
 const mod: ShridharNative | undefined =
@@ -118,4 +120,12 @@ export function onHardwareShortcut(fn: (e: HwShortcut) => void): () => void {
  */
 export function setShortcuts(level: 0 | 1 | 2): void {
   try { mod?.setShortcuts?.(level); } catch { /* an older build */ }
+}
+
+/**
+ * Build 79: the Stock tab is on screen again. Switches S Pen handwriting back on for the stock
+ * WebView and gives it focus natively. Does nothing on an older build.
+ */
+export function refreshHandwriting(): void {
+  try { mod?.refreshHandwriting?.(); } catch { /* an older build */ }
 }
