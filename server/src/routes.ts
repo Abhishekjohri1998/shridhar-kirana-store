@@ -212,6 +212,14 @@ api.post('/auth/person', handler(async (req, res) => {
 
 api.use(requireAuth);
 
+/**
+ * A fresh 30-day token for a session that still works (build 77). The tablet asks quietly in the
+ * last week of its token, so one sign-in lasts until somebody presses Sign out.
+ */
+api.post('/auth/refresh', handler(async (_req, res) => {
+  res.json({ token: issueToken() });
+}));
+
 // ---------------------------------------------------------------------------- settings
 
 api.get('/settings', handler(async (_req, res) => {

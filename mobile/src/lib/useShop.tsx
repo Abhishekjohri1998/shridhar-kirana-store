@@ -7,6 +7,7 @@ import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
+  coldStart, acceptStockToken,
   LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
@@ -17,7 +18,7 @@ import {
 export type StockPick = { nameEn: string; nameKn: string; unit: string; stockItemId?: string; rate: number };
 import {
   ApiError, api, checkStoredPin, onLink, forgetPin, getBaseUrl, getToken, loadPerson, loadStoredConfig,
-  markStockSignOut, rememberPin, savePerson, setServerUrl, setToken,
+  markStockSignOut, rememberPin, savePerson, saveStockToken, setServerUrl, setToken,
   type CustomerInput, type StoredPerson,
 } from './api';
 
@@ -137,6 +138,8 @@ type Shop = {
   /** Let a signed-in session back in. Throws with a message if the PIN is wrong. */
   unlock: (pin: string) => Promise<void>;
   signOut: () => void;
+  /** Keep a stock session the Stock window signed in with by itself. */
+  keepStockToken: (token: unknown) => void;
   forgetServer: () => void;
   reload: () => Promise<void>;
   /**
@@ -223,7 +226,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
    * which would throw away a half-written bill someone parked before closing the app; locking
    * keeps the token, keeps the drafts, and only puts the screen behind the PIN.
    */
-  const [locked, setLocked] = useState(true);
+  /* Build 77: no longer locked on a cold start. The shop asked for one sign-in that stays until
+     Sign out (see shared/src/session.ts coldStart). */
+  const [locked, setLocked] = useState(false);
   const [person, setPerson] = useState<StoredPerson | null>(null);
   const [stockToken, setStockToken] = useState<string | null>(null);
   const [pinMode, setPinMode] = useState(false);
@@ -626,8 +631,25 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       const stored = await loadStoredConfig();
       const who = await loadPerson();
       if (!alive) return;
-      setPerson(who.person);
-      setStockToken(who.stockToken);
+      // One sign-in for everything (build 77): a saved session goes straight in, no PIN screen.
+      const start = coldStart({
+        token: stored.token,
+        personRole: who.person?.role ?? null,
+        stockToken: who.stockToken,
+      }, Date.now());
+      if (start.needSignIn && (stored.token || who.person)) {
+        // A lapsed session: one trip to the sign-in screen. Stock's own saved session is left be.
+        await setToken(null);
+        await savePerson(null, null);
+        stored.token = null;
+      } else {
+        setPerson(who.person);
+        setStockToken(start.stockToken);
+      }
+      if (start.refreshBilling) {
+        // Quietly, in the last week of the token: a fresh 30 days, or nothing changes.
+        void api.refresh().then((r) => setToken(r.token)).catch(() => undefined);
+      }
       setServerUrlState(stored.baseUrl);
       // The cached settings let the slip draw with the shop's own name before the network answers.
       try {
@@ -711,6 +733,17 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     setLocked(false);
   }, [t, person]);
 
+  /** The Stock window signed in by itself (after a shop-PIN sign-in): keep that session too. */
+  const keepStockToken = useCallback((candidate: unknown): void => {
+    const got = acceptStockToken(candidate, Date.now());
+    if (!got) return;
+    setStockToken((prev) => {
+      if (prev === got) return prev;
+      void saveStockToken(got);
+      return got;
+    });
+  }, []);
+
   const forgetPerson = useCallback((): void => {
     void savePerson(null, null);
     setPerson(null);
@@ -721,12 +754,13 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => {
     void setToken(null);
     void forgetPin();
-    if (person) void markStockSignOut(true);
+    // Sign out clears both sessions: billing's and the Stock window's.
+    void markStockSignOut(true);
     forgetPerson();
     setSignedIn(false);
-    setLocked(true);
+    setLocked(false);
     resetDraft();
-  }, [resetDraft, forgetPerson, person]);
+  }, [resetDraft, forgetPerson]);
 
   /*
    * Hand the tablet to somebody else. Like signing out, but the bills being written stay
@@ -738,7 +772,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     void markStockSignOut(true);
     forgetPerson();
     setSignedIn(false);
-    setLocked(true);
+    setLocked(false);
   }, [forgetPerson]);
 
   const signInPerson = useCallback(async (phone: string, pin: string): Promise<PersonRole> => {
@@ -1099,7 +1133,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, dismissInactive: dismissInactiveNow, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
-      person, stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode,
+      person, stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode, keepStockToken,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
@@ -1112,7 +1146,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       ready, serverUrl, signedIn, locked, offline, loadState, refresh, settings, bills, today, cart,
       customer, inactive, dismissInactiveNow, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames, lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
-      person, stockToken, stockOnly, signInPerson, switchUser, pinMode,
+      person, stockToken, stockOnly, signInPerson, switchUser, pinMode, keepStockToken,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,

@@ -190,8 +190,8 @@ function Shell() {
   if (!shop.serverUrl) return <ServerScreen />;
   // Phone + PIN first; the shop PIN is the way in when stock cannot be asked.
   if (!shop.signedIn && !shop.stockOnly) return shop.pinMode ? <LoginScreen /> : <PersonLoginScreen />;
-  // Closed from recents and opened again: the till is behind the PIN, but the token, the parked
-  // bills and everything else are exactly where they were.
+  // Build 77: a cold start no longer locks (one sign-in that stays until Sign out); `locked` is
+  // kept only so no older flow can strand the screen.
   if (shop.locked) return <LoginScreen locked />;
 
   const askSwitchUser = () => {

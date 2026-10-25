@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  tokenState,
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
@@ -566,6 +567,14 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     setDataVersion((n) => n + 1);
     await reload();
   }, [reload]);
+
+  /* One sign-in that stays (build 77): a token in its last week is renewed quietly; a lapsed one
+     goes back to the sign-in screen once instead of failing request by request. */
+  useEffect(() => {
+    const state = tokenState(getToken(), Date.now());
+    if (state === 'refresh') void api.refresh().then((r) => setToken(r.token)).catch(() => undefined);
+    if (state === 'expired') { setToken(null); setSignedIn(false); }
+  }, []);
 
   useEffect(() => {
     void reload();

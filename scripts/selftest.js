@@ -799,6 +799,11 @@ async function main() {
     const auth = { authorization: 'Bearer ' + login.body.token, 'content-type': 'application/json' };
     const post = (p, body) => call(p, { method: 'POST', headers: auth, body: JSON.stringify(body) });
 
+    // One sign-in that stays (build 77): a working session gets a fresh token; none gets 401.
+    eq('refresh needs a session', (await call('/api/auth/refresh', { method: 'POST' })).status, 401);
+    const renewed = await post('/api/auth/refresh', {});
+    eq('refresh issues a new token', renewed.status === 200 && typeof renewed.body.token === 'string', true);
+
     console.log('\nAPI: bills, totals and validation');
     // The server owns the total. A browser that sends a wrong one must not be able to record it.
     const made = await post('/api/bills', { lines: LINES, total: 999999 });

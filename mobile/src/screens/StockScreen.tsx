@@ -9,6 +9,7 @@ import * as Sharing from 'expo-sharing';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { markStockSignOut, stockSignOutPending } from '../lib/api';
 import { useShop } from '../lib/useShop';
+import { stockFirstLoad } from '@shridhar/shared';
 import { C, R, TYPE } from '../theme';
 
 /*
@@ -24,13 +25,44 @@ import { C, R, TYPE } from '../theme';
  * load drops the last person's stored session instead.
  */
 
-/** Forgets the stock site's saved session. Only ever on the first load after a switch. */
+/*
+ * Build 77, one sign-in: the window always opens with the session the app saved (`#token=`), and
+ * the stock site's own saved session is forgotten only on the first load after Sign out or Switch
+ * user -- never on a normal cold start (shared/src/session.ts stockFirstLoad).
+ */
+/** Forgets the stock site's saved session. Only ever on the first load after a sign-out or switch. */
 const FORGET_STOCK_SESSION = `
 try { localStorage.removeItem('stock.token'); } catch (e) {}
 true;
 `;
 
 const STOCK_KEY = 'shridhar.stockUrl';
+
+/*
+ * After a shop-PIN sign-in the app has no stock session of its own, and the stock site's sign-in
+ * lives only in the WebView's storage, which Android may not have written out when the app is
+ * closed from recents. So the window reports its session to the app, which keeps it with billing's
+ * and hands it back as `#token=` on every later start.
+ */
+const REPORT_SESSION = `
+(function () {
+  if (window.__stockSession) return;
+  window.__stockSession = true;
+  var last = '';
+  function report() {
+    try {
+      var t = localStorage.getItem('stock.token') || '';
+      if (t && t !== last) {
+        last = t;
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'session', token: t }));
+      }
+    } catch (e) {}
+  }
+  report();
+  setInterval(report, 3000);
+})();
+true;
+`;
 
 function shippedStockUrl(): string {
   const extra = (Constants.expoConfig?.extra ?? {}) as { stockUrl?: string };
@@ -113,7 +145,9 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   const [draft, setDraft] = useState('');
   /* Decided once, when the window first opens: hand over this person's session, or forget the
      last one. Neither is repeated on later loads, so stock's own sign-out keeps working. */
-  const [firstLoad, setFirstLoad] = useState<{ hash: string; forget: boolean } | null>(null);
+  const [firstLoad, setFirstLoad] = useState<{ hash: string; forget: boolean; needPhone: boolean } | null>(null);
+  /** The shop-PIN note, once per opening, until dismissed or a stock session turns up. */
+  const [noteOff, setNoteOff] = useState(false);
   const firstDone = useRef(false);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -129,10 +163,7 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     ]).then(([saved, pending]) => {
       if (!alive) return;
       setUrl(saved || shippedStockUrl());
-      setFirstLoad({
-        hash: token ? '#token=' + encodeURIComponent(token) : '',
-        forget: !token && pending,
-      });
+      setFirstLoad(stockFirstLoad(token, pending, Date.now()));
       if (pending) void markStockSignOut(false);
     });
     return () => { alive = false; };
@@ -195,8 +226,13 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   }, [active, canBack]);
 
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
-    let msg: { type?: string; name?: string; mime?: string; data?: string };
+    let msg: { type?: string; name?: string; mime?: string; data?: string; token?: string };
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
+    if (msg.type === 'session') {
+      // Only a shop-PIN sign-in adopts the window's session; a person's comes from their sign-in.
+      if (!shop.person) shop.keepStockToken(msg.token);
+      return;
+    }
     if (msg.type === 'need-location') {
       // The stock site asks before "Start delivery". Android's location permission is asked
       // here once; the WebView then answers navigator.geolocation (geolocationEnabled below).
@@ -221,7 +257,7 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(file, { mimeType: msg.mime, dialogTitle: safe });
     }
-  }, []);
+  }, [shop.person, shop.keepStockToken]);
 
   const saveAddress = async () => {
     const next = draft.trim().replace(/\/+$/, '');
@@ -275,7 +311,7 @@ export function StockScreen({ active = true }: { active?: boolean }) {
         cacheEnabled
         cacheMode="LOAD_DEFAULT"
         injectedJavaScriptBeforeContentLoaded={
-          firstLoad.forget && !firstDone.current ? FORGET_STOCK_SESSION + CATCH_DOWNLOADS : CATCH_DOWNLOADS
+          (firstLoad.forget && !firstDone.current ? FORGET_STOCK_SESSION : '') + CATCH_DOWNLOADS
         }
         onMessage={onMessage}
         // Call, Open in Maps and WhatsApp links leave the window for the phone's own apps. Left
@@ -301,10 +337,20 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           }
           if (!activeRef.current) { web.current?.injectJavaScript(DROP_FOCUS); }
         }}
+        injectedJavaScript={REPORT_SESSION}
         onError={onFail}
         onHttpError={(e) => { if (e.nativeEvent.statusCode >= 500) onFail(); }}
         onNavigationStateChange={(s) => setCanBack(s.canGoBack)}
       />
+      {/* Shop PIN, no stock session yet: one clear note, once. */}
+      {active && firstLoad.needPhone && !shop.stockToken && !noteOff ? (
+        <View style={styles.note77}>
+          <Text style={styles.note77Text}>{t('stock.needPhone')}</Text>
+          <Pressable onPress={() => setNoteOff(true)} hitSlop={8}>
+            <Text style={styles.link}>{t('stock.noteOk')}</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {loading && failingSince === null ? (
         <View style={styles.loadingBar} pointerEvents="none">
           <ActivityIndicator color={C.accent} />
@@ -360,5 +406,11 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 8, alignSelf: 'center', backgroundColor: C.card, borderRadius: R.pill,
     borderWidth: 1, borderColor: C.lineStrong, paddingHorizontal: 14, paddingVertical: 6,
   },
+  note77: {
+    position: 'absolute', bottom: 12, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.card, borderRadius: R.sm, borderWidth: 1, borderColor: C.lineStrong,
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  note77Text: { flex: 1, color: C.ink, fontWeight: '600' },
   stripText: { color: C.soft, fontWeight: '600' },
 });

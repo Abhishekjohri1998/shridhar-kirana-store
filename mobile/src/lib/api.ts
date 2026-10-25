@@ -47,6 +47,16 @@ export async function savePerson(person: StoredPerson | null, stockToken: string
   }
 }
 
+/** Keep just the stock session (one the Stock window signed in with, after a shop-PIN sign-in). */
+export async function saveStockToken(stockToken: string | null): Promise<void> {
+  try {
+    if (stockToken) await AsyncStorage.setItem(STOCK_TOKEN_KEY, stockToken);
+    else await AsyncStorage.removeItem(STOCK_TOKEN_KEY);
+  } catch {
+    /* the Stock window will simply ask again */
+  }
+}
+
 export async function markStockSignOut(on: boolean): Promise<void> {
   try {
     if (on) await AsyncStorage.setItem(STOCK_SIGNOUT_KEY, '1');
@@ -244,6 +254,8 @@ export type CustomerInput = {
 export const api = {
   /** Used by the setup screen to check an address before saving it. */
   health: () => request<{ ok: boolean; storage: 'mongo' | 'file' }>('/health'),
+  /** A new 30-day billing token for a session that still works (build 77). */
+  refresh: () => request<{ token: string }>('/auth/refresh', { method: 'POST', body: '{}' }),
   login: (pin: string) => request<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ pin }) }),
   /** Phone and PIN of a stock account. Only an admin gets `token` (billing). */
   person: (phone: string, pin: string) =>

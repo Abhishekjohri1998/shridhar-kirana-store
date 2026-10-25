@@ -79,6 +79,8 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = LOAD
 }
 
 export const api = {
+  /** A new 30-day billing token for a session that still works (build 77). */
+  refresh: () => request<{ token: string }>('/auth/refresh', { method: 'POST', body: '{}' }),
   login: (pin: string) => request<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ pin }) }),
   health: () => request<{ ok: boolean; storage: 'mongo' | 'file' }>('/health'),
 
