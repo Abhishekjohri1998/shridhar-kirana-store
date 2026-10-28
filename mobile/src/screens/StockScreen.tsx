@@ -10,7 +10,9 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { markStockSignOut, stockSignOutPending } from '../lib/api';
 import { refreshHandwriting } from '../lib/native';
 import { useShop } from '../lib/useShop';
-import { stockFirstLoad } from '@shridhar/shared';
+import {
+  HEALTH_PROBE_EVERY_MS, HEALTH_PROBE_TIMEOUT_MS, healthUrl, reconnectDelayMs, reloadTarget, stockFirstLoad,
+} from '@shridhar/shared';
 import { C, R, TYPE } from '../theme';
 
 /*
@@ -130,6 +132,26 @@ try {
 true;
 `;
 
+/*
+ * APK 80: when the tablet's network comes back, the page refreshes softly -- stock can listen for
+ * 'stock-online' -- and only a page that is itself an error page is fully reloaded.
+ */
+const ONLINE_REFRESH = `
+(function () {
+  if (window.__stockOnline) return;
+  window.__stockOnline = true;
+  window.addEventListener('online', function () {
+    try { window.dispatchEvent(new CustomEvent('stock-online')); } catch (e) {}
+    try {
+      var broken = !document.body || !document.body.children.length ||
+        /ERR_|Webpage not available|Error loading page/i.test(document.title + ' ' + (document.body ? document.body.innerText.slice(0, 300) : ''));
+      if (broken) location.reload();
+    } catch (e) {}
+  });
+})();
+true;
+`;
+
 const DROP_FOCUS = `
 try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
 true;
@@ -141,8 +163,9 @@ true;
  * Now it tries again by itself -- quietly, after 2, 5 and 10 seconds and then every 15 -- and the
  * full panel only comes up after a minute of failing, and only on screen.
  */
-const RETRY_AFTER_MS = [2000, 5000, 10000];
-const RETRY_EVERY_MS = 15000;
+/* APK 80: quicker -- 1 s, 2 s, 4 s, then every 5 s (shared/src/reconnect.ts reconnectDelayMs), and
+   a 3 s health probe so it reloads the moment stock answers again. Android's own "Error loading
+   page" is never shown (renderError is blank); our overlay says "Connection lost. Trying again…". */
 const GIVE_UP_AFTER_MS = 60000;
 /** The longest a loading spinner shows (build 64). */
 const SPINNER_MAX_MS = 10000;
@@ -164,6 +187,8 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   const failedThisLoad = useRef(false);
   const attempts = useRef(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failingRef = useRef(false);
+  failingRef.current = failingSince !== null;
   /** The spinner: the first load and reloads we start (retry), never in-page navigation. */
   const [loading, setLoading] = useState(true);
   const [canBack, setCanBack] = useState(false);
@@ -208,11 +233,24 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     if (next.hash) setFirstLoad({ hash: next.hash, forget: false, needPhone: false });
   }, [shop.stockToken, shop.person, firstLoad]);
 
+  /** The last stock page the window was on, so a reconnect returns there, not to home. */
+  const lastUrl = useRef<string | null>(null);
+  const urlRef = useRef(url);
+  urlRef.current = url;
+
+  /** The one way the window tries again: clears any pending retry, reloads the last stock page. */
   const retryNow = useCallback(() => {
     if (retryTimer.current) clearTimeout(retryTimer.current);
     retryTimer.current = null;
     setLoading(true);
-    web.current?.reload();
+    const w = web.current;
+    if (!w) return;
+    // After a failed load the window sits on the failed address, which is the last stock page
+    // (tracked in onNavigationStateChange), so reload() returns there -- never home. Otherwise
+    // the page is asked to go to the last stock page itself.
+    const target = reloadTarget(lastUrl.current, urlRef.current ?? '');
+    if (failingRef.current || !target) w.reload();
+    else w.injectJavaScript(`try { location.replace(${JSON.stringify(target)}); } catch (e) { location.reload(); } true;`);
   }, []);
 
   /** A load failed: note when the failing began, and try again after the next wait. */
@@ -225,12 +263,36 @@ export function StockScreen({ active = true }: { active?: boolean }) {
       return began;
     });
     if (retryTimer.current) clearTimeout(retryTimer.current);
-    const wait = RETRY_AFTER_MS[attempts.current] ?? RETRY_EVERY_MS;
+    const wait = reconnectDelayMs(attempts.current);
     attempts.current += 1;
     retryTimer.current = setTimeout(retryNow, wait);
   }, [retryNow]);
 
   useEffect(() => () => { if (retryTimer.current) clearTimeout(retryTimer.current); }, []);
+
+  /* While failing, ask stock's /api/health every 3 s (3 s timeout). The moment it answers, reload
+     now -- through retryNow, which cancels the scheduled retry, so it never retries twice. */
+  const failing = failingSince !== null;
+  useEffect(() => {
+    if (!failing || !url) return undefined;
+    let alive = true;
+    let busy = false;
+    const probe = async () => {
+      if (busy) return;
+      busy = true;
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), HEALTH_PROBE_TIMEOUT_MS);
+      try {
+        const res = await fetch(healthUrl(url), { method: 'GET', signal: ctl.signal, cache: 'no-store' });
+        if (alive && res.ok && failingRef.current) retryNow();
+      } catch { /* still down */ } finally {
+        clearTimeout(timer);
+        busy = false;
+      }
+    };
+    const every = setInterval(() => { void probe(); }, HEALTH_PROBE_EVERY_MS);
+    return () => { alive = false; clearInterval(every); };
+  }, [failing, url, retryNow]);
 
   // A spinner never outlives 10 seconds, whatever the WebView reports or fails to.
   useEffect(() => {
@@ -240,8 +302,6 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   }, [loading]);
 
   // Opening the Stock tab, or coming back to the app, tries again at once instead of waiting.
-  const failingRef = useRef(false);
-  failingRef.current = failingSince !== null;
   useEffect(() => {
     if (active && failingRef.current) retryNow();
   }, [active, retryNow]);
@@ -395,10 +455,16 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           }
           if (!activeRef.current) { web.current?.injectJavaScript(DROP_FOCUS); }
         }}
-        injectedJavaScript={REPORT_SESSION + TRACK_FOCUS}
+        injectedJavaScript={REPORT_SESSION + TRACK_FOCUS + ONLINE_REFRESH}
+        // Never Android's own "Error loading page / ERR_CONNECTION_RESET": a blank view, with our
+        // overlay over it.
+        renderError={() => <View style={styles.fill} />}
         onError={onFail}
         onHttpError={(e) => { if (e.nativeEvent.statusCode >= 500) onFail(); }}
-        onNavigationStateChange={(s) => setCanBack(s.canGoBack)}
+        onNavigationStateChange={(s) => {
+          setCanBack(s.canGoBack);
+          if (s.url && /^https?:/i.test(s.url) && !/^data:|chrome-error:/i.test(s.url)) lastUrl.current = s.url;
+        }}
       />
       {/* Shop PIN, no stock session yet: one clear note, once. */}
       {active && firstLoad.needPhone && !shop.stockToken && !noteOff ? (
@@ -414,11 +480,19 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           <ActivityIndicator color={C.accent} />
         </View>
       ) : null}
-      {/* Failing, but not for long: a small strip while it keeps trying. */}
+      {/* Failing, but not for long: our own "Connection lost" cover (never Android's error page)
+          while it keeps trying. Hidden behind billing, only the small strip. */}
       {failingSince !== null && !(gaveUp && active) ? (
-        <View style={styles.strip} pointerEvents="none">
-          <Text style={styles.stripText}>{t('stock.reconnecting')}</Text>
-        </View>
+        active ? (
+          <View style={[styles.center, styles.cover]} pointerEvents="none">
+            <ActivityIndicator color={C.accent} />
+            <Text style={styles.note}>{t('stock.connectionLost')}</Text>
+          </View>
+        ) : (
+          <View style={styles.strip} pointerEvents="none">
+            <Text style={styles.stripText}>{t('stock.reconnecting')}</Text>
+          </View>
+        )
       ) : null}
       {/* A minute of failures, on screen: the full panel. It keeps trying underneath. */}
       {gaveUp && active ? (

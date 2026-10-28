@@ -25,3 +25,4 @@ export * from './escposRaster';
 export * from './escposText';
 export * from './freshness';
 export * from './session';
+export * from './reconnect';
