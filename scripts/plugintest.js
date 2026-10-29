@@ -120,8 +120,12 @@ check('Enter emitted once per press, not on repeats', mod.includes('ev.repeatCou
 check('JS can say the list is open', mod.includes('@ReactMethod fun setSuggestOpen(open: Boolean)'));
 
 check('refreshHandwriting is a ReactMethod (build 79)', mod.includes('@ReactMethod fun refreshHandwriting()'));
+check('refresh restarts the IME (build 81)', mod.includes('imm?.restartInput(web)') && mod.includes('web.clearFocus()') && mod.includes('web.postOnAnimation {'));
+check('stylus hover-enter or down over a WebView kicks it', mod.includes('act == MotionEvent.ACTION_HOVER_ENTER || act == MotionEvent.ACTION_DOWN') && mod.includes('instance?.penOverWeb(ev.rawX, ev.rawY)'));
+check('the kick is throttled to 2 s', mod.includes('const val KICK_GAP_MS = 2000L') && mod.includes('if (now - lastKick < KICK_GAP_MS) return'));
+check('onMotion never consumes the event', /fun onMotion\(ev: MotionEvent\) \{[\s\S]*?\n    \}/.exec(mod)[0].indexOf('return true') < 0 && !/fun onMotion\(ev: MotionEvent\): Boolean/.test(mod));
 check('it walks the root for WebViews', mod.includes('activity.window?.decorView') && mod.includes('if (v is WebView) {'));
-check('re-enables handwriting and focuses', mod.includes('v.setAutoHandwritingEnabled(true)') && mod.includes('v.requestFocus()'));
+check('re-enables handwriting and focuses', mod.includes('v.setAutoHandwritingEnabled(true)') && mod.includes('web.requestFocus()'));
 check('on the UI thread', mod.includes('UiThreadUtil.runOnUiThread'));
 
 console.log('\nKeyboard shortcuts (build 63)');

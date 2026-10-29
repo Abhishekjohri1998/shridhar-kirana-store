@@ -53,6 +53,10 @@
  *     into Android's dispatch (a React instance reloading after an update used to be the one
  *     moment an emit could fail). A shortcut whose up never arrived (focus lost mid-press) is
  *     forgotten when the window loses focus, so it cannot eat a later key.
+ * 11. Build 81: refreshHandwriting also clears focus, then next frame refocuses, restartInput()s
+ *     and re-enables handwriting (a tab switch restarting the IME was what fixed it). A stylus
+ *     hover-enter or down over a shown WebView triggers the same, at most once every 2 s; the
+ *     event is never used up.
  * 10. Stock tab handwriting refresh (build 79): `refreshHandwriting()` finds the WebView(s) under
  *     the root, switches handwriting on again and gives the shown one focus. The Stock screen calls
  *     it when the tab comes to the front and when the app resumes on Stock.
@@ -197,6 +201,7 @@ function moduleSource(appPackage) {
   return `package ${appPackage}.stylus
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -205,6 +210,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.widget.EditText
 import androidx.core.content.FileProvider
@@ -254,13 +260,55 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     }
   }
 
+  /**
+   * Build 81: a tab switch restarts the IME connection, and that is what made the pen write.
+   * The shown WebView loses focus, then on the next frame takes it back, the IME connection is
+   * restarted and handwriting is switched on again. Hidden WebViews only get handwriting on.
+   */
   private fun refreshWebViews(v: View) {
     if (v is WebView) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) v.setAutoHandwritingEnabled(true)
-      if (v.isShown) v.requestFocus()
+      try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) v.setAutoHandwritingEnabled(true)
+        if (v.isShown) kick(v)
+      } catch (e: Throwable) { }
       return
     }
     if (v is ViewGroup) for (i in 0 until v.childCount) refreshWebViews(v.getChildAt(i))
+  }
+
+  private fun kick(web: WebView) {
+    web.clearFocus()
+    web.postOnAnimation {
+      try {
+        web.requestFocus()
+        val imm = web.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.restartInput(web)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) web.setAutoHandwritingEnabled(true)
+      } catch (e: Throwable) { }
+    }
+  }
+
+  /** Is (x, y) in window coordinates over a shown WebView? */
+  private fun webViewAt(v: View, x: Float, y: Float): Boolean {
+    if (!v.isShown) return false
+    if (v is WebView) {
+      val loc = IntArray(2)
+      v.getLocationInWindow(loc)
+      return x >= loc[0] && x < loc[0] + v.width && y >= loc[1] && y < loc[1] + v.height
+    }
+    if (v is ViewGroup) for (i in 0 until v.childCount) if (webViewAt(v.getChildAt(i), x, y)) return true
+    return false
+  }
+
+  /** Build 81: the pen came near or down over a WebView -- kick it, at most once every 2 s. */
+  internal fun penOverWeb(x: Float, y: Float) {
+    val activity = currentActivity ?: return
+    val root = activity.window?.decorView ?: return
+    val now = android.os.SystemClock.uptimeMillis()
+    if (now - lastKick < KICK_GAP_MS) return
+    if (!webViewAt(root, x, y)) return
+    lastKick = now
+    refreshWebViews(root)
   }
 
   @ReactMethod
@@ -332,6 +380,9 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 
   companion object {
     @Volatile private var instance: ShridharNativeModule? = null
+    /** Build 81: the stylus WebView kick runs at most once in this many ms. */
+    const val KICK_GAP_MS = 2000L
+    private var lastKick = 0L
     @Volatile private var held = false
     @Volatile private var suggestOpen = false
     @Volatile private var takeEnter = false
@@ -476,6 +527,11 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
       if (ev.pointerCount < 1) return
       val tool = ev.getToolType(0)
       if (tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) return
+      // Build 81: pen hover-enter or pen down over a WebView restarts its IME (throttled).
+      val act = ev.actionMasked
+      if (tool == MotionEvent.TOOL_TYPE_STYLUS && (act == MotionEvent.ACTION_HOVER_ENTER || act == MotionEvent.ACTION_DOWN)) {
+        try { instance?.penOverWeb(ev.rawX, ev.rawY) } catch (e: Throwable) { }
+      }
       val buttons = MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY
       val now = tool == MotionEvent.TOOL_TYPE_ERASER || (ev.buttonState and buttons) != 0
       // Only changes are sent. Lifting the pen is not a change: the button may still be held.
