@@ -226,8 +226,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
    * which would throw away a half-written bill someone parked before closing the app; locking
    * keeps the token, keeps the drafts, and only puts the screen behind the PIN.
    */
-  /* Build 77: no longer locked on a cold start. The shop asked for one sign-in that stays until
-     Sign out (see shared/src/session.ts coldStart). */
+  /* APK 82: locked again on a cold start with a saved session (shared/src/session.ts coldStart
+     decides). The start-up pass below sets it; an AppState resume never touches it. */
   const [locked, setLocked] = useState(false);
   const [person, setPerson] = useState<StoredPerson | null>(null);
   const [stockToken, setStockToken] = useState<string | null>(null);
@@ -645,6 +645,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       } else {
         setPerson(who.person);
         setStockToken(start.stockToken);
+        // A new process with a saved session: sign in before anything (Stock included) shows.
+        setLocked(start.locked);
       }
       if (start.refreshBilling) {
         // Quietly, in the last week of the token: a fresh 30 days, or nothing changes.
@@ -726,27 +728,26 @@ export function ShopProvider({ children }: { children: ReactNode }) {
    */
   const unlock = useCallback(async (pin: string) => {
     const known = await checkStoredPin(pin);
-    if (known === true) {
-      setLocked(false);
-      return;
-    }
     if (known === false) throw new Error(person ? t('login.wrongPersonPin') : t('login.wrongPin'));
-    if (person) {
-      // Nothing stored to check against: ask stock again, by the phone they signed in with.
-      const got = await api.person(person.phone, pin);
-      if (got.token) await setToken(got.token);
-      await savePerson({ ...person, role: got.role, name: got.name }, got.stockToken);
-      setStockToken(got.stockToken);
-      await rememberPin(pin);
-      setLocked(false);
-      return;
-    }
-    const { token, stockToken: st } = await api.login(pin);
-    await setToken(token);
-    const got = acceptStockToken(st, Date.now());
-    if (got) {
-      await saveStockToken(got);
-      setStockToken(got);
+    // Refresh both sessions as a sign-in does. With a stored PIN that matched, a dead link does
+    // not keep the shop out of its own till: the saved tokens carry on.
+    try {
+      if (person) {
+        const got = await api.person(person.phone, pin);
+        if (got.token) await setToken(got.token);
+        await savePerson({ ...person, role: got.role, name: got.name }, got.stockToken);
+        setStockToken(got.stockToken);
+      } else {
+        const { token, stockToken: st } = await api.login(pin);
+        await setToken(token);
+        const got = acceptStockToken(st, Date.now());
+        if (got) {
+          await saveStockToken(got);
+          setStockToken(got);
+        }
+      }
+    } catch (e) {
+      if (known !== true) throw e;
     }
     await rememberPin(pin);
     setLocked(false);
@@ -1152,7 +1153,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, dismissInactive: dismissInactiveNow, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
-      person, stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode, keepStockToken,
+      person, stockToken: locked ? null : stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode, keepStockToken,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,

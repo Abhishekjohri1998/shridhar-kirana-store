@@ -4,7 +4,7 @@
  * The shop asked for a single sign-in that stays until somebody presses Sign out: closing the app
  * from recents must not ask for billing's PIN again, nor for stock's sign-in. The app keeps the
  * billing token and the stock token on the device; these pure helpers decide, from what is saved,
- * whether to go straight in, whether a token wants a quiet refresh, and what the Stock window's
+ * whether to ask for the sign-in again (APK 82: every cold start with a saved session), whether a token wants a quiet refresh, and what the Stock window's
  * first load does.
  */
 
@@ -79,8 +79,14 @@ export type ColdStart = {
   refreshBilling: boolean;
   /** Nothing usable is saved: one trip to the sign-in screen, and the saved session is dropped. */
   needSignIn: boolean;
-  /** Never: a cold start is not a sign-in screen and never forgets stock's session. */
-  locked: false;
+  /**
+   * APK 82: a saved, usable session still asks for the sign-in (phone+PIN or shop PIN) on a cold
+   * start -- the app was closed from recents, so the process is new. Coming back from the
+   * background inside the same process never runs coldStart, so it never locks. Nothing (Stock
+   * included) is shown, and no token handed to the Stock window, until the sign-in passes.
+   */
+  locked: boolean;
+  /** Never: a cold start does not forget stock's session; Sign out does. */
   forgetStock: false;
 };
 
@@ -90,15 +96,15 @@ export function coldStart(saved: SavedSession, now: number): ColdStart {
   const stock = tokenState(saved.stockToken, now);
   const stockToken = stock === 'none' || stock === 'expired' ? null : saved.stockToken;
   const billingOk = billing === 'fresh' || billing === 'refresh';
-  const base = { locked: false as const, forgetStock: false as const };
+  const base = { forgetStock: false as const };
   if (saved.personRole && saved.personRole !== 'admin') {
     // A worker or the godown lives in stock alone; an expired stock session is a sign-in.
     const ok = stockToken != null;
-    return { ...base, signedIn: false, stockOnly: ok, stockToken, refreshBilling: false, needSignIn: !ok };
+    return { ...base, signedIn: false, stockOnly: ok, stockToken, refreshBilling: false, needSignIn: !ok, locked: ok };
   }
   if (saved.personRole === 'admin' && !stockToken) {
     // The admin's stock session lapsed and stock cannot be asked without the PIN: sign in once.
-    return { ...base, signedIn: false, stockOnly: false, stockToken: null, refreshBilling: false, needSignIn: true };
+    return { ...base, signedIn: false, stockOnly: false, stockToken: null, refreshBilling: false, needSignIn: true, locked: false };
   }
   return {
     ...base,
@@ -107,6 +113,7 @@ export function coldStart(saved: SavedSession, now: number): ColdStart {
     stockToken,
     refreshBilling: billing === 'refresh',
     needSignIn: !billingOk,
+    locked: billingOk,
   };
 }
 

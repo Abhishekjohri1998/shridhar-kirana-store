@@ -190,8 +190,8 @@ function Shell() {
   if (!shop.serverUrl) return <ServerScreen />;
   // Phone + PIN first; the shop PIN is the way in when stock cannot be asked.
   if (!shop.signedIn && !shop.stockOnly) return shop.pinMode ? <LoginScreen /> : <PersonLoginScreen />;
-  // Build 77: a cold start no longer locks (one sign-in that stays until Sign out); `locked` is
-  // kept only so no older flow can strand the screen.
+  // APK 82: a cold start with a saved session asks for the sign-in again, before anything else
+  // (the Stock window is not mounted, nor handed a token, until it passes). A resume never locks.
   if (shop.locked) return <LoginScreen locked />;
 
   const askSwitchUser = () => {
