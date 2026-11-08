@@ -14,7 +14,15 @@ async function main(): Promise<void> {
   void ensureRoundTo().catch((err) => console.warn('[settings] rounding not copied yet:', err));
 
   const app = express();
-  app.use(express.json({ limit: '256kb' }));
+  // 256 KB for everything but a restore, which reads its own (much larger) body: see routes.ts.
+  const smallJson = express.json({ limit: '256kb' });
+  app.use((req, res, next) => {
+    if (req.method === 'POST' && req.path.replace(/\/+$/, '') === '/api/restore') {
+      next();
+      return;
+    }
+    smallJson(req, res, next);
+  });
   app.use(cors({ origin: env.corsOrigins.length ? env.corsOrigins : true }));
   app.use('/api', api);
 

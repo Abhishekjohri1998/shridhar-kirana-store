@@ -3,6 +3,7 @@ import {
   checkFooter,
   checkGstin,
   ERASE_WORD,
+  RESTORE_WORD,
   checkShopName,
   LANGS,
   PAPER_KEYS,
@@ -208,6 +209,74 @@ export function SettingsPage() {
         : t('set.eraseFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
+    }
+  };
+
+  /*
+   * Restoring a backup. The file is read here and only checked to be JSON; the server decides
+   * whether it is a backup of this shop. Its own password and word boxes, so nothing typed for
+   * the erase above can set this off by accident.
+   */
+  const [restoreFile, setRestoreFile] = useState<{ name: string; text: string } | null>(null);
+  const [restorePw, setRestorePw] = useState('');
+  const [restoreWord, setRestoreWord] = useState('');
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restored, setRestored] = useState<{ bills: number; customers: number; next: number; safety: string } | null>(null);
+
+  const pickRestoreFile = async (file: File | undefined) => {
+    setRestoreError(null);
+    setRestored(null);
+    setRestoreFile(null);
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+      setRestoreFile({ name: file.name, text });
+    } catch {
+      setRestoreError(t('set.restoreBadFile'));
+    }
+  };
+
+  const restoreBackup = async () => {
+    if (!restoreFile) return;
+    setRestoreError(null);
+    setRestoring(true);
+    try {
+      const out = await api.restore(restorePw, restoreWord, restoreFile.text);
+      setRestorePw('');
+      setRestoreWord('');
+      setRestoreFile(null);
+      setRestored({
+        bills: out.restored.bills, customers: out.restored.customers,
+        next: out.restored.nextBillNo, safety: out.safety.file,
+      });
+      // Let go of everything this page held and fetch the restored book, settings included.
+      await shop.forgetEverything();
+    } catch (e) {
+      const off = e instanceof ApiError && e.status === 404;
+      setRestoreError(off
+        ? t('set.restoreOff')
+        : t('set.restoreFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const downloadSafety = async (file: string) => {
+    setRestoreError(null);
+    try {
+      const data = await api.safetyBackup(file);
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'shridhar-' + file;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setRestoreError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -625,6 +694,64 @@ export function SettingsPage() {
         {!backedUp ? <p className="muted small" style={{ margin: 0 }}>{t('set.eraseNeedsBackup')}</p> : null}
         {/* Under the button that caused it, which is where the eye already is. */}
         {dangerError ? <p className="error" role="alert">{dangerError}</p> : null}
+      </section>
+
+      {/* The way back from the section above: a backup file put back exactly as it was. */}
+      <section className="card stack danger-zone">
+        <h2 className="section-title">{t('set.restoreTitle')}</h2>
+        <p className="muted small" style={{ margin: 0 }}>{t('set.restoreNote')}</p>
+        {restored ? (
+          <>
+            <p className="notice" role="status">
+              {t('set.restored', { bills: restored.bills, customers: restored.customers, next: restored.next })}
+            </p>
+            <button className="btn plain" onClick={() => void downloadSafety(restored.safety)}>
+              {t('set.safetyBackup')}
+            </button>
+          </>
+        ) : null}
+
+        <div className="field">
+          <label htmlFor="s-restore-file">{t('set.restorePick')}</label>
+          <input
+            id="s-restore-file"
+            className="input"
+            type="file"
+            accept=".json,application/json"
+            disabled={restoring}
+            onChange={(e) => void pickRestoreFile(e.target.files?.[0])}
+          />
+          {restoreFile ? <p className="muted small" style={{ margin: 0 }}>{t('set.restoreFile', { name: restoreFile.name })}</p> : null}
+        </div>
+        <div className="field">
+          <label htmlFor="s-restore-pw">{t('set.erasePassword')}</label>
+          <input
+            id="s-restore-pw"
+            className="input"
+            type="password"
+            autoComplete="off"
+            value={restorePw}
+            onChange={(e) => setRestorePw(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="s-restore-word">{t('set.restoreConfirmLabel')}</label>
+          <input
+            id="s-restore-word"
+            className="input"
+            autoComplete="off"
+            value={restoreWord}
+            onChange={(e) => setRestoreWord(e.target.value)}
+          />
+        </div>
+        <button
+          className="btn danger"
+          disabled={restoring || !restoreFile || !restorePw || restoreWord !== RESTORE_WORD}
+          onClick={() => void restoreBackup()}
+        >
+          {restoring ? t('set.restoring') : t('set.restoreButton')}
+        </button>
+        {restoreError ? <p className="error" role="alert">{restoreError}</p> : null}
       </section>
     </div>
   );

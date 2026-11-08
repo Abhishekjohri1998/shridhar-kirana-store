@@ -21,6 +21,18 @@ export function setToken(token: string | null): void {
   }
 }
 
+/** What a restore answers: how much came back, and the copy of the book it replaced. */
+export type RestoreResult = {
+  restored: { bills: number; customers: number; payments: number; nextBillNo: number; from: string | null; version: number };
+  safety: { file: string; url: string };
+};
+
+/** A restore uploads the whole book, handwriting and all: given two minutes, not fifteen seconds. */
+const RESTORE_TIMEOUT_MS = 120_000;
+
+/** Routes whose 401 means a wrong reset password, not a lapsed session. */
+const PASSWORD_ROUTES = new Set(['/reset', '/restore']);
+
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -67,7 +79,9 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = LOAD
   // A 401 from the login route means the PIN was wrong, not that a session lapsed -- telling a
   // shopkeeper who mistyped their PIN that their session expired sends them looking for a
   // problem that is not there. Every other route's 401 really is an expired token.
-  if (res.status === 401 && path !== '/auth/login') {
+  // Nor from erasing or restoring, where it is the reset password that was wrong: that must say
+  // so, not sign the shop out.
+  if (res.status === 401 && path !== '/auth/login' && !PASSWORD_ROUTES.has(path)) {
     setToken(null);
     throw new ApiError(401, 'Your session has expired. Sign in again.');
   }
@@ -126,6 +140,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ password, confirm, keepCustomers }),
     }),
+  /**
+   * Puts a downloaded backup back over the book. `backupText` is the file as read, already
+   * checked to be JSON; it is sent as it is rather than parsed and written out again, which on a
+   * book of handwritten bills is megabytes of work for nothing. Long timeout: it is a big upload.
+   */
+  restore: (password: string, confirm: string, backupText: string) =>
+    request<RestoreResult>('/restore', {
+      method: 'POST',
+      body: '{"password":' + JSON.stringify(password) + ',"confirm":' + JSON.stringify(confirm)
+        + ',"backup":' + backupText + '}',
+    }, RESTORE_TIMEOUT_MS),
+  /** The copy of the book the server saved just before a restore. */
+  safetyBackup: (file: string) => request<unknown>('/restore/safety/' + encodeURIComponent(file), {}, RESTORE_TIMEOUT_MS),
   today: () => request<TodaySummary>('/summary/today'),
 
   listCustomers: () => request<Customer[]>('/customers'),

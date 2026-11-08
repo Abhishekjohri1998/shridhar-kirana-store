@@ -27,6 +27,16 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     res.status(err.status).json({ error: err.message });
     return;
   }
+  // The JSON reader's own refusals: a body too big, or not JSON at all. Theirs to say, not a 500.
+  const type = (err as { type?: unknown })?.type;
+  if (type === 'entity.too.large') {
+    res.status(413).json({ error: 'That is too large to send to the server' });
+    return;
+  }
+  if (type === 'entity.parse.failed') {
+    res.status(400).json({ error: 'That is not readable: the file or the request is damaged' });
+    return;
+  }
   console.error('[error]', err);
   res.status(500).json({ error: 'Something went wrong on the server' });
 }

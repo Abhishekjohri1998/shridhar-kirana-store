@@ -37,6 +37,9 @@ export function parseDecimal(raw: string): number | null {
  */
 export const ERASE_WORD = 'ERASE';
 
+/** The word typed to put a backup back over the book. Same reasoning as ERASE_WORD. */
+export const RESTORE_WORD = 'RESTORE';
+
 const MAX_MONEY = 1_000_000;
 const MAX_QTY = 100_000;
 const MAX_PAID = 10_000_000;

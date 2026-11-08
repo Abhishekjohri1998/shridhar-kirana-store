@@ -8,7 +8,7 @@ import * as Sharing from 'expo-sharing';
 import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  ERASE_WORD, LANGS, ROUND_STEPS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile,
+  ERASE_WORD, RESTORE_WORD, LANGS, ROUND_STEPS, PAPERS, PAPER_KEYS, checkFooter, checkGstin, checkShopName, paperProfile,
   parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
   receiptStyleOf,
@@ -16,6 +16,7 @@ import {
   printSpeedOf,
   type PrintSpeed,
 } from '@shridhar/shared';
+import { BackupPicker } from '../components/BackupPicker';
 import { Dialog } from '../components/Dialog';
 import { ScriptField } from '../components/ScriptField';
 import { Button, Card, ErrorText, Field, Notice, SectionTitle } from '../components/ui';
@@ -263,6 +264,71 @@ export function SettingsScreen() {
         : t('set.eraseFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
+    }
+  };
+
+  /*
+   * Restoring a backup. The file comes from Android's picker through BackupPicker, is checked to
+   * be JSON here, and the server decides whether it is a backup of this shop.
+   */
+  const [restoreFile, setRestoreFile] = useState<{ name: string; text: string } | null>(null);
+  const [restorePw, setRestorePw] = useState('');
+  const [restoreWord, setRestoreWord] = useState('');
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restored, setRestored] = useState<{ bills: number; customers: number; next: number; safety: string } | null>(null);
+
+  const pickedRestoreFile = (file: { name: string; text: string }) => {
+    setRestoreError(null);
+    setRestored(null);
+    try {
+      const parsed: unknown = JSON.parse(file.text);
+      if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+      setRestoreFile(file);
+    } catch {
+      setRestoreFile(null);
+      setRestoreError(t('set.restoreBadFile'));
+    }
+  };
+
+  const restoreBackup = async () => {
+    if (!restoreFile) return;
+    setRestoreError(null);
+    setRestoring(true);
+    try {
+      const out = await api.restore(restorePw, restoreWord, restoreFile.text);
+      setRestorePw('');
+      setRestoreWord('');
+      setRestoreFile(null);
+      setRestored({
+        bills: out.restored.bills, customers: out.restored.customers,
+        next: out.restored.nextBillNo, safety: out.safety.file,
+      });
+      // The device lets go of what it held -- parked bills, the cached list -- and fetches the
+      // restored book, settings included.
+      await shop.forgetEverything();
+    } catch (e) {
+      const off = e instanceof ApiError && e.status === 404;
+      setRestoreError(off
+        ? t('set.restoreOff')
+        : t('set.restoreFailed') + ': ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  /** The copy the server saved before restoring, to the share sheet like the backup itself. */
+  const shareSafety = async (file: string) => {
+    setRestoreError(null);
+    try {
+      const data = await api.safetyBackup(file);
+      const path = FileSystem.cacheDirectory + 'shridhar-' + file;
+      await FileSystem.writeAsStringAsync(path, JSON.stringify(data));
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(path, { mimeType: 'application/json', dialogTitle: t('set.safetyBackup') });
+      }
+    } catch (e) {
+      setRestoreError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -584,6 +650,54 @@ export function SettingsScreen() {
         {!backedUp ? <Text style={styles.hint}>{t('set.eraseNeedsBackup')}</Text> : null}
         {/* Under the button that caused it, which is where the eye already is. */}
         {dangerError ? <ErrorText>{dangerError}</ErrorText> : null}
+      </Card>
+
+      {/* The way back from the card above: a backup file put back exactly as it was. */}
+      <Card style={styles.card}>
+        <SectionTitle>{t('set.restoreTitle')}</SectionTitle>
+        <Text style={styles.hint}>{t('set.restoreNote')}</Text>
+        <View style={{ height: 10 }} />
+        {restored ? (
+          <>
+            <Notice>{t('set.restored', { bills: restored.bills, customers: restored.customers, next: restored.next })}</Notice>
+            <Button label={t('set.safetyBackup')} tone="plain" onPress={() => void shareSafety(restored.safety)} />
+            <View style={{ height: 10 }} />
+          </>
+        ) : null}
+
+        <BackupPicker
+          label={t('set.restorePick')}
+          disabled={restoring}
+          onPicked={pickedRestoreFile}
+          onError={() => setRestoreError(t('set.restoreBadFile'))}
+        />
+        {restoreFile ? <Text style={styles.hint}>{t('set.restoreFile', { name: restoreFile.name })}</Text> : null}
+        <View style={{ height: 10 }} />
+        {/* The password box only once a file is chosen, for the same screen-sharing reason as the
+            erase card's. */}
+        {restoreFile ? (
+          <Field
+            label={t('set.erasePassword')}
+            value={restorePw}
+            secureTextEntry
+            autoCapitalize="none"
+            onChangeText={setRestorePw}
+          />
+        ) : null}
+        <Field
+          label={t('set.restoreConfirmLabel')}
+          value={restoreWord}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          onChangeText={setRestoreWord}
+        />
+        <Button
+          label={restoring ? t('set.restoring') : t('set.restoreButton')}
+          tone="danger"
+          disabled={restoring || !restoreFile || !restorePw || restoreWord !== RESTORE_WORD}
+          onPress={() => void restoreBackup()}
+        />
+        {restoreError ? <ErrorText>{restoreError}</ErrorText> : null}
       </Card>
 
       <Dialog

@@ -5,7 +5,7 @@ import {
 } from '@shridhar/shared';
 import {
   DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId, upsertDoc,
-  type CustomerInput, type NewBill, type Repo,
+  type BookSnapshot, type CustomerInput, type NewBill, type Repo,
 } from './types';
 
 /** What is actually stored for a customer: the running figures, without the derived balance. */
@@ -742,7 +742,121 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         .lean();
       return docs.map((d) => toCustomer(d as unknown as CustomerDoc));
     },
+
+    async snapshot() {
+      const [settingsDoc, customers, bills, payments, counter] = await Promise.all([
+        SettingsModel.findOne({ key: 'shop' }).lean(),
+        Customers.find({}).lean(),
+        Bills.find({}).sort({ no: 1 }).lean(),
+        Payments.find({}).lean(),
+        Counters.findOne({ key: 'billNo' }).lean(),
+      ]);
+      let settings: Record<string, unknown> = { ...DEFAULT_SETTINGS };
+      if (settingsDoc) {
+        const { key: _key, ...rest } = strip(settingsDoc as unknown as SettingsDoc);
+        settings = rest as Record<string, unknown>;
+      }
+      return {
+        settings,
+        customers: customers.map((d) => strip(d as unknown as Record<string, unknown>)),
+        bills: bills.map((d) => strip(d as unknown as Bill)),
+        payments: payments.map((d) => strip(d as unknown as Payment)),
+        billNo: (counter as unknown as CounterDoc | null)?.value ?? 0,
+      };
+    },
+
+    replaceAll(book) {
+      return replaceMongoBook(book);
+    },
   };
 
   return repo;
+}
+
+/** Inserted in slices, so a book of thousands of bills never becomes one enormous command. */
+const SLICE = 500;
+
+/**
+ * A whole book in place of the live one.
+ *
+ * Each collection is filled on the side (`<name>__restore`) with its indexes built there -- so a
+ * duplicate bill number fails here, before anything live is touched -- and then all five are
+ * renamed over the live ones one after another. The slow part, writing every bill, happens while
+ * the shop's book is still whole; the swap itself is five quick renames.
+ *
+ * Should the server refuse a rename before anything has moved (some hosted tiers limit it), the
+ * same writes are made inside one transaction instead. A rename failing part-way through the
+ * five is the one case left half-done, which is what the safety backup the route takes first is
+ * for, and the error says so.
+ */
+async function replaceMongoBook(book: BookSnapshot): Promise<void> {
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('Not connected to MongoDB');
+
+  // Other counters, if any ever exist, are carried across untouched; only the bill number moves.
+  const otherCounters = (await Counters.find({ key: { $ne: 'billNo' } }).lean())
+    .map((d) => { const { _id, __v, ...rest } = d as unknown as Record<string, unknown>; return rest; });
+  const plan: { model: Model<any>; docs: Record<string, unknown>[] }[] = [
+    { model: Bills, docs: book.bills as unknown as Record<string, unknown>[] },
+    { model: Customers, docs: book.customers },
+    { model: Payments, docs: book.payments as unknown as Record<string, unknown>[] },
+    { model: SettingsModel, docs: [{ ...book.settings, key: 'shop' }] },
+    { model: Counters, docs: [...otherCounters, { key: 'billNo', value: book.billNo }] },
+  ];
+  const sideName = (m: Model<any>) => m.collection.collectionName + '__restore';
+  const dropSide = async (name: string) => {
+    await db.dropCollection(name).catch(() => undefined);
+  };
+
+  try {
+    for (const { model, docs } of plan) {
+      const name = sideName(model);
+      await dropSide(name);
+      await db.createCollection(name);
+      const side = db.collection(name);
+      for (let i = 0; i < docs.length; i += SLICE) {
+        await side.insertMany(docs.slice(i, i + SLICE).map((d) => ({ ...d })), { ordered: true });
+      }
+      for (const [fields, options] of model.schema.indexes()) {
+        await side.createIndex(fields as Record<string, 1 | -1>, options as Record<string, unknown>);
+      }
+    }
+  } catch (err) {
+    for (const { model } of plan) await dropSide(sideName(model));
+    throw new Error('The backup could not be written, and nothing was changed: ' + (err as Error).message);
+  }
+
+  let swapped = 0;
+  try {
+    for (const { model } of plan) {
+      await db.renameCollection(sideName(model), model.collection.collectionName, { dropTarget: true });
+      swapped++;
+    }
+    return;
+  } catch (err) {
+    if (swapped > 0) {
+      throw new Error('The restore stopped part-way (' + swapped + ' of ' + plan.length
+        + ' parts put back): ' + (err as Error).message + '. Restore the safety backup to undo it.');
+    }
+    console.warn('[restore] rename refused, using a transaction instead:', (err as Error).message);
+  }
+
+  // The rename was refused before anything moved: the same writes, all or nothing.
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      for (const { model, docs } of plan) {
+        const live = db.collection(model.collection.collectionName);
+        await live.deleteMany({}, { session });
+        for (let i = 0; i < docs.length; i += SLICE) {
+          await live.insertMany(docs.slice(i, i + SLICE).map((d) => ({ ...d })), { ordered: true, session });
+        }
+      }
+    });
+  } catch (err) {
+    throw new Error('The backup could not be put in place, and nothing was changed: ' + (err as Error).message);
+  } finally {
+    await session.endSession();
+    for (const { model } of plan) await dropSide(sideName(model));
+  }
 }

@@ -6,7 +6,7 @@ import {
 } from '@shridhar/shared';
 import {
   DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId,
-  type NewBill, type Repo,
+  type BookSnapshot, type NewBill, type Repo,
 } from './types';
 
 type CustomerRow = {
@@ -405,6 +405,44 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         .filter((c) => c.billCount > 0 && c.lastVisit != null && new Date(c.lastVisit).getTime() < cutoff)
         .sort((a, b) => String(a.lastVisit).localeCompare(String(b.lastVisit)))
         .map(toCustomer);
+    },
+
+    // Through the queue, so a backup never catches a bill half-recorded. Copied, so nothing the
+    // caller does to it reaches the live book.
+    snapshot() {
+      return serial(() => JSON.parse(JSON.stringify({
+        settings: db.settings,
+        customers: db.customers,
+        bills: [...db.bills].sort((a, b) => a.no - b.no),
+        payments: db.payments,
+        billNo: db.billNo,
+      })) as BookSnapshot);
+    },
+
+    /*
+     * One file written beside the old and renamed over it (flush), so a crash leaves either the
+     * old book or the new, never a mixture. The catalogue (`items`) is not part of a backup and
+     * is left as it is.
+     */
+    replaceAll(book) {
+      return serial(async () => {
+        const before = db;
+        const copy = JSON.parse(JSON.stringify(book)) as BookSnapshot;
+        db = {
+          ...db,
+          settings: copy.settings as Settings,
+          customers: copy.customers as CustomerRow[],
+          bills: copy.bills,
+          payments: copy.payments,
+          billNo: copy.billNo,
+        };
+        try {
+          await flush();
+        } catch (err) {
+          db = before;
+          throw err;
+        }
+      });
     },
   };
 }

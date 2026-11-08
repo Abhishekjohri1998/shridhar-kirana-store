@@ -1,7 +1,10 @@
-import { Router } from 'express';
+import { promises as fsp } from 'node:fs';
+import path from 'node:path';
+import express, { Router } from 'express';
 import { z } from 'zod';
-import { ERASE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, roundedRate, notSeenFor } from '@shridhar/shared';
-import { issueToken, pinMatches, requireAuth, secretMatches } from './auth';
+import { ERASE_WORD, RESTORE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, roundedRate, notSeenFor } from '@shridhar/shared';
+import { issueToken, pinMatches, requireAdmin, requireAuth, roleOf, secretMatches } from './auth';
+import { SAFETY_NAME, buildBackup, readBackup, safetyDir, sameShop, writeSafetyBackup } from './backup';
 import { env } from './env';
 import { HttpError, handler } from './http';
 import { checkSignInBrake, noteSignInFailure } from './rateLimit';
@@ -208,7 +211,7 @@ api.post('/auth/person', handler(async (req, res) => {
     role: said.role,
     name: said.name,
     stockToken: said.token,
-    ...(said.role === 'admin' ? { token: issueToken() } : {}),
+    ...(said.role === 'admin' ? { token: issueToken('admin') } : {}),
   });
 }));
 
@@ -229,7 +232,8 @@ api.post('/stock/session', handler(async (_req, res) => {
  * last week of its token, so one sign-in lasts until somebody presses Sign out.
  */
 api.post('/auth/refresh', handler(async (_req, res) => {
-  res.json({ token: issueToken() });
+  // The same role again: a refresh must never turn one kind of session into another.
+  res.json({ token: issueToken(roleOf(res) || 'shop') });
 }));
 
 // ---------------------------------------------------------------------------- settings
@@ -465,15 +469,10 @@ api.delete('/bills/:no', handler(async (req, res) => {
  *
  * The free Atlas tier takes no backups of its own, so this is the only copy that will exist.
  */
-api.get('/backup', handler(async (_req, res) => {
-  const repo = getRepo();
-  const [settings, customers, bills, payments] = await Promise.all([
-    repo.getSettings(),
-    repo.listCustomers(),
-    repo.listBills(5000),
-    repo.listPayments(5000),
-  ]);
-  res.json({ at: new Date().toISOString(), settings, customers, bills, payments });
+api.get('/backup', requireAdmin, handler(async (_req, res) => {
+  // Every record, not the first 5000: a backup that quietly stops is worse than none, because
+  // it is trusted. With the last bill number, so a restored book carries on where it was.
+  res.json(buildBackup(await getRepo().snapshot()));
 }));
 
 /**
@@ -483,7 +482,7 @@ api.get('/backup', handler(async (_req, res) => {
  * allowed to, and the word says you meant to. Switched off entirely when no password is
  * configured, so a server nobody has set one on cannot be wiped at all.
  */
-api.post('/reset', handler(async (req, res) => {
+api.post('/reset', requireAdmin, handler(async (req, res) => {
   if (!env.resetPassword) {
     throw new HttpError(404, 'Erasing is switched off on this server');
   }
@@ -503,6 +502,74 @@ api.post('/reset', handler(async (req, res) => {
 
   await getRepo().eraseAll(body.keepCustomers);
   res.status(204).end();
+}));
+
+/** A backup carries every bill with its handwriting: far past the 256 KB every other route gets. */
+export const RESTORE_BODY_LIMIT = '100mb';
+
+/**
+ * Puts a downloaded backup back over the book: bills, customers, payments, settings and the bill
+ * numbering, exactly as they were.
+ *
+ * The same two proofs as erasing, since it replaces the book just as completely. The file has to
+ * be one of ours and from this shop. Before anything changes, the book as it stands is saved to a
+ * file on the server, and the answer says where to download it -- a restore of the wrong file is
+ * then one more restore away from undone.
+ */
+api.post('/restore', requireAdmin, express.json({ limit: RESTORE_BODY_LIMIT }), handler(async (req, res) => {
+  if (!env.resetPassword) {
+    throw new HttpError(404, 'Restoring is switched off on this server until a reset password is set on it');
+  }
+  const body = z.object({
+    password: z.string().max(200).default(''),
+    confirm: z.string().max(20).default(''),
+    backup: z.unknown(),
+  }).parse(req.body ?? {});
+  if (!secretMatches(body.password, env.resetPassword)) {
+    throw new HttpError(401, 'That password is not right');
+  }
+  if (body.confirm !== RESTORE_WORD) {
+    throw new HttpError(400, 'Type ' + RESTORE_WORD + ' to confirm');
+  }
+
+  const { book, version, at } = readBackup(body.backup);
+  const repo = getRepo();
+  const current = await repo.snapshot();
+  if (!sameShop(current.settings, book.settings)) {
+    throw new HttpError(409, 'This backup is from "' + String(book.settings.shopName)
+      + '", not "' + String(current.settings.shopName ?? '') + '". Nothing was restored.');
+  }
+
+  const safety = await writeSafetyBackup(buildBackup(current));
+  await repo.replaceAll(book);
+  console.log('[restore] backup of ' + (at ?? 'unknown date') + ' (v' + version + ') restored: '
+    + book.bills.length + ' bills, ' + book.customers.length + ' customers; previous book saved as ' + safety);
+  res.json({
+    restored: {
+      bills: book.bills.length,
+      customers: book.customers.length,
+      payments: book.payments.length,
+      nextBillNo: book.billNo + 1,
+      from: at,
+      version,
+    },
+    safety: { file: safety, url: '/api/restore/safety/' + encodeURIComponent(safety) },
+  });
+}));
+
+/** The copy of the book taken just before a restore, to download and keep. */
+api.get('/restore/safety/:file', requireAdmin, handler(async (req, res) => {
+  const name = String(req.params.file);
+  if (!SAFETY_NAME.test(name)) throw new HttpError(404, 'No such safety backup');
+  const full = path.join(safetyDir(), name);
+  try {
+    await fsp.access(full);
+  } catch {
+    throw new HttpError(404, 'No such safety backup');
+  }
+  res.setHeader('content-disposition', 'attachment; filename="shridhar-' + name + '"');
+  res.type('application/json');
+  res.sendFile(full);
 }));
 
 api.post('/bills', handler(async (req, res) => {

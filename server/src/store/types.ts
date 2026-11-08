@@ -168,6 +168,29 @@ export type Repo = {
   cancelPayment(id: string): Promise<Payment | null>;
   /** Newest first, by when the money was received. */
   listPayments(limit: number, customerId?: string): Promise<Payment[]>;
+
+  /** Every stored record of the book, exactly as kept. What a backup holds. */
+  snapshot(): Promise<BookSnapshot>;
+  /**
+   * Puts a whole book in place of the one there, as one change as far as the store allows: the
+   * file store writes a new file and renames it over the old; Mongo fills side collections and
+   * renames them over the live ones. Nothing is merged -- what is not in the book is gone.
+   */
+  replaceAll(book: BookSnapshot): Promise<void>;
+};
+
+/**
+ * The whole book, as stored. Customers are the stored rows (running figures, no derived balance);
+ * settings are the stored document, unmigrated, so a restore puts back exactly what was there.
+ * `billNo` is the last number handed out -- higher than any bill when the newest were deleted,
+ * which is why it travels on its own rather than being worked out from the bills.
+ */
+export type BookSnapshot = {
+  settings: Record<string, unknown>;
+  customers: Record<string, unknown>[];
+  bills: Bill[];
+  payments: Payment[];
+  billNo: number;
 };
 
 /** Midnight-to-midnight in the server's own timezone, which is the shop's day. */
