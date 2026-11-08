@@ -191,7 +191,24 @@ export type BookSnapshot = {
   bills: Bill[];
   payments: Payment[];
   billNo: number;
+  /**
+   * The old item catalogue (the `items` collection), as raw stored rows. No route reads it any
+   * more, but the shop's database still holds it, and a backup leaves nothing behind.
+   *
+   * A snapshot always has it. On the way back in it can be absent -- a version 1 or 2 backup
+   * never carried it -- and absent means "leave the items there as they are", not "erase them":
+   * a file that says nothing about the items is no reason to throw them away.
+   */
+  items?: Record<string, unknown>[];
 };
+
+/**
+ * Every collection either store keeps, by its MongoDB name. The backup carries each one (the
+ * `billNo` counter travels as `counters`), the Mongo store refuses to take a backup of a database
+ * holding a collection not named here, and restoretest fails when a store holds something this
+ * list or the backup leaves out. A new collection goes here first, or it is not backed up.
+ */
+export const BOOK_COLLECTIONS = ['settings', 'customers', 'bills', 'payments', 'counters', 'items'] as const;
 
 /** Midnight-to-midnight in the server's own timezone, which is the shop's day. */
 export function dayBounds(now = new Date()): { start: Date; end: Date } {

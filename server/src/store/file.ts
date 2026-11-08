@@ -416,13 +416,14 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         bills: [...db.bills].sort((a, b) => a.no - b.no),
         payments: db.payments,
         billNo: db.billNo,
+        items: Array.isArray(db.items) ? db.items : [],
       })) as BookSnapshot);
     },
 
     /*
      * One file written beside the old and renamed over it (flush), so a crash leaves either the
-     * old book or the new, never a mixture. The catalogue (`items`) is not part of a backup and
-     * is left as it is.
+     * old book or the new, never a mixture. The catalogue (`items`) is replaced when the book
+     * carries it, and left as it is when it does not (a version 1 or 2 backup).
      */
     replaceAll(book) {
       return serial(async () => {
@@ -435,6 +436,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           bills: copy.bills,
           payments: copy.payments,
           billNo: copy.billNo,
+          items: copy.items !== undefined ? (copy.items as unknown as Item[]) : db.items,
         };
         try {
           await flush();

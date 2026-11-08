@@ -508,8 +508,9 @@ api.post('/reset', requireAdmin, handler(async (req, res) => {
 export const RESTORE_BODY_LIMIT = '100mb';
 
 /**
- * Puts a downloaded backup back over the book: bills, customers, payments, settings and the bill
- * numbering, exactly as they were.
+ * Puts a downloaded backup back over the book: bills, customers, payments, settings, the bill
+ * numbering and the item catalogue, exactly as they were (an older file without items leaves the
+ * shop's items as they are).
  *
  * The same two proofs as erasing, since it replaces the book just as completely. The file has to
  * be one of ours and from this shop. Before anything changes, the book as it stands is saved to a
@@ -549,6 +550,8 @@ api.post('/restore', requireAdmin, express.json({ limit: RESTORE_BODY_LIMIT }), 
       bills: book.bills.length,
       customers: book.customers.length,
       payments: book.payments.length,
+      // Null when the file had no items (version 1 or 2), and the shop's own were left in place.
+      items: book.items ? book.items.length : null,
       nextBillNo: book.billNo + 1,
       from: at,
       version,

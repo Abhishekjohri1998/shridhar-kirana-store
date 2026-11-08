@@ -2,14 +2,15 @@
  * Backup, erase, restore: the book comes back exactly as it was.
  *
  * Against a scratch server on the JSON file store in a temporary folder; no MongoDB is touched.
- * Checks that the backup holds everything (every bill, the payments, the stored settings and the
- * last bill number), that a restore after an erase gives back identical data with the numbering
+ * Checks that the backup holds everything (every bill, the payments, the stored settings, the
+ * last bill number and the old item catalogue) and every collection either store keeps, that a
+ * restore after an erase gives back identical data with the numbering
  * carrying on, that a safety copy of the book is taken first, and that wrong, damaged, foreign
  * or unauthorised restores are refused without changing anything.
  *
  *   node scripts/restoretest.js
  */
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -32,15 +33,39 @@ function check(name, ok, detail) {
 }
 function eq(name, actual, expected) {
   check(name, JSON.stringify(actual) === JSON.stringify(expected),
-    'got ' + JSON.stringify(actual).slice(0, 300) + ', wanted ' + JSON.stringify(expected).slice(0, 300));
+    'got ' + String(JSON.stringify(actual)).slice(0, 300) + ', wanted ' + String(JSON.stringify(expected)).slice(0, 300));
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The parts of the stored file a restore must give back, `items` aside (not part of a backup). */
+/** Every part of the stored file, all of which a restore must give back. */
 function stored() {
   const db = JSON.parse(fs.readFileSync(path.join(DATA, 'db.json'), 'utf8'));
-  return { settings: db.settings, customers: db.customers, bills: db.bills, payments: db.payments, billNo: db.billNo };
+  return { settings: db.settings, customers: db.customers, bills: db.bills, payments: db.payments, billNo: db.billNo, items: db.items };
 }
+const storedKeys = () => Object.keys(JSON.parse(fs.readFileSync(path.join(DATA, 'db.json'), 'utf8')));
+
+/**
+ * What the Mongo store keeps and what the backup promises to carry, read from the server's own
+ * code without a database: registering the models needs no connection.
+ */
+function collectionLists() {
+  const src = path.join(ROOT, 'server', 'src', 'store').replace(/\\/g, '/');
+  const out = execFileSync(process.execPath, [
+    path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), '-e',
+    "const m = require('" + src + "/mongo.ts'); const t = require('" + src + "/types.ts');"
+      + ' console.log(JSON.stringify({ mongo: m.mongoCollections(), book: [...t.BOOK_COLLECTIONS] })); process.exit(0);',
+  ], { cwd: path.join(ROOT, 'server'), encoding: 'utf8' });
+  return JSON.parse(out.trim().split('\n').pop());
+}
+/** The file store's top-level key for each collection name, where they differ. */
+const FILE_KEY_COLLECTION = { billNo: 'counters' };
+
+/** The old catalogue, as the server seeded it before the /items routes went; no route writes it now. */
+const ITEMS = [
+  { id: 'rice-sona', nameKn: 'ಸೋನಾ ಮಸೂರಿ ಅಕ್ಕಿ', nameEn: 'Sona Masuri rice', rate: 58, unit: 'kg' },
+  { id: 'toor-dal', nameKn: 'ತೊಗರಿ ಬೇಳೆ', nameEn: 'Toor dal', rate: 142, unit: 'kg' },
+  { id: 'sugar', nameKn: 'ಸಕ್ಕರೆ', nameEn: 'Sugar', rate: 44, unit: 'kg', extra: { kept: [1, 2] } },
+];
 const sortBy = (k) => (a, b) => (a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
 function canonical(s) {
   return {
@@ -56,7 +81,13 @@ const safetyFiles = () => {
 };
 
 async function main() {
+  console.log('Every collection is in the backup');
+  const lists = collectionLists();
+  eq('the Mongo store keeps exactly the collections the backup carries', [...lists.mongo].sort(), [...lists.book].sort());
+
   fs.mkdirSync(DATA, { recursive: true });
+  // The catalogue is put in the file before the server reads it: nothing else can write it.
+  fs.writeFileSync(path.join(DATA, 'db.json'), JSON.stringify({ items: ITEMS }), 'utf8');
   const child = spawn(
     process.execPath,
     [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'server', 'src', 'index.ts')],
@@ -136,7 +167,6 @@ async function main() {
     console.log('\nThe backup holds everything');
     const backup = (await call('/backup')).body;
     eq('it says what it is', backup.format, 'shridhar-billing-backup');
-    eq('and its version', backup.version, 2);
     eq('and which shop', backup.shop.name, 'Restore Test Stores');
     eq('every bill', backup.bills.length, 4);
     eq('the cancelled bill with them', backup.bills.some((x) => x.cancelled), true);
@@ -145,6 +175,16 @@ async function main() {
     eq('the last bill number handed out', backup.counters.billNo, 5);
     eq('the stored settings, rounding included', backup.settings.roundTo, 5);
     eq('customers say what they owe', backup.customers.find((c) => c.id === a.id).balance, beforeApi.customers.find((c) => c.id === a.id).balance);
+    eq('and its version is 3', backup.version, 3);
+    eq('the item catalogue, exactly as stored', backup.items, ITEMS);
+    for (const name of lists.book) {
+      check('the backup carries ' + name, Object.prototype.hasOwnProperty.call(backup, name), Object.keys(backup).join(','));
+    }
+    for (const key of storedKeys()) {
+      const name = FILE_KEY_COLLECTION[key] || key;
+      check('the file store\'s ' + key + ' is a collection the backup knows', lists.book.includes(name), lists.book.join(','));
+      check('and the backup carries it (' + name + ')', Object.prototype.hasOwnProperty.call(backup, name), Object.keys(backup).join(','));
+    }
 
     console.log('\nErase');
     eq('everything erased', (await call('/reset', 'POST', { password: RESET_PW, confirm: 'ERASE' })).status, 204);
@@ -189,6 +229,8 @@ async function main() {
     eq('it says how many bills', done.body && done.body.restored.bills, 4);
     eq('and the next number', done.body && done.body.restored.nextBillNo, 6);
     eq('the stored book is identical to before the erase', canonical(stored()), before);
+    eq('the items are identical too', stored().items, ITEMS);
+    eq('it says how many items', done.body && done.body.restored.items, ITEMS.length);
     eq('the bills read back identical', (await call('/bills?limit=500')).body, beforeApi.bills);
     eq('the customers read back identical', (await call('/customers')).body, beforeApi.customers);
     eq('the settings read back identical', (await call('/settings')).body, beforeApi.settings);
@@ -225,6 +267,34 @@ async function main() {
     eq('its bills', (await call('/bills?limit=500')).body.length, 4);
     eq('its customers, their balance worked out again', (await call('/customers')).body, beforeApi.customers);
     eq('numbering from its highest bill', (await call('/bills', 'POST', { lines: [{ itemId: 'v1', qty: 1, rate: 1 }] })).body.no, 5);
+
+    console.log('\nThe items through backup, erase and restore');
+    eq('the full backup restores', (await restore(backup)).status, 200);
+    eq('the items are back as they were', stored().items, ITEMS);
+    const noItems = await restore({ ...backup, items: [] });
+    eq('a backup with no items restores', noItems.status, 200);
+    eq('and empties the catalogue, as the file says', stored().items, []);
+    const v2 = { ...backup, version: 2 };
+    delete v2.items;
+    const v2done = await restore(v2);
+    eq('a version 2 backup (no items key) restores', v2done.status, 200);
+    eq('saying no items were in it', v2done.body && v2done.body.restored.items, null);
+    eq('and leaves the items as they were (still empty)', stored().items, []);
+    eq('its bills', stored().bills.length, 4);
+    eq('the full backup again', (await restore(backup)).status, 200);
+    eq('every item back, identical', stored().items, ITEMS);
+    const v2keep = await restore(v2);
+    eq('a version 2 backup over a full catalogue', v2keep.status, 200);
+    eq('leaves every item in place', stored().items, ITEMS);
+    const v3missing = { ...backup };
+    delete v3missing.items;
+    const missing = await restore(v3missing);
+    eq('a version 3 file without items is refused as damaged', missing.status, 400);
+    check('saying so', /damaged/i.test(String(missing.body && missing.body.error)), JSON.stringify(missing.body));
+    const dupItem = await restore({ ...backup, items: [...backup.items, backup.items[0]] });
+    eq('an item twice is refused', dupItem.status, 400);
+    eq('a refused file leaves the items alone', stored().items, ITEMS);
+    eq('an item that is not a record is refused', (await restore({ ...backup, items: ['rice'] })).status, 400);
 
     console.log('\nA big book');
     const bills = [];

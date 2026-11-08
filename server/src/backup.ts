@@ -11,13 +11,19 @@ import { customerBalance, type BookSnapshot } from './store/types';
  * Version 1 was `{ at, settings, customers, bills, payments }` with no marker, the settings as
  * the app reads them, customers with their balance, and at most 5000 bills and payments. It is
  * still accepted. Version 2 says what it is, which shop it came from, carries every bill and
- * payment, the stored settings, and the last bill number handed out.
+ * payment, the stored settings, and the last bill number handed out. Version 3 adds `items`, the
+ * old item catalogue the database still holds, so that every collection of the store is in the
+ * file (BOOK_COLLECTIONS; restoretest fails when one is left out).
+ *
+ * Restoring a version 1 or 2 file, which has no `items`, leaves the shop's items exactly as they
+ * are: the file says nothing about them, and that is no reason to erase them. A version 3 file
+ * must carry `items` (an empty list is fine); one without is damaged.
  *
  * The top-level fields of version 1 keep their names, so anything that read the old file reads
  * the new one.
  */
 export const BACKUP_FORMAT = 'shridhar-billing-backup';
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
 
 export type BackupFile = {
   format: typeof BACKUP_FORMAT;
@@ -29,6 +35,7 @@ export type BackupFile = {
   bills: unknown[];
   payments: unknown[];
   counters: { billNo: number };
+  items: Record<string, unknown>[];
 };
 
 export function buildBackup(book: BookSnapshot, at = new Date()): BackupFile {
@@ -48,6 +55,7 @@ export function buildBackup(book: BookSnapshot, at = new Date()): BackupFile {
     bills: book.bills,
     payments: book.payments,
     counters: { billNo: book.billNo },
+    items: book.items ?? [],
   };
 }
 
@@ -102,6 +110,8 @@ const fileShape = z.object({
   bills: z.array(billRow).max(MAX_ROWS),
   payments: z.array(paymentRow).max(MAX_ROWS).default([]),
   counters: z.object({ billNo: z.number().int().nonnegative() }).passthrough().optional(),
+  // Raw catalogue rows; only Mongo's own fields are taken off. Absent before version 3.
+  items: z.array(z.record(z.unknown())).max(MAX_ROWS).optional(),
 }).passthrough();
 
 /** Mongo's own fields, never carried from a file into a store. */
@@ -144,6 +154,9 @@ export function readBackup(raw: unknown): { book: BookSnapshot; version: number;
     throw new HttpError(400, 'The backup file is damaged (' + (first ? first.path.join('.') + ': ' + first.message : 'unreadable') + ')');
   }
   const file = parsed.data;
+  if (version >= 3 && file.items === undefined) {
+    throw new HttpError(400, 'The backup file is damaged (items: missing)');
+  }
   const given = raw as { customers: Record<string, unknown>[]; bills: Record<string, unknown>[]; payments?: Record<string, unknown>[]; settings: Record<string, unknown> };
   // The rows as the file has them, fields in their own order; only a field the checks filled in
   // because an older file lacked it is added. "Exactly as it was" includes the order.
@@ -162,6 +175,8 @@ export function readBackup(raw: unknown): { book: BookSnapshot; version: number;
   if (dupPayment != null) throw new HttpError(400, 'The backup file is damaged: payment ' + dupPayment + ' appears twice');
   const dupClient = duplicate(file.bills.map((b) => b.clientId).filter((c): c is string => typeof c === 'string' && c !== ''));
   if (dupClient != null) throw new HttpError(400, 'The backup file is damaged: one save appears as two bills');
+  const dupItem = duplicate((file.items ?? []).map((it) => it.id).filter((id): id is string => typeof id === 'string' && id !== ''));
+  if (dupItem != null) throw new HttpError(400, 'The backup file is damaged: item ' + dupItem + ' appears twice');
 
   const highest = file.bills.reduce((m, b) => Math.max(m, b.no), 0);
   const customers = asGiven(given.customers, file.customers).map((c) => {
@@ -185,6 +200,8 @@ export function readBackup(raw: unknown): { book: BookSnapshot; version: number;
       payments: payments as unknown as BookSnapshot['payments'],
       // Never below the highest bill in the file, or the next bill would take a number in use.
       billNo: Math.max(file.counters?.billNo ?? 0, highest),
+      // Absent (an older file): the store leaves its items as they are. See BookSnapshot.items.
+      ...(file.items !== undefined ? { items: file.items.map((it) => clean({ ...it })) } : {}),
     },
   };
 }

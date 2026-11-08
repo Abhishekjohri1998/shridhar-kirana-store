@@ -4,8 +4,8 @@ import {
   type Bill, type BillLine, type Customer, type Ink, type Payment, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
-  DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId, upsertDoc,
-  type BookSnapshot, type CustomerInput, type NewBill, type Repo,
+  BOOK_COLLECTIONS, DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId,
+  upsertDoc, type BookSnapshot, type CustomerInput, type NewBill, type Repo,
 } from './types';
 
 /** What is actually stored for a customer: the running figures, without the derived balance. */
@@ -219,6 +219,30 @@ const Payments: Model<Payment> =
 const Counters: Model<CounterDoc> =
   (mongoose.models.Counter as Model<CounterDoc> | undefined) ??
   mongoose.model<CounterDoc>('Counter', counterSchema);
+
+/**
+ * The old item catalogue. Its model went with the /items routes, but the shop's database still
+ * holds the collection, so the backup carries it as raw documents and a restore puts it back.
+ */
+const ITEMS = 'items';
+
+/**
+ * Every collection this store keeps: the five models and the catalogue. restoretest checks this
+ * is exactly BOOK_COLLECTIONS, so a model added here without a place in the backup fails a test.
+ */
+export function mongoCollections(): string[] {
+  return [Bills, Customers, SettingsModel, Payments, Counters].map((m) => m.collection.collectionName).concat(ITEMS);
+}
+
+/** Collections of this database a backup would not carry. Must be none, or the backup refuses. */
+async function uncoveredCollections(): Promise<string[]> {
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('Not connected to MongoDB');
+  const known: readonly string[] = BOOK_COLLECTIONS;
+  const names = (await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
+  // system.* is the server's own; `__restore` is a side copy from a restore that stopped.
+  return names.filter((n) => !n.startsWith('system.') && !n.endsWith('__restore') && !known.includes(n));
+}
 
 export async function createMongoRepo(uri: string): Promise<Repo> {
   await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
@@ -744,12 +768,20 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
     },
 
     async snapshot() {
-      const [settingsDoc, customers, bills, payments, counter] = await Promise.all([
+      // A collection the backup does not know is one it would silently leave behind. Refused,
+      // loudly: a backup that is trusted and incomplete is worse than none.
+      const uncovered = await uncoveredCollections();
+      if (uncovered.length) {
+        throw new Error('The database holds ' + uncovered.join(', ') + ', which a backup does not carry. '
+          + 'Update the server before taking a backup or restoring one.');
+      }
+      const [settingsDoc, customers, bills, payments, counter, items] = await Promise.all([
         SettingsModel.findOne({ key: 'shop' }).lean(),
         Customers.find({}).lean(),
         Bills.find({}).sort({ no: 1 }).lean(),
         Payments.find({}).lean(),
         Counters.findOne({ key: 'billNo' }).lean(),
+        mongoose.connection.db!.collection(ITEMS).find({}).sort({ _id: 1 }).toArray(),
       ]);
       let settings: Record<string, unknown> = { ...DEFAULT_SETTINGS };
       if (settingsDoc) {
@@ -762,6 +794,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         bills: bills.map((d) => strip(d as unknown as Bill)),
         payments: payments.map((d) => strip(d as unknown as Payment)),
         billNo: (counter as unknown as CounterDoc | null)?.value ?? 0,
+        items: items.map((d) => strip(d as unknown as Record<string, unknown>)),
       };
     },
 
@@ -776,18 +809,40 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
 /** Inserted in slices, so a book of thousands of bills never becomes one enormous command. */
 const SLICE = 500;
 
+type IndexSpec = [Record<string, unknown>, Record<string, unknown>];
+
+/** The indexes a raw collection has now (its `_id` aside), to build the same on its side copy. */
+async function liveIndexes(name: string): Promise<IndexSpec[]> {
+  const db = mongoose.connection.db;
+  if (!db) return [];
+  try {
+    const all = await db.collection(name).listIndexes().toArray();
+    return all
+      .filter((ix) => ix.name !== '_id_')
+      .map((ix) => {
+        const { key, v: _v, ns: _ns, ...options } = ix as Record<string, unknown>;
+        return [key as Record<string, unknown>, options] as IndexSpec;
+      });
+  } catch {
+    return []; // No such collection yet: nothing to copy.
+  }
+}
+
 /**
  * A whole book in place of the live one.
  *
  * Each collection is filled on the side (`<name>__restore`) with its indexes built there -- so a
- * duplicate bill number fails here, before anything live is touched -- and then all five are
+ * duplicate bill number fails here, before anything live is touched -- and then all of them are
  * renamed over the live ones one after another. The slow part, writing every bill, happens while
- * the shop's book is still whole; the swap itself is five quick renames.
+ * the shop's book is still whole; the swap itself is a few quick renames.
+ *
+ * The item catalogue is in the plan only when the book carries it. A version 1 or 2 backup does
+ * not, and then the live items are left exactly as they are.
  *
  * Should the server refuse a rename before anything has moved (some hosted tiers limit it), the
- * same writes are made inside one transaction instead. A rename failing part-way through the
- * five is the one case left half-done, which is what the safety backup the route takes first is
- * for, and the error says so.
+ * same writes are made inside one transaction instead. A rename failing part-way through is the
+ * one case left half-done, which is what the safety backup the route takes first is for, and the
+ * error says so.
  */
 async function replaceMongoBook(book: BookSnapshot): Promise<void> {
   const db = mongoose.connection.db;
@@ -796,40 +851,46 @@ async function replaceMongoBook(book: BookSnapshot): Promise<void> {
   // Other counters, if any ever exist, are carried across untouched; only the bill number moves.
   const otherCounters = (await Counters.find({ key: { $ne: 'billNo' } }).lean())
     .map((d) => { const { _id, __v, ...rest } = d as unknown as Record<string, unknown>; return rest; });
-  const plan: { model: Model<any>; docs: Record<string, unknown>[] }[] = [
-    { model: Bills, docs: book.bills as unknown as Record<string, unknown>[] },
-    { model: Customers, docs: book.customers },
-    { model: Payments, docs: book.payments as unknown as Record<string, unknown>[] },
-    { model: SettingsModel, docs: [{ ...book.settings, key: 'shop' }] },
-    { model: Counters, docs: [...otherCounters, { key: 'billNo', value: book.billNo }] },
+  const ofModel = (model: Model<any>, docs: Record<string, unknown>[]) => ({
+    name: model.collection.collectionName,
+    docs,
+    indexes: model.schema.indexes() as unknown as IndexSpec[],
+  });
+  const plan: { name: string; docs: Record<string, unknown>[]; indexes: IndexSpec[] }[] = [
+    ofModel(Bills, book.bills as unknown as Record<string, unknown>[]),
+    ofModel(Customers, book.customers),
+    ofModel(Payments, book.payments as unknown as Record<string, unknown>[]),
+    ofModel(SettingsModel, [{ ...book.settings, key: 'shop' }]),
+    ofModel(Counters, [...otherCounters, { key: 'billNo', value: book.billNo }]),
   ];
-  const sideName = (m: Model<any>) => m.collection.collectionName + '__restore';
+  if (book.items !== undefined) plan.push({ name: ITEMS, docs: book.items, indexes: await liveIndexes(ITEMS) });
+  const sideName = (name: string) => name + '__restore';
   const dropSide = async (name: string) => {
     await db.dropCollection(name).catch(() => undefined);
   };
 
   try {
-    for (const { model, docs } of plan) {
-      const name = sideName(model);
+    for (const { name: live, docs, indexes } of plan) {
+      const name = sideName(live);
       await dropSide(name);
       await db.createCollection(name);
       const side = db.collection(name);
       for (let i = 0; i < docs.length; i += SLICE) {
         await side.insertMany(docs.slice(i, i + SLICE).map((d) => ({ ...d })), { ordered: true });
       }
-      for (const [fields, options] of model.schema.indexes()) {
-        await side.createIndex(fields as Record<string, 1 | -1>, options as Record<string, unknown>);
+      for (const [fields, options] of indexes) {
+        await side.createIndex(fields as Record<string, 1 | -1>, options);
       }
     }
   } catch (err) {
-    for (const { model } of plan) await dropSide(sideName(model));
+    for (const { name } of plan) await dropSide(sideName(name));
     throw new Error('The backup could not be written, and nothing was changed: ' + (err as Error).message);
   }
 
   let swapped = 0;
   try {
-    for (const { model } of plan) {
-      await db.renameCollection(sideName(model), model.collection.collectionName, { dropTarget: true });
+    for (const { name } of plan) {
+      await db.renameCollection(sideName(name), name, { dropTarget: true });
       swapped++;
     }
     return;
@@ -845,8 +906,8 @@ async function replaceMongoBook(book: BookSnapshot): Promise<void> {
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
-      for (const { model, docs } of plan) {
-        const live = db.collection(model.collection.collectionName);
+      for (const { name, docs } of plan) {
+        const live = db.collection(name);
         await live.deleteMany({}, { session });
         for (let i = 0; i < docs.length; i += SLICE) {
           await live.insertMany(docs.slice(i, i + SLICE).map((d) => ({ ...d })), { ordered: true, session });
@@ -857,6 +918,6 @@ async function replaceMongoBook(book: BookSnapshot): Promise<void> {
     throw new Error('The backup could not be put in place, and nothing was changed: ' + (err as Error).message);
   } finally {
     await session.endSession();
-    for (const { model } of plan) await dropSide(sideName(model));
+    for (const { name } of plan) await dropSide(sideName(name));
   }
 }
