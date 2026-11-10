@@ -617,6 +617,7 @@ export function SettingsScreen() {
             label={t('set.erasePassword')}
             value={resetPw}
             secureTextEntry
+            keyboardType="number-pad"
             autoCapitalize="none"
             onChangeText={setResetPw}
           />
@@ -680,6 +681,7 @@ export function SettingsScreen() {
             label={t('set.erasePassword')}
             value={restorePw}
             secureTextEntry
+            keyboardType="number-pad"
             autoCapitalize="none"
             onChangeText={setRestorePw}
           />

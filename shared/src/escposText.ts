@@ -6,7 +6,11 @@ const LF = 0x0a;
 
 /** Dots per character of the printer's built-in Font A (12 x 24). */
 const FONT_A_DOTS = 12;
-/** A row this size or larger (the shop name, TOTAL) prints at double height. */
+/**
+ * A row this size or larger (the shop name, TOTAL) prints bold at the normal size. The image path
+ * draws them only a little larger than the items, so the printer's double size (twice as wide and
+ * tall) made a typed bill's header much bigger than a handwritten bill's. Bold matches it closely.
+ */
 const BIG = 28;
 /** Narrowest the line-number column gets: "12 ". It widens to fit the "No." heading or a 3-digit line. */
 const MIN_NO_COL = 3;
@@ -83,12 +87,12 @@ function layout(doc: ReceiptDoc): Piece[] {
     else if (row.t === 'sep') out.push({ text: '-'.repeat(cols) });
     else if (row.t === 'center') {
       const big = (row.size ?? 0) >= BIG;
-      for (const text of wrapText(row.text, big ? Math.floor(cols / 2) : cols)) {
-        out.push({ text, big, wide: big, bold: row.bold, center: true });
+      for (const text of wrapText(row.text, cols)) {
+        out.push({ text, bold: row.bold || big, center: true });
       }
     } else if (row.t === 'kv') {
       const big = (row.size ?? 0) >= BIG;
-      for (const text of spread(row.left, row.right, cols)) out.push({ text, big, bold: row.bold });
+      for (const text of spread(row.left, row.right, cols)) out.push({ text, bold: row.bold || big });
     } else if (row.t === 'item') {
       const no = row.no.padEnd(NO_COL);
       const room = Math.max(8, cols - NO_COL - (row.amount ? row.amount.length + 1 : 0));

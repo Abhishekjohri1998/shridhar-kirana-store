@@ -714,6 +714,9 @@ console.log('Typed English bills as text');
     let printable = true;
     for (const b of bytes) if (b >= 0x7f) printable = false;
     check(paper + ': nothing but ASCII and control codes', printable);
+    let doubled = false;
+    for (let i = 0; i + 2 < bytes.length; i++) if (bytes[i] === 0x1d && bytes[i + 1] === 0x21 && bytes[i + 2] !== 0) doubled = true;
+    check(paper + ': header and TOTAL at the normal size (bold), like the image bill', !doubled);
     check(paper + ': starts ESC @, ends ESC d 4', bytes[0] === 0x1b && bytes[1] === 0x40
       && bytes[bytes.length - 3] === 0x1b && bytes[bytes.length - 2] === 0x64 && bytes[bytes.length - 1] === 4);
     check(paper + ': header sets line spacing ESC 3 30', bytes[5] === 0x1b && bytes[6] === 0x33 && bytes[7] === 30);

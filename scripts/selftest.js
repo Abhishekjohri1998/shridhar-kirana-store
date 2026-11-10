@@ -1339,9 +1339,10 @@ async function main() {
     check('the freed number is not handed out again', afterGap.body.no > toDelete.body.no,
       'got ' + afterGap.body.no + ' after deleting ' + toDelete.body.no);
 
-    // Switched off unless a password is configured, which this server has not got.
+    // Erasing asks for the PIN the owner signs in with; a wrong one erases nothing.
     const resetOff = await post('/api/reset', { password: 'anything', confirm: 'ERASE' });
-    eq('erasing is off when no password is set', resetOff.status, 404);
+    eq('a wrong PIN cannot erase', resetOff.status, 401);
+    eq('the login PIN with the wrong word erases nothing', (await post('/api/reset', { password: PIN, confirm: 'nope' })).status, 400);
     check('and nothing was erased', (await call('/api/bills', { headers: auth })).body.length > 0);
 
     const backup = await call('/api/backup', { headers: auth });

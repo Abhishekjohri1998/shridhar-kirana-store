@@ -13,8 +13,9 @@ const TOKEN_TTL = '30d'; // The counter tablet should not be asked to log in eve
  */
 export type BillingRole = 'shop' | 'admin';
 
-export function issueToken(role: string = 'shop'): string {
-  return jwt.sign({ role }, env.jwtSecret, { expiresIn: TOKEN_TTL });
+export function issueToken(role: string = 'shop', phone?: string): string {
+  // An admin's token carries their phone, so erasing and restoring can ask for their own login PIN.
+  return jwt.sign(phone ? { role, phone } : { role }, env.jwtSecret, { expiresIn: TOKEN_TTL });
 }
 
 /**
@@ -48,10 +49,16 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     const said = jwt.verify(token, env.jwtSecret);
     // Every token issued before roles were read carries `shop`, so nothing already signed in moves.
     res.locals.role = typeof said === 'object' && said && typeof said.role === 'string' ? said.role : '';
+    res.locals.phone = typeof said === 'object' && said && typeof said.phone === 'string' ? said.phone : '';
     next();
   } catch {
     next(new HttpError(401, 'Your session has expired. Sign in again.'));
   }
+}
+
+/** The phone an admin token was issued to; '' for the shop PIN or an older token. */
+export function phoneOf(res: Response): string {
+  return typeof res.locals.phone === 'string' ? res.locals.phone : '';
 }
 
 /** The role requireAuth read off the token. */

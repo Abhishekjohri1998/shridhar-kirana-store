@@ -1,9 +1,9 @@
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
-import express, { Router } from 'express';
+import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { ERASE_WORD, RESTORE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, roundedRate, notSeenFor } from '@shridhar/shared';
-import { issueToken, pinMatches, requireAdmin, requireAuth, roleOf, secretMatches } from './auth';
+import { issueToken, phoneOf, pinMatches, requireAdmin, requireAuth, roleOf, secretMatches } from './auth';
 import { SAFETY_NAME, buildBackup, readBackup, safetyDir, sameShop, writeSafetyBackup } from './backup';
 import { env } from './env';
 import { HttpError, handler } from './http';
@@ -211,7 +211,7 @@ api.post('/auth/person', handler(async (req, res) => {
     role: said.role,
     name: said.name,
     stockToken: said.token,
-    ...(said.role === 'admin' ? { token: issueToken('admin') } : {}),
+    ...(said.role === 'admin' ? { token: issueToken('admin', phone) } : {}),
   });
 }));
 
@@ -483,9 +483,6 @@ api.get('/backup', requireAdmin, handler(async (_req, res) => {
  * configured, so a server nobody has set one on cannot be wiped at all.
  */
 api.post('/reset', requireAdmin, handler(async (req, res) => {
-  if (!env.resetPassword) {
-    throw new HttpError(404, 'Erasing is switched off on this server');
-  }
   const body = z.object({
     password: z.string().max(200).default(''),
     confirm: z.string().max(20).default(''),
@@ -493,9 +490,7 @@ api.post('/reset', requireAdmin, handler(async (req, res) => {
     keepCustomers: z.boolean().default(false),
   }).parse(req.body);
 
-  if (!secretMatches(body.password, env.resetPassword)) {
-    throw new HttpError(401, 'That password is not right');
-  }
+  await checkOwnerPin(req, res, body.password);
   if (body.confirm !== ERASE_WORD) {
     throw new HttpError(400, 'Type ' + ERASE_WORD + ' to confirm');
   }
@@ -503,6 +498,27 @@ api.post('/reset', requireAdmin, handler(async (req, res) => {
   await getRepo().eraseAll(body.keepCustomers);
   res.status(204).end();
 }));
+
+/**
+ * Erasing and restoring ask for the same PIN the owner signs in with: the shop PIN, or an admin's
+ * own login PIN (checked with stock, using the phone on their token). The server's reset password,
+ * where one is set, still works too. Wrong tries count against the same brake as signing in.
+ */
+async function checkOwnerPin(req: Request, res: Response, pin: string): Promise<void> {
+  checkSignInBrake(req);
+  if (pin && pinMatches(pin)) return;
+  if (pin && env.resetPassword && secretMatches(pin, env.resetPassword)) return;
+  const phone = phoneOf(res);
+  if (pin && phone && roleOf(res) === 'admin') {
+    const said = await stockAuth(phone, pin);
+    if (said.kind === 'ok' && said.role === 'admin') return;
+    if (said.kind === 'off' || said.kind === 'down') {
+      throw new HttpError(503, 'The PIN cannot be checked just now. Try again in a minute, or use the shop PIN.');
+    }
+  }
+  noteSignInFailure(req);
+  throw new HttpError(401, 'That PIN is not right. Use the PIN you sign in with.');
+}
 
 /** A backup carries every bill with its handwriting: far past the 256 KB every other route gets. */
 export const RESTORE_BODY_LIMIT = '100mb';
@@ -518,17 +534,12 @@ export const RESTORE_BODY_LIMIT = '100mb';
  * then one more restore away from undone.
  */
 api.post('/restore', requireAdmin, express.json({ limit: RESTORE_BODY_LIMIT }), handler(async (req, res) => {
-  if (!env.resetPassword) {
-    throw new HttpError(404, 'Restoring is switched off on this server until a reset password is set on it');
-  }
   const body = z.object({
     password: z.string().max(200).default(''),
     confirm: z.string().max(20).default(''),
     backup: z.unknown(),
   }).parse(req.body ?? {});
-  if (!secretMatches(body.password, env.resetPassword)) {
-    throw new HttpError(401, 'That password is not right');
-  }
+  await checkOwnerPin(req, res, body.password);
   if (body.confirm !== RESTORE_WORD) {
     throw new HttpError(400, 'Type ' + RESTORE_WORD + ' to confirm');
   }

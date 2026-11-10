@@ -200,6 +200,7 @@ async function main() {
     eq('a wrong password is refused', (await restore(backup, { password: 'nope' })).status, 401);
     eq('without RESTORE typed it is refused', (await restore(backup, { confirm: '' })).status, 400);
     eq('the word has to be exact', (await restore(backup, { confirm: 'restore' })).status, 400);
+    eq('the login PIN is taken as the password (stops only at the missing word)', (await restore(backup, { password: PIN, confirm: '' })).status, 400);
     const junk = await restore({ hello: 'world' });
     eq('a file that is not a backup is refused', junk.status, 400);
     check('with a clear message', /not a backup/i.test(String(junk.body && junk.body.error)), JSON.stringify(junk.body));
