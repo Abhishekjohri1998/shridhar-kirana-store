@@ -15,6 +15,9 @@ export const RELOAD_BACKOFF_MS = [5_000, 15_000, 30_000, 60_000] as const;
 /** How often History and the Bill screen reload while they are on screen. */
 export const SCREEN_REFRESH_MS = 60_000;
 
+/** How often the apps ask the server whether the book changed on another device (a few bytes). */
+export const BOOK_STAMP_MS = 4_000;
+
 /** The wait before retry number `failures` (1 = after the first failure). */
 export function retryDelay(failures: number): number {
   if (failures <= 0) return 0;

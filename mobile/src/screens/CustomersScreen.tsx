@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   checkCustomer, customerMatches, customerName, customerPhones, localInput, money, parseLocalInput,
@@ -8,7 +8,7 @@ import { BillDialog } from '../components/BillDialog';
 import { Dialog } from '../components/Dialog';
 import { ScriptField } from '../components/ScriptField';
 import { Button, Empty, ErrorText, Field, Notice } from '../components/ui';
-import { api } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { useShop } from '../lib/useShop';
 import { C, R } from '../theme';
 import { CustomersIcon } from '../components/Icons';
@@ -38,8 +38,9 @@ export function CustomersScreen() {
   /** The one bill being looked at, from this customer's list. */
   const [bill, setBill] = useState<Bill | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** `quiet` keeps the list on screen while it reloads: a change from another device, not a first load. */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       setCustomers(await api.listCustomers());
       await shop.refreshInactive();
@@ -51,8 +52,10 @@ export function CustomersScreen() {
     }
   }, [shop]);
 
+  const firstLoad = useRef(true);
   useEffect(() => {
-    void load();
+    void load(!firstLoad.current);
+    firstLoad.current = false;
     // On mount, and again whenever the books are emptied. Every tab stays mounted, so without
     // that second trigger this screen kept showing the list it fetched when the app started --
     // which is exactly what an erase looked like from the counter: nothing happening.
@@ -184,6 +187,11 @@ export function CustomersScreen() {
     try {
       setOpen(await api.getCustomer(c.id));
     } catch (e) {
+      // Gone from the book (erased, or removed on another device): the list was old, so fetch it again.
+      if (e instanceof ApiError && e.status === 404) {
+        void load(true);
+        return;
+      }
       setError(e instanceof Error ? e.message : String(e));
     }
   };

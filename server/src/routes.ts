@@ -217,6 +217,31 @@ api.post('/auth/person', handler(async (req, res) => {
 
 api.use(requireAuth);
 
+/*
+ * The book's stamp: changes whenever anything in it is written, so other devices can ask "has
+ * anything changed?" every few seconds for a few bytes, and reload only when it has. Kept in
+ * memory: a restart gives a new stamp, which costs every device one extra reload, nothing more.
+ * `wipe` changes only on an erase or a restore, when other devices must drop what they hold.
+ */
+const BOOT = Date.now().toString(36);
+let bookWrites = 0;
+let bookWipes = 0;
+api.use((req, res, next) => {
+  // Bill drafts shown to stock, sign-ins and sessions are not the book.
+  if (req.method !== 'GET' && !/^\/(auth|stock)\//.test(req.path)) {
+    res.on('finish', () => {
+      if (res.statusCode >= 400) return;
+      bookWrites++;
+      if (req.path === '/reset' || req.path === '/restore') bookWipes++;
+    });
+  }
+  next();
+});
+api.get('/stamp', (_req, res) => {
+  res.set('cache-control', 'no-store');
+  res.json({ v: BOOT + '.' + bookWrites, wipe: BOOT + '.' + bookWipes });
+});
+
 /**
  * A fresh stock session for a shop-PIN sign-in, asked quietly on app start when none is saved or
  * it is near its end. 503 when stock cannot give one; the app just tries again next start.

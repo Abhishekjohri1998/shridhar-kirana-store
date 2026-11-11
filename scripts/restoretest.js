@@ -187,7 +187,14 @@ async function main() {
     }
 
     console.log('\nErase');
+    const stampBefore = (await call('/stamp')).body;
+    check('the book stamp is there', stampBefore && typeof stampBefore.v === 'string' && typeof stampBefore.wipe === 'string', JSON.stringify(stampBefore));
     eq('everything erased', (await call('/reset', 'POST', { password: RESET_PW, confirm: 'ERASE' })).status, 204);
+    const stampAfter = (await call('/stamp')).body;
+    check('an erase changes the stamp', stampAfter.v !== stampBefore.v);
+    check('and says it was a wipe', stampAfter.wipe !== stampBefore.wipe);
+    eq('a wrong PIN changes nothing', (await call('/reset', 'POST', { password: 'nope', confirm: 'ERASE' })).status, 401);
+    check('so the stamp stays', (await call('/stamp')).body.v === stampAfter.v);
     eq('no bills left', (await call('/bills')).body.length, 0);
 
     console.log('\nRefused restores change nothing');

@@ -8,7 +8,7 @@ import {
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
   coldStart, acceptStockToken, tokenState,
-  LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
+  LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, BOOK_STAMP_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
   type ReceiptLabels, type Settings, type T, type TodaySummary,
 } from '@shridhar/shared';
@@ -622,6 +622,42 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     setDataVersion((n) => n + 1);
     await reload();
   }, [reload]);
+
+  /*
+   * Another device changed the book (a bill, a customer, an erase): asked every few seconds for a
+   * few bytes, and only then is everything loaded again, so every device follows within seconds
+   * instead of on the next 60 s reload -- and the customer list, which had no reload at all,
+   * follows too. An erase or restore elsewhere also drops what this device holds of the old book.
+   */
+  const stampRef = useRef<{ v: string; wipe: string } | null>(null);
+  useEffect(() => {
+    if (!signedIn) { stampRef.current = null; return; }
+    let alive = true;
+    let busy = false;
+    const look = async () => {
+      if (busy || AppState.currentState !== 'active') return;
+      busy = true;
+      try {
+        const now = await api.stamp();
+        const was = stampRef.current;
+        stampRef.current = now;
+        if (!alive || !was) return;
+        if (now.wipe !== was.wipe && now.wipe.split('.')[0] === was.wipe.split('.')[0]) {
+          await forgetEverything();
+        } else if (now.v !== was.v) {
+          setDataVersion((n) => n + 1);
+          await refresh();
+        }
+      } catch {
+        /* offline or an older server without /stamp: the 60 s reloads still run */
+      } finally {
+        busy = false;
+      }
+    };
+    void look();
+    const timer = setInterval(() => void look(), BOOK_STAMP_MS);
+    return () => { alive = false; clearInterval(timer); };
+  }, [signedIn, refresh, forgetEverything]);
 
 
   // One startup pass: the address and session live on the device, so both reads are async.

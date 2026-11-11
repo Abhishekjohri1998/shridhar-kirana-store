@@ -339,6 +339,8 @@ export const api = {
   today: () => request<TodaySummary>('/summary/today'),
 
   listCustomers: () => request<Customer[]>('/customers'),
+  /** A few bytes that change whenever the book does (see the server's /stamp). */
+  stamp: () => request<{ v: string; wipe: string }>('/stamp', {}, 6000),
   searchCustomers: (q: string) => request<Customer[]>('/customers/search?q=' + encodeURIComponent(q)),
   getCustomer: (id: string) =>
     request<{ customer: Customer; bills: Bill[]; payments?: Payment[]; balanceAt: string | null }>(
