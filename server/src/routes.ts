@@ -9,7 +9,9 @@ import { env } from './env';
 import { HttpError, handler } from './http';
 import { checkSignInBrake, noteSignInFailure } from './rateLimit';
 import { getRepo } from './store';
-import { stockAuth, stockDraft, stockItems, stockLinkOn, stockQuote, stockShopAuth } from './stockLink';
+import {
+  STOCK_BIG_TIMEOUT_MS, bigAsk, stockAuth, stockDraft, stockErrorOf, stockItems, stockLinkOn, stockQuote, stockSession, stockShopAuth,
+} from './stockLink';
 import { ensureRoundTo } from './roundTo';
 import { DuplicateClientId } from './store/types';
 
@@ -215,6 +217,22 @@ api.post('/auth/person', handler(async (req, res) => {
   });
 }));
 
+/**
+ * A shop worker or the godown has no billing token, only stock's session. When that runs out the
+ * Stock tab asks here with the session it held; stock renews it unless the person's PIN was reset
+ * or they were switched off since (then 401, and the app asks them to sign in again).
+ */
+api.post('/stock/renew', handler(async (req, res) => {
+  const { stockToken } = z.object({ stockToken: z.string().min(1).max(4000) }).parse(req.body ?? {});
+  const said = await stockSession({ token: stockToken });
+  if (said.kind === 'ok') {
+    res.json({ stockToken: said.token, role: said.role, name: said.name });
+    return;
+  }
+  if (said.kind === 'denied') throw new HttpError(401, 'Stock does not know this sign-in any more. Sign in again.');
+  throw new HttpError(503, 'The stock server cannot give a session just now');
+}));
+
 api.use(requireAuth);
 
 /*
@@ -246,10 +264,27 @@ api.get('/stamp', (_req, res) => {
  * A fresh stock session for a shop-PIN sign-in, asked quietly on app start when none is saved or
  * it is near its end. 503 when stock cannot give one; the app just tries again next start.
  */
-api.post('/stock/session', handler(async (_req, res) => {
-  const stockToken = await stockShopAuth();
-  if (!stockToken) throw new HttpError(503, 'The stock server cannot give a session just now');
-  res.json({ stockToken });
+api.post('/stock/session', handler(async (req, res) => {
+  /*
+   * One sign-in for the app: the Stock tab asks here whenever its session is missing or over, so
+   * stock's own sign-in never shows. The shop PIN gets the shop's admin, as at sign-in. An admin who
+   * signed in by phone gets their own session back: from the one the device held, else by the phone
+   * their billing token carries.
+   */
+  const { stockToken } = z.object({ stockToken: z.string().max(4000).optional() }).parse(req.body ?? {});
+  const role = roleOf(res);
+  let token: string | null = null;
+  if (role === 'admin') {
+    let said = stockToken ? await stockSession({ token: stockToken }) : null;
+    const phone = phoneOf(res);
+    if ((!said || said.kind === 'denied') && phone) said = await stockSession({ phone });
+    if (said?.kind === 'ok') token = said.token;
+    else if (said?.kind === 'denied') throw new HttpError(401, 'Stock does not know this sign-in any more. Sign in again.');
+  } else {
+    token = await stockShopAuth();
+  }
+  if (!token) throw new HttpError(503, 'The stock server cannot give a session just now');
+  res.json({ stockToken: token });
 }));
 
 /**
@@ -258,7 +293,9 @@ api.post('/stock/session', handler(async (_req, res) => {
  */
 api.post('/auth/refresh', handler(async (_req, res) => {
   // The same role again: a refresh must never turn one kind of session into another.
-  res.json({ token: issueToken(roleOf(res) || 'shop') });
+  // And the same phone: an admin's refreshed token must still let erase and restore ask their PIN,
+  // and still renew their stock session.
+  res.json({ token: issueToken(roleOf(res) || 'shop', phoneOf(res) || undefined) });
 }));
 
 // ---------------------------------------------------------------------------- settings
@@ -513,6 +550,9 @@ api.post('/reset', requireAdmin, handler(async (req, res) => {
     confirm: z.string().max(20).default(''),
     // Sparing the names makes it no less of an erase, so both proofs are still required.
     keepCustomers: z.boolean().default(false),
+    // The app's whole-shop erase: stock's half too, all of it or the stock keeping the items.
+    // Absent (older apps, the website): billing alone, as before.
+    stock: z.enum(['everything', 'stock']).optional(),
   }).parse(req.body);
 
   await checkOwnerPin(req, res, body.password);
@@ -520,8 +560,44 @@ api.post('/reset', requireAdmin, handler(async (req, res) => {
     throw new HttpError(400, 'Type ' + ERASE_WORD + ' to confirm');
   }
 
-  await getRepo().eraseAll(body.keepCustomers);
-  res.status(204).end();
+  // No safety copy here: erasing asks for the whole-shop backup taken in the same sitting
+  // (the app keeps the button off until it is), and stock saves its own copy first.
+  const repo = getRepo();
+
+  // Stock first (it saves its own safety copy). If it fails, billing has not been touched.
+  let stock: { mode: string; safety: string } | null = null;
+  if (body.stock) {
+    const got = await bigAsk('POST', '/erase', { mode: body.stock });
+    const b = got.kind === 'answer' ? got.body : null;
+    if (got.kind !== 'answer' || got.status !== 200 || !isRecord(b)) {
+      const why = got.kind === 'answer' ? stockErrorOf(b) || 'stock answered ' + got.status : stockDownWords(got.kind === 'off');
+      throw new HttpError(502, 'Nothing was erased: the stock half failed (' + why + '). Billing was left as it was too.');
+    }
+    stock = { mode: body.stock, safety: typeof b.safety === 'string' ? b.safety : '' };
+  }
+
+  try {
+    testFailBilling();
+    await repo.eraseAll(body.keepCustomers);
+  } catch (e) {
+    console.error('[reset] billing half failed:', e);
+    res.status(500).json({
+      partial: !!stock,
+      error: stock
+        ? 'Only half was erased. STOCK WAS ERASED (its previous data is saved on the stock server as ' + stock.safety
+          + '). BILLING WAS NOT ERASED: it failed (' + (e instanceof Error ? e.message : String(e)) + ').'
+        : 'Billing was not erased: ' + (e instanceof Error ? e.message : String(e)) + '. Nothing was changed.',
+      halves: { billing: false, stock: !!stock },
+      stock,
+    });
+    return;
+  }
+  // 204 for the website and older apps, which ask billing alone; the app's whole erase hears both.
+  if (!body.stock) {
+    res.status(204).end();
+    return;
+  }
+  res.json({ halves: { billing: true, stock: true }, stock });
 }));
 
 /**
@@ -569,31 +645,152 @@ api.post('/restore', requireAdmin, express.json({ limit: RESTORE_BODY_LIMIT }), 
     throw new HttpError(400, 'Type ' + RESTORE_WORD + ' to confirm');
   }
 
-  const { book, version, at } = readBackup(body.backup);
-  const repo = getRepo();
-  const current = await repo.snapshot();
-  if (!sameShop(current.settings, book.settings)) {
-    throw new HttpError(409, 'This backup is from "' + String(book.settings.shopName)
-      + '", not "' + String(current.settings.shopName ?? '') + '". Nothing was restored.');
+  // The whole-shop file, or an old one with billing's or stock's half alone.
+  const halves = splitBackup(body.backup);
+  if (halves.billing == null && halves.stock == null) {
+    throw new HttpError(400, 'This file holds neither billing nor stock. Nothing was restored.');
   }
 
-  const safety = await writeSafetyBackup(buildBackup(current));
-  await repo.replaceAll(book);
-  console.log('[restore] backup of ' + (at ?? 'unknown date') + ' (v' + version + ') restored: '
-    + book.bills.length + ' bills, ' + book.customers.length + ' customers; previous book saved as ' + safety);
+  // Every check first, on both halves, before anything changes anywhere.
+  const repo = getRepo();
+  let billing: ReturnType<typeof readBackup> | null = null;
+  let current: Awaited<ReturnType<typeof repo.snapshot>> | null = null;
+  if (halves.billing != null) {
+    billing = readBackup(halves.billing);
+    current = await repo.snapshot();
+    if (!sameShop(current.settings, billing.book.settings)) {
+      throw new HttpError(409, 'This backup is from "' + String(billing.book.settings.shopName)
+        + '", not "' + String(current.settings.shopName ?? '') + '". Nothing was restored.');
+    }
+  }
+  const stockRaw = halves.stock != null ? JSON.stringify(halves.stock) : null;
+  if (stockRaw != null) {
+    const checked = await bigAsk('POST', '/restore', undefined, STOCK_BIG_TIMEOUT_MS, '{"check":true,"backup":' + stockRaw + '}');
+    if (checked.kind !== 'answer') {
+      throw new HttpError(503, 'The stock half cannot be restored: ' + stockDownWords(checked.kind === 'off') + ' Nothing was restored.');
+    }
+    if (checked.status !== 200) {
+      throw new HttpError(400, 'The stock half of this file cannot be restored: '
+        + (stockErrorOf(checked.body) || 'stock answered ' + checked.status) + ' Nothing was restored.');
+    }
+  }
+
+  // Billing's safety copy before anything changes, so a failure here changes nothing at all.
+  const safety = billing && current ? await writeSafetyBackup(buildBackup(current)) : null;
+
+  // Stock first (it saves its own safety copy). If it fails, billing has not been touched.
+  let stock: { counts: Record<string, number>; safety: string } | null = null;
+  if (stockRaw != null) {
+    const got = await bigAsk('POST', '/restore', undefined, STOCK_BIG_TIMEOUT_MS, '{"backup":' + stockRaw + '}');
+    const b = got.kind === 'answer' ? got.body : null;
+    if (got.kind !== 'answer' || got.status !== 200 || !isRecord(b)) {
+      const why = got.kind === 'answer' ? stockErrorOf(b) || 'stock answered ' + got.status : stockDownWords(got.kind === 'off');
+      throw new HttpError(502, 'Nothing was restored: the stock half failed (' + why + '). '
+        + (billing ? 'Billing was left as it was too.' : ''));
+    }
+    stock = {
+      counts: isRecord(b.counts) ? (b.counts as Record<string, number>) : {},
+      safety: typeof b.safety === 'string' ? b.safety : '',
+    };
+  }
+
+  if (billing) {
+    try {
+      testFailBilling();
+      await repo.replaceAll(billing.book);
+    } catch (e) {
+      console.error('[restore] billing half failed after stock was restored:', e);
+      // Said in full: one half is back and the other is not, and which is which.
+      res.status(500).json({
+        partial: !!stock,
+        error: stock
+          ? 'Only half was restored. STOCK WAS RESTORED from this file (its previous data is saved on the stock server as '
+            + stock.safety + '). BILLING WAS NOT RESTORED: it failed (' + (e instanceof Error ? e.message : String(e))
+            + ') and billing is as it was before. Restore the same file again to finish.'
+          : 'Billing was not restored: ' + (e instanceof Error ? e.message : String(e)) + '. Nothing was changed.',
+        halves: { billing: false, stock: !!stock },
+        stock,
+      });
+      return;
+    }
+  }
+
+  const at = billing?.at ?? null;
+  console.log('[restore] ' + (billing ? 'billing (' + billing.book.bills.length + ' bills) ' : '')
+    + (stock ? 'stock ' : '') + 'restored from ' + (at ?? 'a file') + (safety ? '; previous book saved as ' + safety : ''));
   res.json({
-    restored: {
-      bills: book.bills.length,
-      customers: book.customers.length,
-      payments: book.payments.length,
+    halves: { billing: !!billing, stock: !!stock },
+    // Null when the file had no billing half (a stock-only file): billing was left as it was.
+    restored: billing ? {
+      bills: billing.book.bills.length,
+      customers: billing.book.customers.length,
+      payments: billing.book.payments.length,
       // Null when the file had no items (version 1 or 2), and the shop's own were left in place.
-      items: book.items ? book.items.length : null,
-      nextBillNo: book.billNo + 1,
-      from: at,
-      version,
-    },
-    safety: { file: safety, url: '/api/restore/safety/' + encodeURIComponent(safety) },
+      items: billing.book.items ? billing.book.items.length : null,
+      nextBillNo: billing.book.billNo + 1,
+      from: billing.at,
+      version: billing.version,
+    } : null,
+    safety: safety ? { file: safety, url: '/api/restore/safety/' + encodeURIComponent(safety) } : null,
+    stock,
   });
+}));
+
+/* ------------------------------------------------------------- the whole shop: billing + stock */
+
+/**
+ * One file for the whole shop: billing's book and stock's store side by side. Each half is that
+ * program's own backup, unchanged, so either can still be read (and restored) on its own.
+ */
+export const WHOLE_FORMAT = 'shridhar-backup';
+export const WHOLE_VERSION = 1;
+const STOCK_FORMAT = 'shridhar-stock-backup';
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Which halves a restore file carries: the whole-shop file, a stock-only file, or billing's own. */
+export function splitBackup(raw: unknown): { billing: unknown | null; stock: unknown | null } {
+  if (isRecord(raw) && raw.format === WHOLE_FORMAT) {
+    return { billing: raw.billing ?? null, stock: raw.stock ?? null };
+  }
+  if (isRecord(raw) && raw.format === STOCK_FORMAT) return { billing: null, stock: raw };
+  return { billing: raw, stock: null };
+}
+
+/** NODE_ENV=test only: makes billing's half fail after stock's, to prove the message says so. */
+function testFailBilling(): void {
+  if (process.env.NODE_ENV === 'test' && process.env.WHOLE_TEST_FAIL_BILLING === '1') {
+    throw new Error('test: billing half made to fail');
+  }
+}
+
+/** Plain words for stock not answering, by what was being done. */
+function stockDownWords(off: boolean): string {
+  return off
+    ? 'Stock is not linked on this server (STOCK_URL and LINK_KEY).'
+    : 'The stock server did not answer.';
+}
+
+/**
+ * Settings → Backup in the app: both books in one file. With the stock link switched off on this
+ * server the file says so (`stock: null`) and the app tells the owner it holds billing only; with
+ * the link on but stock not answering, no file at all, so a half backup is never taken for whole.
+ */
+api.get('/backup/whole', requireAdmin, handler(async (_req, res) => {
+  const billing = buildBackup(await getRepo().snapshot());
+  let stock: unknown = null;
+  if (stockLinkOn()) {
+    const got = await bigAsk('GET', '/backup');
+    if (got.kind !== 'answer' || got.status !== 200 || !isRecord(got.body) || got.body.format !== STOCK_FORMAT) {
+      const why = got.kind === 'answer' ? stockErrorOf(got.body) || 'it answered ' + got.status : stockDownWords(got.kind === 'off');
+      throw new HttpError(503, 'The stock half could not be fetched (' + why + '). No backup was made. Try again in a minute.');
+    }
+    stock = got.body;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ format: WHOLE_FORMAT, version: WHOLE_VERSION, at: billing.at, billing, stock });
 }));
 
 /** The copy of the book taken just before a restore, to download and keep. */

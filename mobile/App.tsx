@@ -24,6 +24,7 @@ import { PersonLoginScreen } from './src/screens/PersonLoginScreen';
 import { ServerScreen } from './src/screens/ServerScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { StockScreen } from './src/screens/StockScreen';
+import { onOpenStock } from './src/lib/stockNav';
 import { C, R, T, TYPE, handFont, shadow } from './src/theme';
 
 const TABS = [
@@ -177,6 +178,12 @@ function Shell() {
     }
   }), []);
 
+  // Settings opens a stock page (places, people, ...): show the Stock tab; the window goes there.
+  useEffect(() => onOpenStock(() => {
+    setApp('stock');
+    setStockOpened(true);
+  }), []);
+
   if (!shop.ready || !fontsReady) {
     return (
       <View style={styles.loading}>
@@ -288,7 +295,11 @@ function Shell() {
             pointerEvents={app === 'stock' ? 'auto' : 'none'}
             importantForAccessibility={app === 'stock' ? 'auto' : 'no-hide-descendants'}
           >
-            <StockScreen active={app === 'stock'} />
+            <StockScreen
+              active={app === 'stock'}
+              // The stock site's "App settings": the one Settings, billing's tab.
+              onOpenSettings={() => { setApp('billing'); goRef.current('settings'); }}
+            />
           </View>
         ) : null}
 

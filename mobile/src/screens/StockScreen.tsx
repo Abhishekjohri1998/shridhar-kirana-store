@@ -10,6 +10,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { markStockSignOut, stockSignOutPending } from '../lib/api';
 import { refreshHandwriting } from '../lib/native';
 import { useShop } from '../lib/useShop';
+import { onOpenStock, takePendingStockPath } from '../lib/stockNav';
 import {
   HEALTH_PROBE_EVERY_MS, HEALTH_PROBE_TIMEOUT_MS, healthUrl, reconnectDelayMs, reloadTarget, stockFirstLoad,
 } from '@shridhar/shared';
@@ -71,6 +72,27 @@ function shippedStockUrl(): string {
   const extra = (Constants.expoConfig?.extra ?? {}) as { stockUrl?: string };
   return extra.stockUrl ?? '';
 }
+
+/*
+ * One sign-in for the whole app. The stock site, inside this window, never shows its own sign-in:
+ * when it has no session (none handed over, or it ran out, or a PIN changed) it posts
+ * 'need-session', and the app answers with a fresh one from billing's server through this event.
+ */
+const giveSession = (token: string) => `
+try { window.dispatchEvent(new CustomEvent('stock-session', { detail: { token: ${JSON.stringify(token)} } })); } catch (e) {}
+true;
+`;
+
+/** Goes to a stock page inside the site itself (its router hears popstate), no reload. */
+const goTo = (path: string) => `
+try {
+  if (location.pathname !== ${JSON.stringify(path)}) {
+    history.pushState(null, '', ${JSON.stringify(path)});
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }
+} catch (e) { location.assign(${JSON.stringify(path)}); }
+true;
+`;
 
 /*
  * The stock site saves Excel and CSV files through blob links, which an Android WebView drops on
@@ -175,7 +197,7 @@ const SPINNER_MAX_MS = 10000;
  * an admin is in, so the first tap on Stock is instant). Hidden, it takes no back presses and
  * no focus.
  */
-export function StockScreen({ active = true }: { active?: boolean }) {
+export function StockScreen({ active = true, onOpenSettings }: { active?: boolean; onOpenSettings?: () => void }) {
   const shop = useShop();
   const t = shop.t;
   const web = useRef<WebView>(null);
@@ -197,8 +219,6 @@ export function StockScreen({ active = true }: { active?: boolean }) {
   /* Decided once, when the window first opens: hand over this person's session, or forget the
      last one. Neither is repeated on later loads, so stock's own sign-out keeps working. */
   const [firstLoad, setFirstLoad] = useState<{ hash: string; forget: boolean; needPhone: boolean } | null>(null);
-  /** The shop-PIN note, once per opening, until dismissed or a stock session turns up. */
-  const [noteOff, setNoteOff] = useState(false);
   const firstDone = useRef(false);
   /** The session the window itself reported, so adopting it does not reload the window. */
   const fromWindow = useRef<string | null>(null);
@@ -344,11 +364,28 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     let msg: { type?: string; name?: string; mime?: string; data?: string; token?: string };
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
     if (msg.type === 'session') {
-      // Only a shop-PIN sign-in adopts the window's session; a person's comes from their sign-in.
-      if (!shop.person) {
-        if (typeof msg.token === 'string') fromWindow.current = msg.token.trim();
-        shop.keepStockToken(msg.token);
+      // The window's session is always one the app gave it (it has no sign-in of its own inside
+      // the app), or the same person's again after a PIN change: kept, so the next start has it.
+      if (typeof msg.token === 'string') fromWindow.current = msg.token.trim();
+      shop.keepStockToken(msg.token);
+      return;
+    }
+    if (msg.type === 'need-session') {
+      const got = await shop.renewStockToken();
+      if (got) {
+        fromWindow.current = got;
+        web.current?.injectJavaScript(giveSession(got));
       }
+      // Nothing now: the page asks again in a few seconds, and says what to do if it never comes.
+      return;
+    }
+    if (msg.type === 'sign-out') {
+      // Sign out in either half signs out of both.
+      shop.signOut();
+      return;
+    }
+    if (msg.type === 'open-settings') {
+      onOpenSettings?.();
       return;
     }
     if (msg.type === 'need-location') {
@@ -375,7 +412,15 @@ export function StockScreen({ active = true }: { active?: boolean }) {
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(file, { mimeType: msg.mime, dialogTitle: safe });
     }
-  }, [shop.person, shop.keepStockToken]);
+  }, [shop.keepStockToken, shop.renewStockToken, shop.signOut, onOpenSettings]);
+
+  /* Settings asks for a stock page (places, people, ...): go there once the window has loaded. */
+  const loadedOnce = useRef(false);
+  useEffect(() => onOpenStock((path) => {
+    if (!loadedOnce.current) return; // taken on the first load below
+    takePendingStockPath();
+    web.current?.injectJavaScript(goTo(path));
+  }), []);
 
   const saveAddress = async () => {
     const next = draft.trim().replace(/\/+$/, '');
@@ -446,6 +491,11 @@ export function StockScreen({ active = true }: { active?: boolean }) {
         onLoadProgress={(e) => { if (e.nativeEvent.progress >= 1) setLoading(false); }}
         onLoadEnd={() => {
           firstDone.current = true;
+          if (!failedThisLoad.current) {
+            loadedOnce.current = true;
+            const pending = takePendingStockPath();
+            if (pending) web.current?.injectJavaScript(goTo(pending));
+          }
           setLoading(false);
           if (!failedThisLoad.current) {
             // Loaded: whatever was failing is over.
@@ -466,15 +516,6 @@ export function StockScreen({ active = true }: { active?: boolean }) {
           if (s.url && /^https?:/i.test(s.url) && !/^data:|chrome-error:/i.test(s.url)) lastUrl.current = s.url;
         }}
       />
-      {/* Shop PIN, no stock session yet: one clear note, once. */}
-      {active && firstLoad.needPhone && !shop.stockToken && !noteOff ? (
-        <View style={styles.note77}>
-          <Text style={styles.note77Text}>{t('stock.needPhone')}</Text>
-          <Pressable onPress={() => setNoteOff(true)} hitSlop={8}>
-            <Text style={styles.link}>{t('stock.noteOk')}</Text>
-          </Pressable>
-        </View>
-      ) : null}
       {loading && failingSince === null ? (
         <View style={styles.loadingBar} pointerEvents="none">
           <ActivityIndicator color={C.accent} />
@@ -538,11 +579,5 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 8, alignSelf: 'center', backgroundColor: C.card, borderRadius: R.pill,
     borderWidth: 1, borderColor: C.lineStrong, paddingHorizontal: 14, paddingVertical: 6,
   },
-  note77: {
-    position: 'absolute', bottom: 12, left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: C.card, borderRadius: R.sm, borderWidth: 1, borderColor: C.lineStrong,
-    paddingHorizontal: 14, paddingVertical: 10,
-  },
-  note77Text: { flex: 1, color: C.ink, fontWeight: '600' },
   stripText: { color: C.soft, fontWeight: '600' },
 });

@@ -95,6 +95,8 @@ const used = new Set(
 for (const m of sources.matchAll(/key:\s*'((?:nav)\.[\w.]+)'/g)) used.add(m[1]);
 // The shortcut list names its help lines in shared/src/shortcuts.ts; both apps feed them to t().
 for (const m of fs.readFileSync(path.join(ROOT, 'shared', 'src', 'shortcuts.ts'), 'utf8').matchAll(/labelKey:\s*'([\w.]+)'/g)) used.add(m[1]);
+// The stock pages Settings opens are named in a table in mobile/src/lib/stockNav.ts.
+for (const m of sources.matchAll(/label:\s*'(set\.stock[\w.]*)'/g)) used.add(m[1]);
 // Settings passes these as a variable, so they never appear literally inside t(...).
 for (const m of sources.matchAll(/'(set\.saved[\w.]*)'/g)) used.add(m[1]);
 

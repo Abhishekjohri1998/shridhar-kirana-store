@@ -317,6 +317,19 @@ async function main() {
     eq('every bill of it', stored().bills.length, 2500);
     const bloated = await call('/bills', 'POST', { lines: [{ itemId: 'z', qty: 1, rate: 1 }], note: 'x'.repeat(300 * 1024) });
     eq('other routes keep their 256 KB limit', bloated.status, 413);
+    console.log('\nThe whole-shop file (billing + stock)');
+    const wholeOff = await call('/backup/whole');
+    check('with stock not linked, the whole file holds billing and says stock is absent',
+      wholeOff.status === 200 && wholeOff.body.format === 'shridhar-backup' && wholeOff.body.stock === null
+        && wholeOff.body.billing.bills.length === 2500, String(wholeOff.status));
+    const wholeBack = await restore({ ...wholeOff.body, billing: backup });
+    check('its billing half restores, and stock is said to be left alone',
+      wholeBack.status === 200 && wholeBack.body.halves.billing === true && wholeBack.body.halves.stock === false
+        && wholeBack.body.stock === null && wholeBack.body.restored.bills === 4, JSON.stringify(wholeBack.body));
+    const stockHalf = await restore({ format: 'shridhar-stock-backup', version: 1, collections: {} });
+    check('a stock-only file with no stock link restores nothing, and says so',
+      stockHalf.status === 503 && /Nothing was restored/.test(String(stockHalf.body && stockHalf.body.error)), JSON.stringify(stockHalf.body));
+    eq('the book is untouched by that refusal', stored().bills.length, 4);
     eq('only the last ten safety copies are kept', safetyFiles().length <= 10, true);
   } finally {
     child.kill();

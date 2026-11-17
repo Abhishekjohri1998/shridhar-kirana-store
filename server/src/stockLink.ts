@@ -145,3 +145,65 @@ export async function stockShopAuth(): Promise<string | null> {
   const got = await ask<{ token?: unknown }>('/shop-auth', { method: 'POST', body: {} });
   return isObj(got) && typeof got.token === 'string' && got.token ? got.token : null;
 }
+
+/* ------------------------------------------------------------ one app: sessions and the whole shop */
+
+/**
+ * A fresh stock session without a PIN, for someone already signed in to the app: from the stock
+ * session the device held (even expired; stock refuses it after a PIN reset or a switch-off), or
+ * from the phone of an admin billing signed in. Same answers as stockAuth.
+ */
+export async function stockSession(proof: { token?: string; phone?: string }): Promise<StockAuthAnswer> {
+  const got = await bigAsk('POST', '/session', proof, STOCK_TIMEOUT_MS);
+  if (got.kind !== 'answer') return got;
+  if (got.status === 401 || got.status === 403 || got.status === 429) {
+    return { kind: 'denied', status: got.status, error: errorOf(got.body) };
+  }
+  const b = got.body;
+  if (got.status !== 200 || !isObj(b) || typeof b.token !== 'string' || !b.token
+    || (b.role !== 'admin' && b.role !== 'worker' && b.role !== 'godown')) return { kind: 'down' };
+  return { kind: 'ok', role: b.role, name: typeof b.name === 'string' ? b.name : '', token: b.token };
+}
+
+/** A backup, restore or erase moves the whole store: minutes, not the till's 2.5 seconds. */
+export const STOCK_BIG_TIMEOUT_MS = 180_000;
+
+export type BigAnswer = { kind: 'answer'; status: number; body: unknown } | { kind: 'off' } | { kind: 'down' };
+
+function errorOf(body: unknown): string {
+  return isObj(body) && typeof body.error === 'string' ? body.error : '';
+}
+
+/**
+ * One call to stock that answers whatever stock said, status and all, for the whole-shop backup,
+ * restore and erase: those must tell "stock refused this file" from "stock is not there". `raw`
+ * is a request body already written as JSON (a restore's file is passed on as it came).
+ */
+export async function bigAsk(method: 'GET' | 'POST', path: string, body?: unknown, timeoutMs = STOCK_BIG_TIMEOUT_MS, raw?: string): Promise<BigAnswer> {
+  if (!stockLinkOn()) return { kind: 'off' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(env.stockUrl + '/api/billing-link' + path, {
+      method,
+      headers: {
+        'x-link-key': env.linkKey,
+        ...(body !== undefined || raw !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(raw !== undefined ? { body: raw } : body !== undefined ? { body: JSON.stringify(body) } : {}),
+      signal: controller.signal,
+    });
+    let out: unknown = null;
+    try { out = await res.json(); } catch { out = null; }
+    // Stock refusing billing's own key is a broken link, not an answer about the file.
+    if (res.status === 401 && /link key/i.test(errorOf(out))) return { kind: 'down' };
+    if (res.status === 404 && /no such address/i.test(errorOf(out))) return { kind: 'down' };
+    return { kind: 'answer', status: res.status, body: out };
+  } catch {
+    return { kind: 'down' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export { errorOf as stockErrorOf };

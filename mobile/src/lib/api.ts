@@ -181,9 +181,19 @@ export { normaliseServerUrl };
 
 /** What a restore answers: how much came back, and the copy of the book it replaced. */
 export type RestoreResult = {
-  restored: { bills: number; customers: number; payments: number; nextBillNo: number; from: string | null; version: number };
-  safety: { file: string; url: string };
+  /** Which halves of the whole-shop file were put back (older servers leave this out). */
+  halves?: { billing: boolean; stock: boolean };
+  /** Null when the file had no billing half and billing was left as it was. */
+  restored: { bills: number; customers: number; payments: number; nextBillNo: number; from: string | null; version: number } | null;
+  safety: { file: string; url: string } | null;
+  /** Stock's half: how many of each it put back, and its own safety copy (on the stock server). */
+  stock?: { counts: Record<string, number>; safety: string } | null;
 };
+
+/** The whole-shop backup: billing's and stock's own files side by side; `stock` null when not linked. */
+export type WholeBackup = { format: 'shridhar-backup'; version: number; at: string; billing: unknown; stock: unknown | null };
+
+export type StockEraseMode = 'everything' | 'stock';
 
 /** A restore uploads the whole book, handwriting and all: given two minutes, not fifteen seconds. */
 const RESTORE_TIMEOUT_MS = 120_000;
@@ -249,7 +259,9 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = LOAD
   // A 401 from the login route means the PIN was wrong, not that a session lapsed.
   // Nor from erasing or restoring, where it is the reset password that was wrong: that must say
   // so, not sign the shop out.
-  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/person' && !PASSWORD_ROUTES.has(path)) {
+  // Nor from renewing a stock session: that is stock's answer about stock, not about billing.
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/person' && !PASSWORD_ROUTES.has(path)
+    && path !== '/stock/session' && path !== '/stock/renew') {
     await setToken(null);
     throw new ApiError(401, 'Your session has expired. Sign in again.');
   }
@@ -272,7 +284,13 @@ export const api = {
   refresh: () => request<{ token: string }>('/auth/refresh', { method: 'POST', body: '{}' }),
   login: (pin: string) => request<{ token: string; stockToken?: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ pin }) }),
   /** A fresh stock session for a shop-PIN sign-in, so Stock renews without the PIN. */
-  stockSession: () => request<{ stockToken: string }>('/stock/session', { method: 'POST', body: '{}' }),
+  stockSession: (stockToken?: string | null) => request<{ stockToken: string }>('/stock/session', {
+    method: 'POST', body: JSON.stringify(stockToken ? { stockToken } : {}),
+  }),
+  /** A worker's or the godown's stock session, renewed from the one they held (they have no billing token). */
+  stockRenew: (stockToken: string) => request<{ stockToken: string }>('/stock/renew', {
+    method: 'POST', body: JSON.stringify({ stockToken }),
+  }),
   /** Phone and PIN of a stock account. Only an admin gets `token` (billing). */
   person: (phone: string, pin: string) =>
     request<{ role: PersonRole; name: string; stockToken: string; token?: string }>(
@@ -318,11 +336,14 @@ export const api = {
   /** Everything in the book, for keeping before a reset. */
   backup: () => request<{ at: string; settings: unknown; customers: unknown[]; bills: unknown[] }>('/backup'),
   /** `keepCustomers` spares the names and phone numbers and zeroes what they are owed. */
-  eraseAll: (password: string, confirm: string, keepCustomers = false) =>
-    request<void>('/reset', {
+  /** Both books in one file (Settings → Backup). Long timeout: stock's half is fetched on the way. */
+  backupWhole: () => request<WholeBackup>('/backup/whole', {}, RESTORE_TIMEOUT_MS),
+  /** `stock` erases stock's half too, in that mode; left out, billing alone. */
+  eraseAll: (password: string, confirm: string, keepCustomers = false, stock?: StockEraseMode) =>
+    request<unknown>('/reset', {
       method: 'POST',
-      body: JSON.stringify({ password, confirm, keepCustomers }),
-    }),
+      body: JSON.stringify({ password, confirm, keepCustomers, ...(stock ? { stock } : {}) }),
+    }, stock ? RESTORE_TIMEOUT_MS : undefined),
   /**
    * Puts a downloaded backup back over the book. `backupText` is the file as read, already
    * checked to be JSON; it is sent as it is rather than parsed and written out again, which on a

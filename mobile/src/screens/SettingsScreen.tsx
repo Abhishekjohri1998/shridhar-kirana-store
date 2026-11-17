@@ -22,7 +22,8 @@ import { ScriptField } from '../components/ScriptField';
 import { Button, Card, ErrorText, Field, Notice, SectionTitle } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useHeldInsets } from '../lib/screenEdges';
-import { ApiError, api } from '../lib/api';
+import { ApiError, api, type StockEraseMode } from '../lib/api';
+import { STOCK_SETTINGS_PAGES, openStockAt } from '../lib/stockNav';
 import { useShop } from '../lib/useShop';
 import type { PairedPrinter } from '../print/bluetooth';
 import { C } from '../theme';
@@ -218,13 +219,20 @@ export function SettingsScreen() {
   const [backedUp, setBackedUp] = useState(false);
   const [erased, setErased] = useState<'all' | 'bills' | null>(null);
   const [resetPw, setResetPw] = useState('');
+  /** The backup just taken holds billing only, because stock is not linked on this server. */
+  const [billingOnly, setBillingOnly] = useState(false);
+  /** What the erase does to stock's half: everything, or the stock with the items kept. */
+  const [stockMode, setStockMode] = useState<StockEraseMode>('everything');
+  const [erasedStock, setErasedStock] = useState<StockEraseMode | null>(null);
   const [resetWord, setResetWord] = useState('');
 
   const takeBackup = async () => {
     setDangerError(null);
     setBusy('backup');
     try {
-      const data = await api.backup();
+      // Both books, billing's and stock's, in one file (stock null when it is not linked here).
+      const data = await api.backupWhole();
+      setBillingOnly(data.stock == null);
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
       const path = FileSystem.cacheDirectory + 'shridhar-backup-' + stamp + '.json';
       await FileSystem.writeAsStringAsync(path, JSON.stringify(data, null, 2));
@@ -246,7 +254,10 @@ export function SettingsScreen() {
     setDangerError(null);
     setBusy('erase');
     try {
-      await api.eraseAll(resetPw, resetWord, keepCustomers);
+      // Stock's half too whenever stock is linked, in the mode chosen; billing alone otherwise.
+      const withStock = shop.stockOn ? stockMode : undefined;
+      await api.eraseAll(resetPw, resetWord, keepCustomers, withStock);
+      setErasedStock(withStock ?? null);
       setResetPw('');
       setResetWord('');
       setBackedUp(false);
@@ -276,7 +287,10 @@ export function SettingsScreen() {
   const [restoreWord, setRestoreWord] = useState('');
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
-  const [restored, setRestored] = useState<{ bills: number; customers: number; next: number; safety: string } | null>(null);
+  const [restored, setRestored] = useState<{
+    billing: { bills: number; customers: number; next: number; safety: string | null } | null;
+    stock: { items: number; places: number; people: number } | null;
+  } | null>(null);
 
   const pickedRestoreFile = (file: { name: string; text: string }) => {
     setRestoreError(null);
@@ -300,9 +314,13 @@ export function SettingsScreen() {
       setRestorePw('');
       setRestoreWord('');
       setRestoreFile(null);
+      const c = out.stock?.counts ?? {};
       setRestored({
-        bills: out.restored.bills, customers: out.restored.customers,
-        next: out.restored.nextBillNo, safety: out.safety.file,
+        billing: out.restored ? {
+          bills: out.restored.bills, customers: out.restored.customers,
+          next: out.restored.nextBillNo, safety: out.safety?.file ?? null,
+        } : null,
+        stock: out.stock ? { items: c.items ?? 0, places: c.locations ?? 0, people: c.people ?? 0 } : null,
       });
       // The device lets go of what it held -- parked bills, the cached list -- and fetches the
       // restored book, settings included.
@@ -591,10 +609,25 @@ export function SettingsScreen() {
         <Text style={styles.hint}>{t('set.changeServerHint')}</Text>
       </Card>
 
+      {/* Stock's settings live in stock (no copy here): each opens its page in the Stock tab. */}
+      {shop.stockOn ? (
+        <Card style={styles.card}>
+          <SectionTitle>{t('set.stockSection')}</SectionTitle>
+          <Text style={styles.hint}>{t('set.stockSectionNote')}</Text>
+          <View style={{ height: 10 }} />
+          <View style={styles.wrapRow}>
+            {STOCK_SETTINGS_PAGES.map((p) => (
+              <Button key={p.path} label={t(p.label)} tone="plain" onPress={() => openStockAt(p.path)} />
+            ))}
+          </View>
+        </Card>
+      ) : null}
+
       {/* Last on the screen, and the only part of it that destroys anything. */}
       <Card style={styles.dangerCard}>
         <SectionTitle>{t('set.dangerSection')}</SectionTitle>
         <Text style={styles.hint}>{t('set.dangerNote')}</Text>
+        <Text style={styles.hint}>{t('set.wholeNote')}</Text>
         <View style={{ height: 10 }} />
 
         <Button
@@ -603,8 +636,9 @@ export function SettingsScreen() {
           disabled={busy !== null}
           onPress={() => void takeBackup()}
         />
-        {backedUp ? <Notice>{t('set.backupSaved')}</Notice> : null}
+        {backedUp ? <Notice>{billingOnly ? t('set.backupBillingOnly') : t('set.backupSaved')}</Notice> : null}
         {erased ? <Notice>{erased === 'bills' ? t('set.erasedBills') : t('set.erased')}</Notice> : null}
+        {erased && erasedStock ? <Notice>{erasedStock === 'stock' ? t('set.erasedStockKept') : t('set.erasedStockAll')}</Notice> : null}
 
         <View style={{ height: 10 }} />
         {/*
@@ -629,6 +663,23 @@ export function SettingsScreen() {
           autoCorrect={false}
           onChangeText={setResetWord}
         />
+
+        {/* Stock's half of the erase, when stock is linked: all of it, or the stock with the items kept. */}
+        {shop.stockOn ? (
+          <>
+            <Text style={styles.label}>{t('set.eraseStockLabel')}</Text>
+            <Choice<StockEraseMode>
+              options={[
+                { key: 'everything', label: t('set.eraseStockAll') },
+                { key: 'stock', label: t('set.eraseStockKeepItems') },
+              ]}
+              value={stockMode}
+              onChange={setStockMode}
+            />
+            <Text style={styles.hint}>{t('set.eraseStockHint')}</Text>
+            <View style={{ height: 10 }} />
+          </>
+        ) : null}
 
         {/* Three things have to be true: the backup taken in this sitting, the password given,
             and the word typed exactly. */}
@@ -660,8 +711,16 @@ export function SettingsScreen() {
         <View style={{ height: 10 }} />
         {restored ? (
           <>
-            <Notice>{t('set.restored', { bills: restored.bills, customers: restored.customers, next: restored.next })}</Notice>
-            <Button label={t('set.safetyBackup')} tone="plain" onPress={() => void shareSafety(restored.safety)} />
+            {/* Each half said on its own, so a file with one half never reads as the whole shop. */}
+            {restored.billing ? (
+              <Notice>{t('set.restored', { bills: restored.billing.bills, customers: restored.billing.customers, next: restored.billing.next })}</Notice>
+            ) : <Notice>{t('set.restoredBillingSkipped')}</Notice>}
+            {restored.stock ? (
+              <Notice>{t('set.restoredStock', { items: restored.stock.items, places: restored.stock.places, people: restored.stock.people })}</Notice>
+            ) : <Notice>{t('set.restoredStockSkipped')}</Notice>}
+            {restored.billing?.safety ? (
+              <Button label={t('set.safetyBackup')} tone="plain" onPress={() => void shareSafety(restored.billing!.safety!)} />
+            ) : null}
             <View style={{ height: 10 }} />
           </>
         ) : null}
@@ -761,6 +820,7 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
   switchLabel: { fontSize: 15, color: C.ink },
   row: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   printerName: { fontSize: 16, fontWeight: '700', color: C.ink },
   choiceRow: { flexDirection: 'row', gap: 8 },
   choice: {

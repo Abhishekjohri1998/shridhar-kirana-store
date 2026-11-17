@@ -140,6 +140,11 @@ type Shop = {
   signOut: () => void;
   /** Keep a stock session the Stock window signed in with by itself. */
   keepStockToken: (token: unknown) => void;
+  /**
+   * A fresh stock session without a PIN, for the Stock window when its own is missing or over
+   * (one sign-in for the whole app). Kept like any other; null when stock cannot give one now.
+   */
+  renewStockToken: () => Promise<string | null>;
   forgetServer: () => void;
   reload: () => Promise<void>;
   /**
@@ -764,7 +769,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
    */
   const unlock = useCallback(async (pin: string) => {
     const known = await checkStoredPin(pin);
-    if (known === false) throw new Error(person ? t('login.wrongPersonPin') : t('login.wrongPin'));
+    // A person may have changed their PIN in stock since this device last saw it: the server
+    // decides then, so the new PIN opens the app without a second, different sign-in.
+    if (known === false && !person) throw new Error(t('login.wrongPin'));
     // Refresh both sessions as a sign-in does. With a stored PIN that matched, a dead link does
     // not keep the shop out of its own till: the saved tokens carry on.
     try {
@@ -783,6 +790,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (e) {
+      if (known === false) throw new Error(t('login.wrongPersonPin'));
       if (known !== true) throw e;
     }
     await rememberPin(pin);
@@ -799,6 +807,33 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       return got;
     });
   }, []);
+
+  const renewing = useRef<Promise<string | null> | null>(null);
+  const renewStockToken = useCallback((): Promise<string | null> => {
+    // One request at a time, however often the window asks.
+    if (renewing.current) return renewing.current;
+    const run = (async () => {
+      try {
+        const held = await loadPerson();
+        const current = held.stockToken;
+        // A billing session (shop PIN or an admin) asks billing; a worker renews the one they held.
+        const r = signedIn
+          ? await api.stockSession(current)
+          : current ? await api.stockRenew(current) : null;
+        const got = r ? acceptStockToken(r.stockToken, Date.now()) : null;
+        if (!got) return null;
+        await saveStockToken(got);
+        setStockToken(got);
+        return got;
+      } catch {
+        return null;
+      } finally {
+        renewing.current = null;
+      }
+    })();
+    renewing.current = run;
+    return run;
+  }, [signedIn]);
 
   const forgetPerson = useCallback((): void => {
     void savePerson(null, null);
@@ -1189,7 +1224,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       customer, inactive, dismissInactive: dismissInactiveNow, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames,
       lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
-      person, stockToken: locked ? null : stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode, keepStockToken,
+      person, stockToken: locked ? null : stockToken, stockOnly, signInPerson, switchUser, pinMode, setPinMode, keepStockToken, renewStockToken,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
@@ -1202,7 +1237,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       ready, serverUrl, signedIn, locked, offline, loadState, refresh, settings, bills, today, cart,
       customer, inactive, dismissInactiveNow, paidInput, printBalance, printBalanceTouched, note, hideNames, setHideNames, setBillHideNames, lang, t, receiptLabels,
       saveServerUrl, signIn, unlock, signOut, forgetServer, reload, refreshInactive,
-      person, stockToken, stockOnly, signInPerson, switchUser, pinMode, keepStockToken,
+      person, stockToken, stockOnly, signInPerson, switchUser, pinMode, keepStockToken, renewStockToken,
       addItemToCart, addLooseLine, setLineQty, setLineInk, addBlankLine, setLineRate, setLineTotal, removeLine, clearCart, commitBill,
       setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,

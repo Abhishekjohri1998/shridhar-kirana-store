@@ -20,6 +20,14 @@ The tablet app has a **Billing | Stock** switch in its header (build 50). The St
 `app.json`), nothing more. **Never add inventory, stock or catalogue code here**, and never edit
 this folder from the stock project. The client asked for the two codebases to stay apart.
 
+**One app (owner decision, 2026-11-17):** one sign-in, one backup and one Settings over both
+projects. Billing's server asks stock over the link (`server/src/stockLink.ts`): `/api/stock/session`
+and `/api/stock/renew` renew the Stock tab's session (the stock site posts `need-session`, never
+shows its own sign-in inside the app); `/api/backup/whole` is the `shridhar-backup` v1 file
+`{billing, stock}`; `/api/restore` takes it (or either half alone, stock first); `/api/reset` with
+`stock` erases both. Settings → Stock settings opens stock pages via `mobile/src/lib/stockNav.ts`.
+`npm run wholeshoptest`. The code itself still stays in two projects.
+
 ## Rules that have cost real time before
 
 - **Never write test data to the live Atlas database.** The shop bills on it. Test against a
