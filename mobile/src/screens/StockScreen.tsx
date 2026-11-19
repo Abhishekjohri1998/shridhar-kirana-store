@@ -78,10 +78,34 @@ function shippedStockUrl(): string {
  * when it has no session (none handed over, or it ran out, or a PIN changed) it posts
  * 'need-session', and the app answers with a fresh one from billing's server through this event.
  */
-const giveSession = (token: string) => `
-try { window.dispatchEvent(new CustomEvent('stock-session', { detail: { token: ${JSON.stringify(token)} } })); } catch (e) {}
+const giveSession = (token: string, origin: string) => `
+try {
+  if (location.origin === ${JSON.stringify(origin)}) {
+    window.dispatchEvent(new CustomEvent('stock-session', { detail: { token: ${JSON.stringify(token)} } }));
+  }
+} catch (e) {}
 true;
 `;
+
+/*
+ * The window can end up on pages that are not the stock site (a link a person follows, a map, a
+ * WhatsApp web page). Only the stock site's own pages may talk to the app: anything else asking
+ * for a session would be handed a working stock sign-in, and could sign the whole app out. So
+ * every message is checked against the stock address's origin (scheme, host and port), and the
+ * session is only ever dispatched into a page still on that origin when it arrives.
+ *
+ * Done with a pattern rather than `new URL()`, which React Native only partly implements.
+ */
+export function originOf(address: string): string {
+  const m = /^(https?):\/\/([^/?#]+)/i.exec(address.trim());
+  if (!m || !m[1] || !m[2]) return '';
+  const scheme = m[1].toLowerCase();
+  let host = m[2].toLowerCase().replace(/^[^@]*@/, '');
+  if ((scheme === 'https' && host.endsWith(':443')) || (scheme === 'http' && host.endsWith(':80'))) {
+    host = host.replace(/:\d+$/, '');
+  }
+  return scheme + '://' + host;
+}
 
 /** Goes to a stock page inside the site itself (its router hears popstate), no reload. */
 const goTo = (path: string) => `
@@ -363,6 +387,9 @@ export function StockScreen({ active = true, onOpenSettings }: { active?: boolea
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
     let msg: { type?: string; name?: string; mime?: string; data?: string; token?: string };
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
+    // Only the stock site may speak to the app (see originOf).
+    const stockOrigin = originOf(urlRef.current ?? '');
+    if (!stockOrigin || originOf(e.nativeEvent.url ?? '') !== stockOrigin) return;
     if (msg.type === 'session') {
       // The window's session is always one the app gave it (it has no sign-in of its own inside
       // the app), or the same person's again after a PIN change: kept, so the next start has it.
@@ -374,7 +401,7 @@ export function StockScreen({ active = true, onOpenSettings }: { active?: boolea
       const got = await shop.renewStockToken();
       if (got) {
         fromWindow.current = got;
-        web.current?.injectJavaScript(giveSession(got));
+        web.current?.injectJavaScript(giveSession(got, stockOrigin));
       }
       // Nothing now: the page asks again in a few seconds, and says what to do if it never comes.
       return;

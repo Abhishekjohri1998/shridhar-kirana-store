@@ -14,6 +14,11 @@ async function main(): Promise<void> {
   void ensureRoundTo().catch((err) => console.warn('[settings] rounding not copied yet:', err));
 
   const app = express();
+  // Caddy, on this same box, is the only thing in front of the server. Trusting its
+  // X-Forwarded-For makes req.ip the real device, so the PIN brake (rateLimit.ts) counts each
+  // address on its own instead of lumping every device in the world under 127.0.0.1. Only a
+  // loopback hop is trusted, so a header sent from outside cannot pick its own address.
+  app.set('trust proxy', 'loopback');
   // 256 KB for everything but a restore, which reads its own (much larger) body: see routes.ts.
   const smallJson = express.json({ limit: '256kb' });
   app.use((req, res, next) => {

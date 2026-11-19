@@ -204,7 +204,15 @@ $HOSTNAME_IN {
 
 	# A bill of forty handwritten lines is a few hundred kilobytes of stroke coordinates. The
 	# server itself caps a request body at 256 KB; keep the proxy well clear of that.
-	request_body {
+	# A restore is the one exception: a whole-shop backup with every bill's handwriting is far
+	# bigger, and the server lets /api/restore take up to 100 MB (RESTORE_BODY_LIMIT in
+	# routes.ts). The two matchers never overlap, so exactly one limit applies to each request.
+	@restore path /api/restore /api/restore/
+	@notRestore not path /api/restore /api/restore/
+	request_body @restore {
+		max_size 110MB
+	}
+	request_body @notRestore {
 		max_size 2MB
 	}
 

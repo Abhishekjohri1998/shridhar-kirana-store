@@ -416,7 +416,14 @@ shridhar-billing.duckdns.org {
 
 	# A bill with forty handwritten lines is a few hundred kilobytes of stroke coordinates.
 	# The server itself caps a request body at 256 KB; keep the proxy well clear of that.
-	request_body {
+	# A restore is the exception: a whole-shop backup is far bigger, and the server lets
+	# /api/restore take up to 100 MB. The two matchers never overlap.
+	@restore path /api/restore /api/restore/
+	@notRestore not path /api/restore /api/restore/
+	request_body @restore {
+		max_size 110MB
+	}
+	request_body @notRestore {
 		max_size 2MB
 	}
 

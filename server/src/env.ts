@@ -1,5 +1,12 @@
 import 'dotenv/config';
 
+/**
+ * The shop's day is an Indian day. "Today" on the Bill screen (dayBounds in store/types.ts) is cut
+ * at local midnight, and a server on UTC would cut it at 05:30 in the morning instead. Set here,
+ * before anything reads the clock, unless the environment already names a zone.
+ */
+if (!process.env.TZ) process.env.TZ = 'Asia/Kolkata';
+
 function str(name: string, fallback: string): string {
   const v = process.env[name];
   return v == null || v.trim() === '' ? fallback : v.trim();
