@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_SETTINGS, migrateSettings, billTotal, liteBill, customerMatches, lastPriceOf, round2, roundToStep,
-  type Bill, type Customer, type Item, type Payment, type Settings, type TodaySummary,
+  type Bill, type Customer, type Item, type Payment, type Quotation, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
   DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId,
@@ -36,9 +36,14 @@ type Db = {
   payments: Payment[];
   settings: Settings;
   billNo: number;
+  /** Quotations, with their own numbers. Absent in a file written before they existed. */
+  quotations: Quotation[];
+  quotationNo: number;
 };
 
-const EMPTY: Db = { items: [], bills: [], customers: [], payments: [], settings: { ...DEFAULT_SETTINGS }, billNo: 0 };
+const EMPTY: Db = {
+  items: [], bills: [], customers: [], payments: [], settings: { ...DEFAULT_SETTINGS }, billNo: 0, quotations: [], quotationNo: 0,
+};
 
 /**
  * Stand-in for MongoDB until the connection string arrives. One JSON file, writes serialised
@@ -77,6 +82,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
     balance: customerBalance(row),
   });
   if (!Array.isArray(db.payments)) db.payments = [];
+  if (!Array.isArray(db.quotations)) db.quotations = [];
+  if (typeof db.quotationNo !== 'number') db.quotationNo = 0;
 
   return {
     kind: 'file',
@@ -272,6 +279,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           db.customers = [];
         }
         db.billNo = 0;
+        db.quotations = [];
+        db.quotationNo = 0;
         // db.settings survives: a shop that clears its test bills should not be asked its name.
         await flush();
       });
@@ -407,6 +416,86 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         .map(toCustomer);
     },
 
+    async listQuotations(limit, customerId) {
+      return db.quotations
+        .filter((q) => (customerId ? q.customer?.id === customerId : true))
+        .sort((a, b) => b.no - a.no)
+        .slice(0, limit)
+        .map((q) => ({ ...q }));
+    },
+
+    async getQuotation(no) {
+      const q = db.quotations.find((x) => x.no === no);
+      return q ? { ...q } : null;
+    },
+
+    async getQuotationByClientId(clientId) {
+      const q = db.quotations.find((x) => x.clientId === clientId);
+      return q ? { ...q } : null;
+    },
+
+    createQuotation({ lines, customerId, hideNames, note, roundTo, clientId }) {
+      return serial(async () => {
+        if (clientId && db.quotations.some((q) => q.clientId === clientId)) throw new DuplicateClientId(clientId);
+        const exact = billTotal(lines);
+        const total = roundToStep(exact, roundTo ?? 0);
+        const roundOff = round2(total - exact);
+        // Read only, for the copy on the slip: a quotation moves none of the customer's figures.
+        const row = customerId ? db.customers.find((c) => c.id === customerId) : undefined;
+        const no = db.quotationNo + 1;
+        const quotation: Quotation = {
+          no,
+          at: new Date().toISOString(),
+          ...(row ? { customer: { id: row.id, name: row.name, nameKn: row.nameKn ?? '', phone: row.phone } } : {}),
+          lines,
+          total,
+          roundTo: roundTo ?? 0,
+          ...(roundOff !== 0 ? { roundOff } : {}),
+          ...(hideNames ? { hideNames: true } : {}),
+          note: note ?? '',
+          status: 'open',
+          ...(clientId ? { clientId } : {}),
+        };
+        const before = { list: db.quotations, no: db.quotationNo };
+        db.quotations = [...db.quotations, quotation];
+        db.quotationNo = no;
+        try {
+          await flush();
+        } catch (err) {
+          db.quotations = before.list;
+          db.quotationNo = before.no;
+          throw err;
+        }
+        return { ...quotation };
+      });
+    },
+
+    setQuotationStatus(no, status, billNo) {
+      return serial(async () => {
+        const at = db.quotations.findIndex((q) => q.no === no);
+        if (at < 0) return null;
+        const now = new Date().toISOString();
+        const old = db.quotations[at]!;
+        const next: Quotation = status === 'billed'
+          ? { ...old, status, ...(billNo != null ? { billNo } : {}), billedAt: now }
+          : { ...old, status, cancelledAt: now };
+        db.quotations = db.quotations.map((q, i) => (i === at ? next : q));
+        await flush();
+        return { ...next };
+      });
+    },
+
+    deleteQuotation(no) {
+      return serial(async () => {
+        const before = db.quotations.length;
+        db.quotations = db.quotations.filter((q) => q.no !== no);
+        if (db.quotations.length === before) return false;
+        // db.quotationNo stays: the number is spent.
+        await flush();
+        return true;
+      });
+    },
+
     // Through the queue, so a backup never catches a bill half-recorded. Copied, so nothing the
     // caller does to it reaches the live book.
     snapshot() {
@@ -417,6 +506,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         payments: db.payments,
         billNo: db.billNo,
         items: Array.isArray(db.items) ? db.items : [],
+        quotations: [...db.quotations].sort((a, b) => a.no - b.no),
+        quotationNo: db.quotationNo,
       })) as BookSnapshot);
     },
 
@@ -437,6 +528,9 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           payments: copy.payments,
           billNo: copy.billNo,
           items: copy.items !== undefined ? (copy.items as unknown as Item[]) : db.items,
+          // A backup from before quotations existed leaves the live ones as they are.
+          quotations: copy.quotations !== undefined ? copy.quotations : db.quotations,
+          quotationNo: copy.quotationNo !== undefined ? copy.quotationNo : db.quotationNo,
         };
         try {
           await flush();

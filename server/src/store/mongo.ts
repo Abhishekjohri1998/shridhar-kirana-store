@@ -1,7 +1,7 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
   DEFAULT_SETTINGS, migrateSettings, billTotal, customerMatches, itemNameKey, lastPriceOf, round2, roundToStep,
-  type Bill, type BillLine, type Customer, type Ink, type Payment, type Settings, type TodaySummary,
+  type Bill, type BillLine, type Customer, type Ink, type Payment, type Quotation, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
   BOOK_COLLECTIONS, DuplicateClientId, contactsOf, customerBalance, dayBounds, inactiveCutoff, makeCustomerId, makePaymentId,
@@ -118,6 +118,34 @@ billSchema.index({ 'lines.nameKn': 1, no: -1 });
 billSchema.index({ clientId: 1 }, { unique: true, sparse: true });
 // The list itself, newest first and `since` a number, rides the unique index on `no`.
 
+/*
+ * Quotations: bill-shaped, in their own collection with their own numbers, so nothing that reads
+ * bills (the day's takings, a customer's figures, the stock app) can ever count one. The same
+ * schema rules as the bill's: optional fields carry no `required: true` beside a default.
+ */
+const quotationSchema = new Schema<Quotation>(
+  {
+    no: { type: Number, required: true, unique: true, index: true },
+    at: { type: String, required: true },
+    customer: { type: billCustomerSchema, required: false },
+    lines: { type: [lineSchema], required: true },
+    total: { type: Number, required: true },
+    roundTo: { type: Number, required: false },
+    roundOff: { type: Number, required: false },
+    hideNames: { type: Boolean, required: false },
+    note: { type: String, required: false, default: '' },
+    status: { type: String, required: false, default: 'open', enum: ['open', 'billed', 'cancelled'] },
+    billNo: { type: Number, required: false },
+    billedAt: { type: String, required: false },
+    cancelledAt: { type: String, required: false },
+    clientId: { type: String, required: false },
+  },
+  { versionKey: false },
+);
+quotationSchema.index({ at: -1 });
+quotationSchema.index({ 'customer.id': 1, no: -1 });
+quotationSchema.index({ clientId: 1 }, { unique: true, sparse: true });
+
 /** Mongo's "that key is taken" -- error 11000, however the driver happens to wrap it. */
 function isDuplicateKey(err: unknown): boolean {
   const code = (err as { code?: unknown })?.code;
@@ -219,6 +247,9 @@ const Payments: Model<Payment> =
 const Counters: Model<CounterDoc> =
   (mongoose.models.Counter as Model<CounterDoc> | undefined) ??
   mongoose.model<CounterDoc>('Counter', counterSchema);
+const Quotations: Model<Quotation> =
+  (mongoose.models.Quotation as Model<Quotation> | undefined) ??
+  mongoose.model<Quotation>('Quotation', quotationSchema);
 
 /**
  * The old item catalogue. Its model went with the /items routes, but the shop's database still
@@ -231,7 +262,7 @@ const ITEMS = 'items';
  * is exactly BOOK_COLLECTIONS, so a model added here without a place in the backup fails a test.
  */
 export function mongoCollections(): string[] {
-  return [Bills, Customers, SettingsModel, Payments, Counters].map((m) => m.collection.collectionName).concat(ITEMS);
+  return [Bills, Customers, SettingsModel, Payments, Counters, Quotations].map((m) => m.collection.collectionName).concat(ITEMS);
 }
 
 /** Collections of this database a backup would not carry. Must be none, or the backup refuses. */
@@ -601,8 +632,78 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       } else {
         await Customers.deleteMany({});
       }
+      await Quotations.deleteMany({});
       // Back to the start of the book. Settings are deliberately untouched.
       await Counters.updateOne({ key: 'billNo' }, { $set: { value: 0 } }, { upsert: true });
+      await Counters.updateOne({ key: 'quotationNo' }, { $set: { value: 0 } }, { upsert: true });
+    },
+
+    async listQuotations(limit, customerId) {
+      const docs = await Quotations.find(customerId ? { 'customer.id': customerId } : {}).sort({ no: -1 }).limit(limit).lean();
+      return docs.map((d) => strip(d as unknown as Quotation));
+    },
+
+    async getQuotation(no) {
+      const doc = await Quotations.findOne({ no }).lean();
+      return doc ? strip(doc as unknown as Quotation) : null;
+    },
+
+    async getQuotationByClientId(clientId) {
+      const doc = await Quotations.findOne({ clientId }).lean();
+      return doc ? strip(doc as unknown as Quotation) : null;
+    },
+
+    async createQuotation({ lines, customerId, hideNames, note, roundTo, clientId }) {
+      if (clientId && (await Quotations.exists({ clientId }))) throw new DuplicateClientId(clientId);
+      const exact = billTotal(lines);
+      const total = roundToStep(exact, roundTo ?? 0);
+      const roundOff = round2(total - exact);
+      // Read only, for the copy on the slip: a quotation moves none of the customer's figures.
+      const row = customerId ? ((await Customers.findOne({ id: customerId }).lean()) as unknown as CustomerDoc | null) : null;
+      const counter = await Counters.findOneAndUpdate(
+        { key: 'quotationNo' },
+        { $inc: { value: 1 } },
+        { upsert: true, new: true },
+      ).lean();
+      const no = (counter as unknown as CounterDoc).value;
+      const quotation: Quotation = {
+        no,
+        at: new Date().toISOString(),
+        ...(row ? { customer: { id: row.id, name: row.name, nameKn: row.nameKn ?? '', phone: row.phone } } : {}),
+        lines,
+        total,
+        roundTo: roundTo ?? 0,
+        ...(roundOff !== 0 ? { roundOff } : {}),
+        ...(hideNames ? { hideNames: true } : {}),
+        note: note ?? '',
+        status: 'open',
+        ...(clientId ? { clientId } : {}),
+      };
+      try {
+        await Quotations.create(quotation);
+      } catch (err) {
+        // Give the number back only if nobody has taken one since, as createBill does.
+        await Counters.updateOne({ key: 'quotationNo', value: no }, { $inc: { value: -1 } }).catch(() => undefined);
+        if (clientId && isDuplicateKey(err) && /clientId/.test(String((err as Error).message))) {
+          throw new DuplicateClientId(clientId);
+        }
+        throw err;
+      }
+      return quotation;
+    },
+
+    async setQuotationStatus(no, status, billNo) {
+      const now = new Date().toISOString();
+      const set = status === 'billed'
+        ? { status, billedAt: now, ...(billNo != null ? { billNo } : {}) }
+        : { status, cancelledAt: now };
+      const doc = await Quotations.findOneAndUpdate({ no }, { $set: set }, { new: true }).lean();
+      return doc ? strip(doc as unknown as Quotation) : null;
+    },
+
+    async deleteQuotation(no) {
+      const r = await Quotations.deleteOne({ no });
+      return r.deletedCount > 0;
     },
 
     async todaySummary(): Promise<TodaySummary> {
@@ -775,13 +876,15 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         throw new Error('The database holds ' + uncovered.join(', ') + ', which a backup does not carry. '
           + 'Update the server before taking a backup or restoring one.');
       }
-      const [settingsDoc, customers, bills, payments, counter, items] = await Promise.all([
+      const [settingsDoc, customers, bills, payments, counter, items, quotations, quotationCounter] = await Promise.all([
         SettingsModel.findOne({ key: 'shop' }).lean(),
         Customers.find({}).lean(),
         Bills.find({}).sort({ no: 1 }).lean(),
         Payments.find({}).lean(),
         Counters.findOne({ key: 'billNo' }).lean(),
         mongoose.connection.db!.collection(ITEMS).find({}).sort({ _id: 1 }).toArray(),
+        Quotations.find({}).sort({ no: 1 }).lean(),
+        Counters.findOne({ key: 'quotationNo' }).lean(),
       ]);
       let settings: Record<string, unknown> = { ...DEFAULT_SETTINGS };
       if (settingsDoc) {
@@ -795,6 +898,8 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         payments: payments.map((d) => strip(d as unknown as Payment)),
         billNo: (counter as unknown as CounterDoc | null)?.value ?? 0,
         items: items.map((d) => strip(d as unknown as Record<string, unknown>)),
+        quotations: quotations.map((d) => strip(d as unknown as Quotation)),
+        quotationNo: (quotationCounter as unknown as CounterDoc | null)?.value ?? 0,
       };
     },
 
@@ -848,9 +953,12 @@ async function replaceMongoBook(book: BookSnapshot): Promise<void> {
   const db = mongoose.connection.db;
   if (!db) throw new Error('Not connected to MongoDB');
 
-  // Other counters, if any ever exist, are carried across untouched; only the bill number moves.
-  const otherCounters = (await Counters.find({ key: { $ne: 'billNo' } }).lean())
+  // Other counters are carried across untouched; the bill number moves, and the quotation number
+  // too when the book carries one (a backup from before quotations leaves it as it is).
+  const moving = book.quotationNo !== undefined ? ['billNo', 'quotationNo'] : ['billNo'];
+  const otherCounters = (await Counters.find({ key: { $nin: moving } }).lean())
     .map((d) => { const { _id, __v, ...rest } = d as unknown as Record<string, unknown>; return rest; });
+  const quotationCounter = book.quotationNo !== undefined ? [{ key: 'quotationNo', value: book.quotationNo }] : [];
   const ofModel = (model: Model<any>, docs: Record<string, unknown>[]) => ({
     name: model.collection.collectionName,
     docs,
@@ -861,9 +969,10 @@ async function replaceMongoBook(book: BookSnapshot): Promise<void> {
     ofModel(Customers, book.customers),
     ofModel(Payments, book.payments as unknown as Record<string, unknown>[]),
     ofModel(SettingsModel, [{ ...book.settings, key: 'shop' }]),
-    ofModel(Counters, [...otherCounters, { key: 'billNo', value: book.billNo }]),
+    ofModel(Counters, [...otherCounters, { key: 'billNo', value: book.billNo }, ...quotationCounter]),
   ];
   if (book.items !== undefined) plan.push({ name: ITEMS, docs: book.items, indexes: await liveIndexes(ITEMS) });
+  if (book.quotations !== undefined) plan.push(ofModel(Quotations, book.quotations as unknown as Record<string, unknown>[]));
   const sideName = (name: string) => name + '__restore';
   const dropSide = async (name: string) => {
     await db.dropCollection(name).catch(() => undefined);

@@ -926,6 +926,8 @@ button, input, select, textarea {
 }
 .pay-all:hover { background: var(--brand-edge); }
 .pay-all.on { background: var(--brand-edge); border-color: var(--brand-700); }
+/* The Quotation switch beside Save and Print, when this tab is a quotation. */
+.btn.plain.on { background: var(--brand-edge); border-color: var(--brand-700); }
 a.pay-all { text-decoration: none; display: inline-block; }
 
 .total-row {

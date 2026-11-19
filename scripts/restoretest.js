@@ -58,7 +58,7 @@ function collectionLists() {
   return JSON.parse(out.trim().split('\n').pop());
 }
 /** The file store's top-level key for each collection name, where they differ. */
-const FILE_KEY_COLLECTION = { billNo: 'counters' };
+const FILE_KEY_COLLECTION = { billNo: 'counters', quotationNo: 'counters' };
 
 /** The old catalogue, as the server seeded it before the /items routes went; no route writes it now. */
 const ITEMS = [
@@ -154,6 +154,8 @@ async function main() {
     const pay2 = (await call('/customers/' + a.id + '/payments', 'POST', { amount: 7 })).body.payment;
     await call('/payments/' + pay2.id + '/cancel', 'POST', {});
     check('a payment was recorded', !!pay && !!pay.id);
+    const quote = (await call('/quotations', 'POST', { lines: [{ itemId: 'q1', nameEn: 'Sugar', qty: 2, rate: 45 }], customerId: b.id })).body;
+    eq('a quotation was saved', quote.no, 1);
 
     const before = canonical(stored());
     const beforeApi = {
@@ -175,7 +177,9 @@ async function main() {
     eq('the last bill number handed out', backup.counters.billNo, 5);
     eq('the stored settings, rounding included', backup.settings.roundTo, 5);
     eq('customers say what they owe', backup.customers.find((c) => c.id === a.id).balance, beforeApi.customers.find((c) => c.id === a.id).balance);
-    eq('and its version is 3', backup.version, 3);
+    eq('and its version is 4', backup.version, 4);
+    eq('the quotations with them', backup.quotations.map((q) => q.no), [1]);
+    eq('and the last quotation number', backup.counters.quotationNo, 1);
     eq('the item catalogue, exactly as stored', backup.items, ITEMS);
     for (const name of lists.book) {
       check('the backup carries ' + name, Object.prototype.hasOwnProperty.call(backup, name), Object.keys(backup).join(','));
@@ -298,6 +302,21 @@ async function main() {
     delete v3missing.items;
     const missing = await restore(v3missing);
     eq('a version 3 file without items is refused as damaged', missing.status, 400);
+
+    // Quotations (version 4): carried, restored, and left alone by a file from before them.
+    eq('the full backup brings the quotation back', (await restore(backup)).status, 200);
+    eq('quotation 1 is there', (await call('/quotations')).body.map((q) => q.no), [1]);
+    const v3 = { ...backup, version: 3 };
+    delete v3.quotations;
+    v3.counters = { billNo: backup.counters.billNo };
+    eq('a version 3 file (no quotations) restores', (await restore(v3)).status, 200);
+    eq('and leaves the quotations as they were', (await call('/quotations')).body.map((q) => q.no), [1]);
+    const v4missing = { ...backup };
+    delete v4missing.quotations;
+    eq('a version 4 file without quotations is refused as damaged', (await restore(v4missing)).status, 400);
+    eq('one quotation twice is refused', (await restore({ ...backup, quotations: [...backup.quotations, backup.quotations[0]] })).status, 400);
+    eq('the next quotation follows the restored ones', (await call('/quotations', 'POST', { lines: [{ itemId: 'q2', qty: 1, rate: 5 }] })).body.no, 2);
+    eq('the full backup again', (await restore(backup)).status, 200);
     check('saying so', /damaged/i.test(String(missing.body && missing.body.error)), JSON.stringify(missing.body));
     const dupItem = await restore({ ...backup, items: [...backup.items, backup.items[0]] });
     eq('an item twice is refused', dupItem.status, 400);

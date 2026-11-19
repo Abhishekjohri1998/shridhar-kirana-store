@@ -1,5 +1,5 @@
 import { normalisePhone } from '@shridhar/shared';
-import type { Bill, BillLine, Customer, Item, LastPrice, LastPriceAsk, Payment, Settings, TodaySummary } from '@shridhar/shared';
+import type { Bill, BillLine, Customer, Item, LastPrice, LastPriceAsk, Payment, Quotation, Settings, TodaySummary } from '@shridhar/shared';
 
 export { normalisePhone };
 
@@ -21,6 +21,16 @@ export type NewBill = {
   /** The id the bill had while being written, for the stock app to swap its draft for this. */
   draftId?: string;
   /** The device's id for this bill; a second save carrying it is the same bill. See Bill.clientId. */
+  clientId?: string;
+};
+
+/** What a new quotation is saved from. The store numbers it and works out its total. */
+export type NewQuotation = {
+  lines: BillLine[];
+  customerId?: string;
+  hideNames?: boolean;
+  note?: string;
+  roundTo?: number;
   clientId?: string;
 };
 
@@ -169,6 +179,21 @@ export type Repo = {
   /** Newest first, by when the money was received. */
   listPayments(limit: number, customerId?: string): Promise<Payment[]>;
 
+  /** Newest first; a customer's own when `customerId` is given. */
+  listQuotations(limit: number, customerId?: string): Promise<Quotation[]>;
+  getQuotation(no: number): Promise<Quotation | null>;
+  getQuotationByClientId(clientId: string): Promise<Quotation | null>;
+  /**
+   * Numbers a quotation from its own counter and works out its total. Touches nothing else: no
+   * customer's figures move, because a quotation is not a sale. Throws DuplicateClientId when
+   * the device's id is already on file.
+   */
+  createQuotation(input: NewQuotation): Promise<Quotation>;
+  /** Marks it billed (with the bill's number) or cancelled. Null when there is no such one. */
+  setQuotationStatus(no: number, status: 'billed' | 'cancelled', billNo?: number): Promise<Quotation | null>;
+  /** Removes one for good. Its number is not given out again. */
+  deleteQuotation(no: number): Promise<boolean>;
+
   /** Every stored record of the book, exactly as kept. What a backup holds. */
   snapshot(): Promise<BookSnapshot>;
   /**
@@ -200,6 +225,13 @@ export type BookSnapshot = {
    * a file that says nothing about the items is no reason to throw them away.
    */
   items?: Record<string, unknown>[];
+  /**
+   * Quotations and the last quotation number handed out. A snapshot always has both. On the way
+   * back in either can be absent -- a backup from before quotations existed -- and absent means
+   * "leave the live ones as they are", the same rule as `items`.
+   */
+  quotations?: Quotation[];
+  quotationNo?: number;
 };
 
 /**
@@ -208,7 +240,7 @@ export type BookSnapshot = {
  * holding a collection not named here, and restoretest fails when a store holds something this
  * list or the backup leaves out. A new collection goes here first, or it is not backed up.
  */
-export const BOOK_COLLECTIONS = ['settings', 'customers', 'bills', 'payments', 'counters', 'items'] as const;
+export const BOOK_COLLECTIONS = ['settings', 'customers', 'bills', 'payments', 'counters', 'items', 'quotations'] as const;
 
 /** Midnight-to-midnight in the server's own timezone, which is the shop's day. */
 export function dayBounds(now = new Date()): { start: Date; end: Date } {

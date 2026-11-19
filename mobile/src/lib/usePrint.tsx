@@ -99,13 +99,13 @@ export function PrintProvider({ children }: { children: ReactNode }) {
         if (!picture) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
 
         const base64 = picture.image.replace(/^data:image\/png;base64,/, '');
-        const file = FileSystem.cacheDirectory + 'bill-' + bill.no + '.png';
+        const file = FileSystem.cacheDirectory + (bill.kind === 'quotation' ? 'quotation-' : 'bill-') + bill.no + '.png';
         await FileSystem.writeAsStringAsync(file, base64, {
           encoding: FileSystem.EncodingType.Base64,
         });
         await Sharing.shareAsync(file, {
           mimeType: 'image/png',
-          dialogTitle: shop.t('hist.billNo', { no: bill.no }),
+          dialogTitle: (bill.kind === 'quotation' ? shop.t('hist.quoteNo', { no: bill.no }) : shop.t('hist.billNo', { no: bill.no })),
           UTI: 'public.png',
         });
       } finally {
@@ -132,12 +132,12 @@ export function PrintProvider({ children }: { children: ReactNode }) {
         const doc = buildReceipt(bill, settings, shop.receiptLabels);
         const picture = await raster.current?.imageOf(doc);
         if (!picture) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
-        file = FileSystem.cacheDirectory + 'bill-' + bill.no + '.png';
+        file = FileSystem.cacheDirectory + (bill.kind === 'quotation' ? 'quotation-' : 'bill-') + bill.no + '.png';
         await FileSystem.writeAsStringAsync(file, picture.image.replace(/^data:image\/png;base64,/, ''), {
           encoding: FileSystem.EncodingType.Base64,
         });
         const text = pickLang(settings.shopName, settings.shopNameKn, shop.lang) + ' · '
-          + shop.t('hist.billNo', { no: bill.no }) + ' · ' + money(bill.total);
+          + (bill.kind === 'quotation' ? shop.t('hist.quoteNo', { no: bill.no }) : shop.t('hist.billNo', { no: bill.no })) + ' · ' + money(bill.total);
         try {
           await shareToWhatsApp(number, file, text);
           return;

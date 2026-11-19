@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  CUSTOMER_SHOWS, CUSTOMER_SORTS, customerShowCounts, defaultDir, filterCustomers, readCustomerView,
+  type CustomerShow, type CustomerSort, type CustomerView,
   checkCustomer, customerMatches, customerName, customerPhones, localInput, money, parseLocalInput,
   stamp, type Bill, type Customer, type Payment, whatsappNumber,
 } from '@shridhar/shared';
@@ -12,6 +15,9 @@ import { ApiError, api } from '../lib/api';
 import { useShop } from '../lib/useShop';
 import { C, R } from '../theme';
 import { CustomersIcon } from '../components/Icons';
+
+/** Where this device keeps the Customers screen's filter and sort. */
+const VIEW_KEY = 'shridhar.customerView';
 
 function daysSince(iso: string | null): number | null {
   if (!iso) return null;
@@ -62,28 +68,44 @@ export function CustomersScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop.dataVersion]);
 
-  /** "Not come for N days": the days picked (null = off), what the server listed, the custom box. */
-  const [notCome, setNotCome] = useState<number | null>(null);
-  const [notComeList, setNotComeList] = useState<Customer[]>([]);
-  const [customDays, setCustomDays] = useState('');
+  /*
+   * Which customers show and in what order (shared/src/customerFilters.ts), remembered on this
+   * tablet. Worked out here from the full list, so the server is asked nothing more.
+   */
+  const [view, setViewState] = useState<CustomerView>(() => readCustomerView(null));
   useEffect(() => {
-    if (notCome == null) return;
-    let alive = true;
-    api.inactiveCustomers(notCome, true)
-      .then((r) => { if (alive) setNotComeList(r.customers); })
-      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
-    return () => { alive = false; };
-  }, [notCome, customers]);
+    AsyncStorage.getItem(VIEW_KEY)
+      .then((raw) => { if (raw) setViewState(readCustomerView(JSON.parse(raw))); })
+      .catch(() => undefined);
+  }, []);
+  const setView = (patch: Partial<CustomerView>) => setViewState((v) => {
+    const next = { ...v, ...patch };
+    void AsyncStorage.setItem(VIEW_KEY, JSON.stringify(next)).catch(() => undefined);
+    return next;
+  });
+  const [customDays, setCustomDays] = useState('');
+  const notCome = view.show === 'notCome' ? view.days : null;
+  const reachOut = view.show === 'notCome' || view.show === 'never';
 
   const results = useMemo(() => {
-    if (notCome != null) return query.trim() ? notComeList.filter((c) => customerMatches(c, query)) : notComeList;
-    if (!query.trim()) return customers;
+    const shown = filterCustomers(customers, view, shop.lang);
+    if (!query.trim()) return shown;
     // One matcher, shared with the suggestions under the bill screen and with both stores, so
     // "who exists" cannot get a different answer depending on which box you typed in.
-    return customers.filter((c) => customerMatches(c, query));
-  }, [query, customers, notCome, notComeList]);
+    return shown.filter((c) => customerMatches(c, query));
+  }, [query, customers, view, shop.lang]);
+  const counts = useMemo(() => customerShowCounts(customers, view.days), [customers, view.days]);
 
-  const owing = customers.filter((c) => c.balance > 0);
+  // The figures above the list are the list's own: the filter and the search narrow them too.
+  const owing = results.filter((c) => c.balance > 0);
+  const showWords: Record<CustomerShow, string> = {
+    all: t('cs.showAll'), owes: t('cs.showOwes'), advance: t('cs.showAdvance'),
+    notCome: t('cs.showNotCome'), never: t('cs.showNever'), new: t('cs.showNew'),
+  };
+  const sortWords: Record<CustomerSort, string> = {
+    name: t('cs.sortName'), balance: t('cs.sortBalance'), lastVisit: t('cs.sortLastVisit'),
+    billed: t('cs.sortBilled'), bills: t('cs.sortBills'),
+  };
 
   const quietList = shop.inactive
     .slice(0, 6)
@@ -239,7 +261,7 @@ export function CustomersScreen() {
         <View style={styles.stats}>
           <View style={styles.stat}>
             <Text style={styles.statLabel}>{t('cs.customers')}</Text>
-            <Text style={styles.statValue}>{customers.length}</Text>
+            <Text style={styles.statValue}>{results.length}</Text>
           </View>
           <View style={styles.stat}>
             <Text style={styles.statLabel}>{t('cs.owing')}</Text>
@@ -262,39 +284,76 @@ export function CustomersScreen() {
           <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '' })} style={styles.slim} />
         </View>
 
-        {/* "Not come for N days": billed before the cutoff, or never; longest gone first. */}
-        <View style={[styles.chips, { alignItems: 'center', marginBottom: 10 }]}>
-          <Text style={styles.small}>{t('cs.notCome')}</Text>
-          {[7, 15, 30].map((n) => (
+        {/* Which customers: one chip at a time, each with how many it holds. */}
+        <View style={[styles.chips, { alignItems: 'center', marginBottom: 8 }]} accessibilityLabel={t('cs.showAria')}>
+          {CUSTOMER_SHOWS.map((s) => (
             <Pressable
-              key={n}
-              style={[styles.chip, notCome === n && styles.chipOn]}
+              key={s}
+              style={[styles.chip, view.show === s && styles.chipOn]}
               accessibilityRole="button"
-              accessibilityState={{ selected: notCome === n }}
-              onPress={() => setNotCome(notCome === n ? null : n)}
+              accessibilityState={{ selected: view.show === s }}
+              onPress={() => setView({ show: s })}
             >
-              <Text style={[styles.chipText, notCome === n && styles.chipTextOn]}>{t('cs.notComeDays', { n })}</Text>
+              <Text style={[styles.chipText, view.show === s && styles.chipTextOn]}>{showWords[s] + ' (' + counts[s] + ')'}</Text>
             </Pressable>
           ))}
-          <TextInput
-            style={[styles.search, { flex: 0, width: 90, minHeight: 40, paddingVertical: 6 }]}
-            keyboardType="number-pad"
-            placeholder={t('cs.notComeCustom')}
-            placeholderTextColor={C.soft}
-            accessibilityLabel={t('cs.notComeAria')}
-            value={customDays}
-            onChangeText={(text) => {
-              const v = text.replace(/\D/g, '').slice(0, 4);
-              setCustomDays(v);
-              const n = Number(v);
-              if (n >= 1) setNotCome(n);
-            }}
-          />
-          {notCome != null ? (
-            <Pressable style={styles.chip} accessibilityRole="button" onPress={() => { setNotCome(null); setCustomDays(''); }}>
-              <Text style={styles.chipText}>{t('cs.notComeOff')}</Text>
+        </View>
+        {/* "Not come for N days": billed before, but not since the cutoff; longest gone first. */}
+        {notCome != null ? (
+          <View style={[styles.chips, { alignItems: 'center', marginBottom: 8 }]}>
+            <Text style={styles.small}>{t('cs.notCome')}</Text>
+            {[7, 15, 30].map((n) => (
+              <Pressable
+                key={n}
+                style={[styles.chip, notCome === n && styles.chipOn]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: notCome === n }}
+                onPress={() => { setView({ days: n }); setCustomDays(''); }}
+              >
+                <Text style={[styles.chipText, notCome === n && styles.chipTextOn]}>{t('cs.notComeDays', { n })}</Text>
+              </Pressable>
+            ))}
+            <TextInput
+              style={[styles.search, { flex: 0, width: 90, minHeight: 40, paddingVertical: 6 }]}
+              keyboardType="number-pad"
+              placeholder={t('cs.notComeCustom')}
+              placeholderTextColor={C.soft}
+              accessibilityLabel={t('cs.notComeAria')}
+              value={customDays}
+              onChangeText={(text) => {
+                const v = text.replace(/\D/g, '').slice(0, 4);
+                setCustomDays(v);
+                const n = Number(v);
+                if (n >= 1) setView({ days: n });
+              }}
+            />
+          </View>
+        ) : null}
+        {/* The order: one chip per sort, and the arrow flips it. */}
+        <View style={[styles.chips, { alignItems: 'center', marginBottom: 10 }]}>
+          <Text style={styles.small}>{t('cs.sortBy')}</Text>
+          {CUSTOMER_SORTS.map((s) => (
+            <Pressable
+              key={s}
+              style={[styles.chip, view.sort === s && styles.chipOn]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: view.sort === s }}
+              onPress={() => setView(view.sort === s ? { dir: view.dir === 'asc' ? 'desc' : 'asc' } : { sort: s, dir: defaultDir(s) })}
+            >
+              <Text style={[styles.chipText, view.sort === s && styles.chipTextOn]}>
+                {sortWords[s] + (view.sort === s ? (view.dir === 'asc' ? ' ↑' : ' ↓') : '')}
+              </Text>
             </Pressable>
-          ) : null}
+          ))}
+          <Pressable
+            style={styles.chip}
+            accessibilityRole="button"
+            accessibilityLabel={view.dir === 'asc' ? t('cs.sortAsc') : t('cs.sortDesc')}
+            onPress={() => setView({ dir: view.dir === 'asc' ? 'desc' : 'asc' })}
+          >
+            <Text style={styles.chipText}>{view.dir === 'asc' ? '↑' : '↓'}</Text>
+          </Pressable>
+          {view.show !== 'all' || query.trim() ? <Text style={styles.small}>{t('cs.shownCount', { n: results.length })}</Text> : null}
         </View>
         {notCome != null ? (
           <Text style={[styles.small, { marginBottom: 8 }]}>
@@ -315,7 +374,7 @@ export function CustomersScreen() {
               (c.phone || t('cs.noNumber')) +
               ' · ' +
               (c.billCount === 0
-                ? (notCome != null ? t('cs.neverBilled') : t('cs.noBillsYet'))
+                ? (reachOut ? t('cs.neverBilled') : t('cs.noBillsYet'))
                 : (c.billCount === 1 ? t('cs.oneBill') : t('cs.nBills', { n: c.billCount })) +
                   (quiet == null ? '' : quiet === 0 ? t('cs.lastInToday') : t('cs.lastInDays', { n: quiet })));
             const who = customerName(c, shop.lang) || c.phone || t('cs.unnamed');
@@ -338,7 +397,7 @@ export function CustomersScreen() {
                   )}
                 </View>
               </Pressable>
-              {notCome != null && (c.phone || wa) ? (
+              {reachOut && (c.phone || wa) ? (
                 <View style={[styles.chips, { marginTop: -2, marginBottom: 8 }]}>
                   {c.phone ? (
                     <Pressable style={styles.chip} accessibilityRole="button" accessibilityLabel={t('cs.callAria', { name: who })}

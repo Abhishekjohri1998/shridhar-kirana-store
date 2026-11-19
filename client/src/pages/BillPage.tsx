@@ -33,6 +33,8 @@ import { ReceiptView } from '../components/ReceiptView';
 import { usePrint } from '../lib/usePrint';
 import { useKeepFresh, useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
+import { useScanner } from '../lib/useScanner';
+import { api } from '../lib/api';
 
 /**
  * The slip.
@@ -98,6 +100,45 @@ export function BillPage() {
   const [qtyText, setQtyText] = useState<Record<string, string>>({});
   /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
   const stock = useStockSuggest();
+
+  /*
+   * The counter's barcode scanner. Stock knows every code; billing only asks (shared/src/scan.ts,
+   * lib/useScanner.ts). A scan goes on the open bill: one more of a product already on it, else
+   * the blank line at the foot. The notice under the customer bar says what happened.
+   */
+  const [scanNote, setScanNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  useEffect(() => {
+    if (!scanNote) return undefined;
+    const timer = setTimeout(() => setScanNote(null), scanNote.bad ? 6000 : 3000);
+    return () => clearTimeout(timer);
+  }, [scanNote]);
+  const onScan = async (code: string) => {
+    const got = shop.stockOn ? await api.stockBarcode(code) : ({ kind: 'off' } as const);
+    if (got.kind === 'unknown') {
+      setScanNote({ text: t('bill.scanUnknown', { code }), bad: true });
+      return;
+    }
+    if (got.kind === 'off') {
+      setScanNote({ text: t('bill.scanOff'), bad: true });
+      return;
+    }
+    const item = got.item;
+    const name = (shop.lang === 'kn' ? item.nameKn || item.nameEn : item.nameEn || item.nameKn) || code;
+    const done = await stock.addScanned(item);
+    if (!done) {
+      setScanNote({ text: t('bill.scanNoRoom'), bad: true });
+      return;
+    }
+    setPriceText((prev) => { const { [done.key]: _p, ...rest } = prev; return rest; });
+    setQtyText((prev) => { const { [done.key]: _q, ...rest } = prev; return rest; });
+    const unit = item.units.find((u) => u.code === (item.matchedUnit ?? item.sellUnit)) ?? item.units[0];
+    setScanNote({
+      text: done.more
+        ? t('bill.scanMore', { name, qty: String(done.qty) })
+        : t('bill.scanAdded', { name, rate: unit ? '₹' + money(unit.price) : '' }),
+    });
+  };
+  useScanner((code) => { void onScan(code); });
   /** The line whose unit menu is open, if any; a click elsewhere or Escape shuts it. */
   const [unitMenu, setUnitMenu] = useState<string | null>(null);
   const unitMenuRef = useRef<HTMLUListElement>(null);
@@ -430,6 +471,8 @@ export function BillPage() {
     ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
     roundTo: shop.settings.roundTo ?? 0,
+    // A quotation previews as it will print: headed QUOTATION, nothing paid, no balance.
+    ...(shop.quotationMode ? { kind: 'quotation' as const, paid: 0, balance: 0, previousBalance: 0, showBalance: false } : {}),
   });
 
   /**
@@ -673,7 +716,7 @@ export function BillPage() {
           return (
             <span key={d.id} className={'bill-tab' + (on ? ' on' : '')}>
               <button type="button" role="tab" aria-selected={on} onClick={() => shop.switchBill(d.id)}>
-                <span className="ellipsis">{label}</span>
+                <span className="ellipsis">{(d.kind === 'quotation' ? '📝 ' : '') + label}</span>
                 {total > 0 ? <span className="bill-tab-total">{money(total)}</span> : null}
               </button>
               {shop.drafts.length > 1 ? (
@@ -716,12 +759,13 @@ export function BillPage() {
 
       <div className="slip-pane">
         {error ? <p className="error" role="alert">{error}</p> : null}
+        {scanNote ? <p className={scanNote.bad ? 'error' : 'notice'} role="status">{scanNote.text}</p> : null}
 
         {/* Offered here rather than only from History: the moment a customer asks for a copy is
             the moment they are still at the counter. */}
         {justSaved ? (
           <div className="saved-row">
-            <span className="grow">{t('bill.savedBill', { no: justSaved.no })}</span>
+            <span className="grow">{justSaved.kind === 'quotation' ? t('bill.savedQuote', { no: justSaved.no }) : t('bill.savedBill', { no: justSaved.no })}</span>
             <button
               className="btn plain slim"
               disabled={printer.busy}
@@ -1140,8 +1184,13 @@ export function BillPage() {
           <span className="value" key={grandTotal}>{money(grandTotal)}</span>
         </div>
 
-        {/* Part payment and the balance line, which the shop wants optional per bill. */}
-        {shop.customer ? (
+        {shop.quotationMode ? <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.quotationOn')}</p> : null}
+        {shop.fromQuotation != null && !shop.quotationMode ? (
+          <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.fromQuotation', { no: shop.fromQuotation })}</p>
+        ) : null}
+        {/* Part payment and the balance line, which the shop wants optional per bill. Not on a
+            quotation: nothing is paid on one. */}
+        {shop.customer && !shop.quotationMode ? (
           <div className="pay-box">
             <div className="row">
               <label className="field grow" style={{ marginBottom: 0 }}>
@@ -1209,6 +1258,15 @@ export function BillPage() {
         {shop.hideNames ? <p className="muted small" style={{ margin: '4px 0 0' }}>{t('bill.namesHidden')}</p> : null}
 
         <div className="cart-actions">
+          {/* This tab as a quotation: saved and printed as one, never as a sale. */}
+          <button
+            type="button"
+            className={'btn plain' + (shop.quotationMode ? ' on' : '')}
+            aria-pressed={shop.quotationMode}
+            onClick={() => shop.setQuotationMode(!shop.quotationMode)}
+          >
+            📝 {t('bill.quotation')}
+          </button>
           <button className="btn plain" disabled={!hasSomething} onClick={() => setPreview(draft())}>
             {t('bill.preview')}
           </button>

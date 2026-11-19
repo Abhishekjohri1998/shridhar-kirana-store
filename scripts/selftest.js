@@ -1355,6 +1355,55 @@ async function main() {
     const customerRemoved = await call('/api/customers/' + created.body.id, { method: 'DELETE', headers: auth });
     eq('a customer can be removed', customerRemoved.status, 204);
     eq('their past bills survive it', (await call('/api/bills/' + partly.body.no, { headers: auth })).body.customer.name, 'Ramesh Kumar');
+
+    console.log('\nQuotations: estimates that are never sales');
+    {
+      const get = (p) => call(p, { headers: auth });
+      const qc = (await post('/api/customers', { name: 'Quote Customer', phone: '9123400001' })).body;
+      const billsBefore = (await get('/api/bills?limit=500')).body.length;
+      const todayBefore = (await get('/api/summary/today')).body;
+      const ink = { w: 300, h: 60, strokes: [[1, 2, 3, 4, 5, 6]] };
+      const lines = [{ itemId: 'q1', nameEn: 'Sugar', qty: 2, rate: 45 }, { itemId: 'q2', nameKn: '', nameEn: '', ink, qty: 1, rate: 30 }];
+      const q = await post('/api/quotations', { lines, customerId: qc.id, clientId: 'quote-dev-1', note: 'Prices for this week' });
+      eq('a quotation saves', q.status, 201);
+      eq('numbered on its own, from 1', q.body.no, 1);
+      eq('its total worked out by the server', q.body.total, 120);
+      eq('open', q.body.status, 'open');
+      eq('with a copy of the customer', q.body.customer && q.body.customer.id, qc.id);
+      eq('and the note', q.body.note, 'Prices for this week');
+      const again = await post('/api/quotations', { lines, customerId: qc.id, clientId: 'quote-dev-1' });
+      check('the same save sent twice is one quotation', again.status === 200 && again.body.no === 1, JSON.stringify(again.body));
+      const qcAfter = (await get('/api/customers/' + qc.id)).body.customer;
+      check('the customer\'s figures did not move', qcAfter.totalBilled === 0 && qcAfter.billCount === 0 && qcAfter.balance === 0 && qcAfter.lastVisit === null, JSON.stringify(qcAfter));
+      eq('no bill was made', (await get('/api/bills?limit=500')).body.length, billsBefore);
+      eq('today\'s takings are the same', JSON.stringify((await get('/api/summary/today')).body), JSON.stringify(todayBefore));
+      const list = (await get('/api/quotations')).body;
+      check('the list leaves the handwriting out and says it is there', list.length === 1 && list[0].hasInk === true && !list[0].lines[1].ink && list[0].lines[1].hasInk === true, JSON.stringify(list));
+      eq('the quotation itself has it', (await get('/api/quotations/1')).body.lines[1].ink.strokes.length, 1);
+      eq('a customer\'s own list', (await get('/api/quotations?customerId=' + qc.id)).body.length, 1);
+      eq('an unknown customer is refused', (await post('/api/quotations', { lines, customerId: 'nobody' })).status, 400);
+      eq('an empty quotation is refused', (await post('/api/quotations', { lines: [] })).status, 400);
+      eq('no such quotation', (await get('/api/quotations/99')).status, 404);
+
+      const made = await post('/api/bills', { lines, customerId: qc.id, paid: 120, fromQuotation: 1 });
+      eq('"Make bill": the bill saves', made.status, 201);
+      const billed = (await get('/api/quotations/1')).body;
+      check('and the quotation says it is that bill', billed.status === 'billed' && billed.billNo === made.body.no && typeof billed.billedAt === 'string', JSON.stringify(billed));
+      eq('a billed quotation cannot be cancelled', (await post('/api/quotations/1/cancel', {})).status, 409);
+      eq('only the bill moved the customer\'s figures', (await get('/api/customers/' + qc.id)).body.customer.totalBilled, 120);
+
+      const second = (await post('/api/quotations', { lines: [{ itemId: 'q3', qty: 1, rate: 10 }] })).body;
+      eq('the next one is 2', second.no, 2);
+      eq('with nobody on it', second.customer, undefined);
+      eq('cancelled', (await post('/api/quotations/2/cancel', {})).body.status, 'cancelled');
+      eq('cancelling twice is the same', (await post('/api/quotations/2/cancel', {})).body.status, 'cancelled');
+      eq('deleted', (await call('/api/quotations/2', { method: 'DELETE', headers: auth })).status, 204);
+      eq('and gone', (await get('/api/quotations/2')).status, 404);
+      eq('its number is not given out again', (await post('/api/quotations', { lines: [{ itemId: 'q4', qty: 1, rate: 1 }] })).body.no, 3);
+      eq('quotations are behind auth', (await call('/api/quotations')).status, 401);
+      const bk = (await get('/api/backup')).body;
+      check('the backup carries them', bk.version === 4 && bk.quotations.length === 2 && bk.counters.quotationNo === 3, JSON.stringify({ v: bk.version, q: bk.quotations && bk.quotations.length, c: bk.counters }));
+    }
   } finally {
     server.kill();
     fs.rmSync(DATA, { recursive: true, force: true });

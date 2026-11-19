@@ -316,6 +316,12 @@ const CASES = [
     customer: { id: 'p1', name: 'ರಮೇಶ್', phone: '9886012345' },
     paid: 1000, balance: 370, showBalance: true,
   }), { paper: '58mm', language: 'kn' }],
+  // A quotation: QUOTATION under the shop name, "Quote #", and "Not a bill" above the footer.
+  ['a quotation', bill({ kind: 'quotation', customer: { id: 'p9886012345', name: 'Ramesh', phone: '9886012345' }, paid: 0 }), { paper: '58mm' }],
+  ['a quotation with handwriting, in Kannada, on 80mm', bill({
+    kind: 'quotation', paid: 0,
+    lines: [...LINES, { itemId: 'ink-1', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40 }],
+  }), { paper: '80mm', language: 'kn' }],
 ];
 
 console.log('');

@@ -106,13 +106,13 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       setBusy(true);
       try {
         const blob = await receiptPng(buildReceipt(bill, settings, shop.receiptLabels));
-        const name = 'bill-' + bill.no + '.png';
+        const name = (bill.kind === 'quotation' ? 'quotation-' : 'bill-') + bill.no + '.png';
         const file = new File([blob], name, { type: 'image/png' });
 
         const canShareFile =
           typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
         if (canShareFile) {
-          await navigator.share({ files: [file], title: shop.t('hist.billNo', { no: bill.no }) });
+          await navigator.share({ files: [file], title: (bill.kind === 'quotation' ? shop.t('hist.quoteNo', { no: bill.no }) : shop.t('hist.billNo', { no: bill.no })) });
           return;
         }
 

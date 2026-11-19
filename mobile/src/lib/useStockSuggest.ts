@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FALLBACK_UNIT, bestMatch, lastPriceApplies, pickRate, pickUnitOf } from '@shridhar/shared';
+import { FALLBACK_UNIT, bestMatch, lastPriceApplies, lineHasSomething, pickRate, pickUnitOf } from '@shridhar/shared';
 import type { BillLine, StockItem, StockUnit } from '@shridhar/shared';
 import { api } from './api';
 import { useShop } from './useShop';
@@ -174,6 +174,36 @@ export function useStockSuggest() {
     return pickNos(index, line, typed);
   };
 
+  /**
+   * A scanned product, as stock found it by its barcode, in the unit the code is printed on
+   * (`matchedUnit`). Already on the bill in that unit: one more of it, priced again by stock's
+   * slabs. Otherwise it fills the blank line at the foot of the slip, quantity 1. Resolves to
+   * what happened, for the counter's notice, or null when the bill had no room for it.
+   */
+  const addScanned = async (item: StockItem): Promise<{ more: boolean; qty: number; key: string } | null> => {
+    const unit = pickUnitOf(item);
+    if (!unit) return null;
+    // The slip keeps a blank line at its foot, topped up a render after each fill: wait for it.
+    for (let tries = 0; tries < 10; tries += 1) {
+      const lines = cart.current;
+      const same = lines.findIndex((l) => l.stockItemId === item.id && l.unit === unit.code);
+      if (same >= 0) {
+        const l = lines[same]!;
+        const qty = (l.qty > 0 ? l.qty : 0) + 1;
+        onQty(same, l, qty);
+        return { more: true, qty, key: l.itemId };
+      }
+      const at = lines.length - 1;
+      const last = lines[at];
+      if (last && !lineHasSomething(last) && !last.stockItemId && !last.nameEn.trim()) {
+        pick(at, last, item, unit);
+        return { more: false, qty: last.qty > 0 ? last.qty : 1, key: last.itemId };
+      }
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    return null;
+  };
+
   /** A tap on the item itself: it goes on in stock's selling unit. */
   const pickItem = (index: number, line: BillLine, item: StockItem) => {
     const unit = pickUnitOf(item);
@@ -297,6 +327,7 @@ export function useStockSuggest() {
     pick,
     pickItem,
     pickBest,
+    addScanned,
     chooseNos,
     unitsFor,
     loadUnits,

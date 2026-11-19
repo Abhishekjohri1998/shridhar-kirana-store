@@ -28,6 +28,12 @@ export type ReceiptLabels = {
   balance: string;
   /** Prefixes the bill's own note, under the totals. */
   note: string;
+  /** A quotation's number, where a bill has `bill`: "Quote #3". */
+  quote: string;
+  /** The heading under the shop name on a quotation. */
+  quoteTitle: string;
+  /** Above the footer of a quotation, so nobody takes it for a bill. */
+  quoteNote: string;
 };
 
 export const EN_RECEIPT_LABELS: ReceiptLabels = {
@@ -44,4 +50,7 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   paid: 'Paid',
   balance: 'Balance',
   note: 'Note',
+  quote: 'Quote #',
+  quoteTitle: 'QUOTATION',
+  quoteNote: 'Not a bill',
 };

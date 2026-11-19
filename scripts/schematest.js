@@ -284,6 +284,28 @@ function billDoc(lines) {
     check('no operator collision when patching ' + field, both.length === 0, both.join(','));
   }
 
+  // Quotations: the bill's line shape, their own model, the same schema rules.
+  {
+    const Quotation = registered.Quotation;
+    check('the quotation model is registered', Boolean(Quotation));
+    if (Quotation) {
+      const q = new Quotation({
+        no: 1, at: new Date().toISOString(), total: 90,
+        lines: [{ itemId: 'a', nameKn: '', nameEn: '', ink: SAMPLE_INK, qty: 1, rate: 40 }, { itemId: 'b', nameKn: '', nameEn: '', qty: 1, rate: 50 }],
+      });
+      const qErr = q.validateSync();
+      check('a handwritten quotation with no names is valid', !qErr, qErr && Object.keys(qErr.errors).join(', '));
+      check('it starts open', q.status === 'open');
+      check('billed, with the bill number, is valid', !new Quotation({ no: 2, at: 'x', total: 1, lines: [], status: 'billed', billNo: 7 }).validateSync());
+      check('a status it does not know is refused', Boolean(new Quotation({ no: 3, at: 'x', total: 1, lines: [], status: 'paid' }).validateSync()));
+      check('it lives in its own collection, never with bills', Quotation.collection.collectionName === 'quotations');
+      const paths = Quotation.schema.paths;
+      // Arrays are given an empty default by Mongoose itself, the same as the bill's lines.
+      const bad = Object.keys(paths).filter((k) => paths[k].isRequired && paths[k].defaultValue !== undefined && paths[k].instance !== 'Array');
+      check('no field is required and given a default', bad.length === 0, bad.join(', '));
+    }
+  }
+
   // Mongo rejects an empty operator too, so neither may be sent empty.
   const nothing = upsertDoc({}, DEFAULTS);
   check('an empty patch sends no $set', !('$set' in nothing));

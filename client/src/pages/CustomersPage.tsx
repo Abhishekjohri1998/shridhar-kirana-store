@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  CUSTOMER_SHOWS,
+  CUSTOMER_SORTS,
+  customerShowCounts,
+  defaultDir,
+  filterCustomers,
+  readCustomerView,
+  type CustomerShow,
+  type CustomerSort,
+  type CustomerView,
   checkCustomer,
   customerMatches,
   customerName,
@@ -20,6 +29,9 @@ import { api } from '../lib/api';
 import { useShop } from '../lib/useShop';
 import { Empty } from '../components/Empty';
 import { CustomersIcon } from '../components/Icons';
+
+/** Where this device keeps the Customers screen's filter and sort. */
+const VIEW_KEY = 'shridhar.customerView';
 
 function daysSince(iso: string | null): number | null {
   if (!iso) return null;
@@ -92,29 +104,42 @@ export function CustomersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shop.dataVersion]);
 
-  /** "Not come for N days": the days picked (null = off), what the server listed, the custom box. */
-  const [notCome, setNotCome] = useState<number | null>(null);
-  const [notComeList, setNotComeList] = useState<Customer[]>([]);
+  /*
+   * Which customers show and in what order (shared/src/customerFilters.ts), remembered on this
+   * device. Worked out here from the full list, so the server is asked nothing more.
+   */
+  const [view, setViewState] = useState<CustomerView>(() => {
+    try { return readCustomerView(JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null')); } catch { return readCustomerView(null); }
+  });
+  const setView = (patch: Partial<CustomerView>) => setViewState((v) => {
+    const next = { ...v, ...patch };
+    try { localStorage.setItem(VIEW_KEY, JSON.stringify(next)); } catch { /* private window */ }
+    return next;
+  });
   const [customDays, setCustomDays] = useState('');
-  useEffect(() => {
-    if (notCome == null) return;
-    let alive = true;
-    api.inactiveCustomers(notCome, true)
-      .then((r) => { if (alive) setNotComeList(r.customers); })
-      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : String(e)); });
-    return () => { alive = false; };
-  }, [notCome, customers]);
+  const notCome = view.show === 'notCome' ? view.days : null;
+  const reachOut = view.show === 'notCome' || view.show === 'never';
 
   const results = useMemo(() => {
-    if (notCome != null) return query.trim() ? notComeList.filter((c) => customerMatches(c, query)) : notComeList;
-    if (!query.trim()) return customers;
+    const shown = filterCustomers(customers, view, shop.lang);
+    if (!query.trim()) return shown;
     // One matcher, shared with the suggestions under the bill screen and with both stores, so
     // "who exists" cannot get a different answer depending on which box you typed in.
-    return customers.filter((c) => customerMatches(c, query));
-  }, [query, customers, notCome, notComeList]);
+    return shown.filter((c) => customerMatches(c, query));
+  }, [query, customers, view, shop.lang]);
+  const counts = useMemo(() => customerShowCounts(customers, view.days), [customers, view.days]);
 
-  const owing = useMemo(() => customers.filter((c) => c.balance > 0), [customers]);
+  // The figures above the list are the list's own: the filter and the search narrow them too.
+  const owing = useMemo(() => results.filter((c) => c.balance > 0), [results]);
   const owedTotal = useMemo(() => owing.reduce((s, c) => s + c.balance, 0), [owing]);
+  const showWords: Record<CustomerShow, string> = {
+    all: t('cs.showAll'), owes: t('cs.showOwes'), advance: t('cs.showAdvance'),
+    notCome: t('cs.showNotCome'), never: t('cs.showNever'), new: t('cs.showNew'),
+  };
+  const sortWords: Record<CustomerSort, string> = {
+    name: t('cs.sortName'), balance: t('cs.sortBalance'), lastVisit: t('cs.sortLastVisit'),
+    billed: t('cs.sortBilled'), bills: t('cs.sortBills'),
+  };
 
   const openCustomer = async (customer: Customer) => {
     setError(null);
@@ -219,7 +244,7 @@ export function CustomersPage() {
       <div className="stat-row">
         <div className="stat">
           <span className="muted small">{t('cs.customers')}</span>
-          <strong>{customers.length}</strong>
+          <strong>{results.length}</strong>
         </div>
         <div className="stat">
           <span className="muted small">{t('cs.owing')}</span>
@@ -248,39 +273,75 @@ export function CustomersPage() {
         </button>
       </div>
 
-      {/* "Not come for N days": billed before the cutoff, or never; longest gone first. */}
-      <div className="stock-chips" style={{ flexWrap: 'wrap', alignItems: 'center', margin: '0 0 12px' }}>
-        <span className="muted small">{t('cs.notCome')}</span>
-        {[7, 15, 30].map((n) => (
+      {/* Which customers: one chip at a time, each with how many it holds. */}
+      <div className="stock-chips" role="group" aria-label={t('cs.showAria')} style={{ flexWrap: 'wrap', alignItems: 'center', margin: '0 0 8px' }}>
+        {CUSTOMER_SHOWS.map((s) => (
           <button
-            key={n}
+            key={s}
             type="button"
-            className={'pay-all' + (notCome === n ? ' on' : '')}
-            aria-pressed={notCome === n}
-            onClick={() => setNotCome(notCome === n ? null : n)}
+            className={'pay-all' + (view.show === s ? ' on' : '')}
+            aria-pressed={view.show === s}
+            onClick={() => setView({ show: s })}
           >
-            {t('cs.notComeDays', { n })}
+            {showWords[s]} ({counts[s]})
           </button>
         ))}
-        <input
+      </div>
+      {/* "Not come for N days": billed before, but not since the cutoff; longest gone first. */}
+      {notCome != null ? (
+        <div className="stock-chips" style={{ flexWrap: 'wrap', alignItems: 'center', margin: '0 0 8px' }}>
+          <span className="muted small">{t('cs.notCome')}</span>
+          {[7, 15, 30].map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={'pay-all' + (notCome === n ? ' on' : '')}
+              aria-pressed={notCome === n}
+              onClick={() => { setView({ days: n }); setCustomDays(''); }}
+            >
+              {t('cs.notComeDays', { n })}
+            </button>
+          ))}
+          <input
+            className="input"
+            style={{ width: 90 }}
+            inputMode="numeric"
+            placeholder={t('cs.notComeCustom')}
+            aria-label={t('cs.notComeAria')}
+            value={customDays}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+              setCustomDays(v);
+              const n = Number(v);
+              if (n >= 1) setView({ days: n });
+            }}
+          />
+        </div>
+      ) : null}
+      <div className="stock-chips" style={{ alignItems: 'center', margin: '0 0 12px' }}>
+        <label className="muted small" htmlFor="cs-sort">{t('cs.sortBy')}</label>
+        <select
+          id="cs-sort"
           className="input"
-          style={{ width: 90 }}
-          inputMode="numeric"
-          placeholder={t('cs.notComeCustom')}
-          aria-label={t('cs.notComeAria')}
-          value={customDays}
+          style={{ width: 'auto' }}
+          value={view.sort}
           onChange={(e) => {
-            const v = e.target.value.replace(/\D/g, '').slice(0, 4);
-            setCustomDays(v);
-            const n = Number(v);
-            if (n >= 1) setNotCome(n);
+            const sort = e.target.value as CustomerSort;
+            setView({ sort, dir: defaultDir(sort) });
           }}
-        />
-        {notCome != null ? (
-          <button type="button" className="pay-all" onClick={() => { setNotCome(null); setCustomDays(''); }}>
-            {t('cs.notComeOff')}
-          </button>
-        ) : null}
+        >
+          {CUSTOMER_SORTS.map((s) => <option key={s} value={s}>{sortWords[s]}</option>)}
+        </select>
+        <button
+          type="button"
+          className="pay-all"
+          aria-label={view.dir === 'asc' ? t('cs.sortAsc') : t('cs.sortDesc')}
+          title={view.dir === 'asc' ? t('cs.sortAsc') : t('cs.sortDesc')}
+          onClick={() => setView({ dir: view.dir === 'asc' ? 'desc' : 'asc' })}
+        >
+          {view.dir === 'asc' ? '↑' : '↓'}
+        </button>
+        {view.show !== 'all' || query.trim() ? <span className="muted small">{t('cs.shownCount', { n: results.length })}</span> : null}
       </div>
       {notCome != null ? (
         <p className="muted small" style={{ margin: '0 0 8px' }}>
@@ -307,7 +368,7 @@ export function CustomersPage() {
                   <span style={{ display: 'block', fontWeight: 700 }}>{customerName(c, shop.lang) || t('cs.unnamed')}</span>
                   <span className="muted small">
                     {c.phone || t('cs.noNumber')} ·{' '}
-                    {notCome != null && c.billCount === 0
+                    {reachOut && c.billCount === 0
                       ? t('cs.neverBilled')
                       : c.billCount === 0
                       ? t('cs.noBillsYet')
@@ -327,7 +388,7 @@ export function CustomersPage() {
                   )}
                 </span>
               </button>
-              {notCome != null && (c.phone || wa) ? (
+              {reachOut && (c.phone || wa) ? (
                 <div className="stock-chips" style={{ margin: '4px 0 8px' }}>
                   {c.phone ? (
                     <a className="pay-all" href={'tel:' + c.phone} aria-label={t('cs.callAria', { name: who })}>

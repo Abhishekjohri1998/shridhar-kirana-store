@@ -6,7 +6,7 @@ import {
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
   LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
-  type ReceiptLabels, type Settings, type T, type TodaySummary,
+  type ReceiptLabels, type Settings, type T, type TodaySummary, type Quotation, quotationAsBill,
 } from '@shridhar/shared';
 
 /** What a stock suggestion fills a line with. */
@@ -197,6 +197,19 @@ type Shop = {
   /** Item descriptions left off this bill's printout, preview and shares. */
   hideNames: boolean;
   setHideNames: (value: boolean) => void;
+  /**
+   * This tab is a quotation (an estimate, not a sale): Save and Print then record a quotation,
+   * and commitBill hands back its bill-shaped copy (kind 'quotation') for the printer.
+   */
+  quotationMode: boolean;
+  setQuotationMode: (on: boolean) => void;
+  /** The quotation this tab was opened from by "Make bill", if any. */
+  fromQuotation: number | null;
+  /**
+   * "Make bill": a new tab holding a quotation's lines, customer and note, which saves as a real
+   * bill and marks the quotation billed. False when MAX_PARKED tabs are already open.
+   */
+  billFromQuotation: (q: Quotation) => Promise<boolean>;
   /** A saved bill's item descriptions left off, or put back on, its reprints and shares. */
   setBillHideNames: (no: number, hideNames: boolean) => Promise<Bill>;
   customerDraft: { name: string; nameKn: string; phone: string };
@@ -284,6 +297,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const printBalanceTouched = active.printBalanceTouched;
   const note = active.note;
   const hideNames = active.hideNames === true;
+  const quotationMode = active.kind === 'quotation';
+  const fromQuotation = active.fromQuotation ?? null;
 
   const setCart = useCallback(
     (next: BillLine[] | ((prev: BillLine[]) => BillLine[])) => {
@@ -409,6 +424,13 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const pushDraft = useCallback(async (d: Draft) => {
     if (stockSaved.current.has(d.draftId)) return;
+    // A quotation is not picked: the worker screen never sees one, and loses it if it was shown.
+    if (d.kind === 'quotation') {
+      if (stockSent.current.delete(d.draftId)) {
+        void api.stockDraft({ draftId: d.draftId, closed: true, lines: [] }).catch(() => undefined);
+      }
+      return;
+    }
     stockSent.current.add(d.draftId);
     try {
       const { ticks } = await api.stockDraft(draftForStock(d));
@@ -596,6 +618,52 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   }, [patchActive]);
 
   /** Put this bill aside and start a fresh one. Refuses past MAX_PARKED rather than doing nothing. */
+  const setQuotationMode = useCallback((on: boolean) => {
+    patchActive((d) => {
+      if (on === (d.kind === 'quotation')) return d;
+      if (!on) {
+        const { kind: _k, ...rest } = d;
+        return rest;
+      }
+      // Nothing is paid on a quotation and no balance prints: those belong to a sale.
+      return { ...d, kind: 'quotation', paidInput: '', printBalance: false, printBalanceTouched: false, fromQuotation: undefined };
+    });
+  }, [patchActive]);
+
+  const billFromQuotation = useCallback(async (q: Quotation): Promise<boolean> => {
+    if (parked.list.length >= MAX_PARKED) return false;
+    // The tab holds a whole customer, with what they owe now; the quotation only a copy of who.
+    let who: Customer | null = null;
+    let balanceAt: string | null = null;
+    if (q.customer?.id) {
+      try {
+        const got = await api.getCustomer(q.customer.id);
+        who = got.customer;
+        balanceAt = got.balanceAt;
+      } catch { /* removed since: the bill goes without a customer, as any can */ }
+    }
+    const full = q.lines.some((l) => l.hasInk) ? await api.getQuotation(q.no) : q;
+    setParked((prev) => {
+      if (prev.list.length >= MAX_PARKED) return prev;
+      const fresh: Draft = {
+        ...emptyDraft(nextLineId('bill')),
+        // New line ids: the slip keys its lines by them, and stock's ticks are per line.
+        lines: full.lines.map((l) => {
+          const { hasInk: _h, given: _g, ...rest } = l;
+          return { ...rest, itemId: nextLineId() };
+        }),
+        customer: who,
+        customerBalanceAt: balanceAt,
+        typed: who ? { name: '', nameKn: '', phone: '' } : { name: q.customer?.name ?? '', nameKn: q.customer?.nameKn ?? '', phone: q.customer?.phone ?? '' },
+        note: full.note ?? '',
+        ...(full.hideNames ? { hideNames: true } : {}),
+        fromQuotation: q.no,
+      };
+      return { list: [...prev.list, fresh], activeId: fresh.id };
+    });
+    return true;
+  }, [parked.list.length]);
+
   const newBill = useCallback(() => {
     setParked((prev) => {
       if (prev.list.length >= MAX_PARKED) return prev;
@@ -842,6 +910,34 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       });
       if (lines.length === 0) throw new Error(t('bill.nothingYet'));
       const billTo = options.customer !== undefined ? options.customer : customer;
+      if (active.kind === 'quotation') {
+        // A quotation: its own numbers, nothing paid, nothing in the day's takings or the
+        // customer's figures. Handed back bill-shaped (kind 'quotation') so the same printer,
+        // preview and share code draws it, headed QUOTATION.
+        const payload = {
+          lines,
+          ...(billTo ? { customerId: billTo.id } : {}),
+          ...(hideNames ? { hideNames: true } : {}),
+          ...(note.trim() ? { note: note.trim() } : {}),
+          clientId: active.draftId,
+        };
+        let q: Quotation;
+        try {
+          q = await api.createQuotation(payload);
+        } catch (e) {
+          if (!(e instanceof ApiError) || e.status !== 0) throw e;
+          q = await api.createQuotation(payload);
+        }
+        setParked((prev) => {
+          if (prev.list.length <= 1) {
+            return { ...prev, list: prev.list.map((d) => (d.id === prev.activeId ? emptyDraft(d.id) : d)) };
+          }
+          const nextActive = afterClosing(prev.list, prev.activeId, prev.activeId);
+          const list = closeDraft(prev.list, prev.activeId, nextLineId('bill'));
+          return { list, activeId: list.some((d) => d.id === nextActive) ? nextActive : list[0]!.id };
+        });
+        return quotationAsBill(q);
+      }
       const payload = {
         lines,
         ...(billTo ? { customerId: billTo.id } : {}),
@@ -854,6 +950,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         // This bill's own id. The server answers a second save carrying it with the first bill,
         // so a retry -- here, or the shopkeeper tapping again -- never records it twice.
         clientId: active.draftId,
+        // Opened from a quotation by "Make bill": the server marks that one billed.
+        ...(active.fromQuotation ? { fromQuotation: active.fromQuotation } : {}),
       };
       let bill: Bill;
       try {
@@ -885,7 +983,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       if (bill.customer) setInactive((prev) => prev.filter((c) => c.id !== bill.customer?.id));
       return bill;
     },
-    [cart, customer, note, hideNames, resetDraft, t, stockOn, active.draftId],
+    [cart, customer, note, hideNames, resetDraft, t, stockOn, active.draftId, active.kind, active.fromQuotation],
   );
 
   const setBillHideNames = useCallback(async (no: number, hide: boolean) => {
@@ -943,6 +1041,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
       customerDraft, setCustomerDraft,
       saveSettings, forgetEverything, dataVersion,
@@ -955,6 +1054,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,
       saveSettings, forgetEverything, dataVersion,
     ],

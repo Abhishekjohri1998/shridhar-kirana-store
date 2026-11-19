@@ -57,6 +57,15 @@
  *     and re-enables handwriting (a tab switch restarting the IME was what fixed it). A stylus
  *     hover-enter or down over a shown WebView triggers the same, at most once every 2 s; the
  *     event is never used up.
+ * 12. A barcode scanner paired as a keyboard (build 87). While JavaScript says the bill screen
+ *     is showing (`setScanCatch`), printable keys from a physical keyboard are held for up to
+ *     SCAN_MAX_GAP_MS. A run of SCAN_MIN_CHARS or more, each within that gap of the one before,
+ *     ended by Enter within the gap, is a scan: the keys and the Enter are used up and the code
+ *     goes to JavaScript as `hwScan` ({code}). Anything else -- a slower key, a shorter run, a
+ *     shortcut -- hands the held keys on to the focused view in the order they were typed, so a
+ *     person typing never loses one. The on-screen keyboard is never held. The numbers are
+ *     shared/src/scan.ts's; plugintest checks they agree. Checked at the pre-IME stage and again
+ *     in dispatchKeyEvent (one decision per event), after shortcuts and the unit list.
  * 10. Stock tab handwriting refresh (build 79): `refreshHandwriting()` finds the WebView(s) under
  *     the root, switches handwriting on again and gives the shown one focus. The Stock screen calls
  *     it when the tab comes to the front and when the app resumes on Stock.
@@ -205,7 +214,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -244,6 +256,30 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 
   /** JavaScript says a line's unit list is open, so Left, Right, Enter and Escape are its (build 67). */
   @ReactMethod fun setUnitMenuOpen(open: Boolean) { unitMenuOpen = open }
+
+  /** JavaScript says the bill screen is showing, so a scanner's burst is read as a scan (build 87). */
+  @ReactMethod fun setScanCatch(on: Boolean) {
+    scanCatch = on
+    if (!on) UiThreadUtil.runOnUiThread { flushHeld() }
+  }
+
+  /**
+   * Build 87: keys held while a run might have been a scan, handed on as typed -- down and up, in
+   * order -- through the activity, so they reach the focused box exactly as a keyboard's would.
+   */
+  internal fun replay(events: List<KeyEvent>) {
+    val activity = currentActivity ?: return
+    replaying = true
+    try {
+      for (ev in events) {
+        activity.dispatchKeyEvent(KeyEvent(ev))
+        activity.dispatchKeyEvent(KeyEvent.changeAction(ev, KeyEvent.ACTION_UP))
+      }
+    } catch (e: Throwable) {
+    } finally {
+      replaying = false
+    }
+  }
 
   /**
    * Build 79: the Stock tab came to the front (or the app did, on Stock). The WebView was laid out
@@ -357,6 +393,17 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("hwKey", map)
   }
 
+  private fun emitScan(code: String) {
+    if (!ctx.hasActiveReactInstance()) return
+    try {
+      val map = Arguments.createMap()
+      map.putString("code", code)
+      ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit("hwScan", map)
+    } catch (e: Exception) {
+      // The React instance is reloading (an update): the scan is dropped; the counter scans again.
+    }
+  }
+
   private fun emitShortcut(key: String, ctrl: Boolean, shift: Boolean, alt: Boolean) {
     if (!ctx.hasActiveReactInstance()) return
     val map = Arguments.createMap()
@@ -390,6 +437,27 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     @Volatile private var unitMenuOpen = false
     /** Keys whose down was used up as a shortcut: their up is used up too, Alt held or not. */
     private val takenDown = java.util.Collections.synchronizedSet(HashSet<Int>())
+
+    /** Build 87, the scanner: the same numbers as shared/src/scan.ts. */
+    const val SCAN_MIN_CHARS = 6
+    const val SCAN_MAX_GAP_MS = 40L
+    const val SCAN_MAX_CHARS = 32
+    @Volatile private var scanCatch = false
+    /** Key downs held while a run might be a scan, oldest first. Touched on the UI thread only. */
+    private val scanHeld = ArrayList<KeyEvent>()
+    /** Keys whose down was held: their real up is used up (the replay sends its own). */
+    private val heldUps = HashSet<Int>()
+    private var scanLastAt = 0L
+    private var replaying = false
+    /**
+     * The event decided last and what was decided, so pre-IME and dispatch agree on it. Android
+     * reuses event objects, so the same object must also carry the same time, key and action.
+     */
+    private var lastScanEv: KeyEvent? = null
+    private var lastScanSig = ""
+    private var lastScanResult = false
+    private val scanHandler by lazy { Handler(Looper.getMainLooper()) }
+    private val flushLater = Runnable { flushHeld() }
 
     private val GLOBAL_CHORDS = setOf(${globals})
     private val BILL_CHORDS = setOf(${chords})
@@ -475,6 +543,77 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     }
 
     /**
+     * Build 87: a barcode scanner's burst, told from typing (see the plugin's header, item 12).
+     * True when the key is used up: held for now, part of a scan, or the up of a held key.
+     */
+    @JvmStatic
+    fun onScanKey(ev: KeyEvent): Boolean {
+      if (replaying) return false
+      val sig = ev.eventTime.toString() + ":" + ev.downTime + ":" + ev.keyCode + ":" + ev.action + ":" + ev.repeatCount
+      if (ev === lastScanEv && sig == lastScanSig) return lastScanResult
+      val used = try { scanKey(ev) } catch (e: Throwable) { false }
+      lastScanEv = ev
+      lastScanSig = sig
+      lastScanResult = used
+      return used
+    }
+
+    private fun isCodeChar(c: Int): Boolean =
+      (c >= '0'.code && c <= '9'.code) || (c >= 'A'.code && c <= 'Z'.code) || (c >= 'a'.code && c <= 'z'.code) || c == '-'.code
+
+    private fun scanKey(ev: KeyEvent): Boolean {
+      if (ev.action == KeyEvent.ACTION_UP) return heldUps.remove(ev.keyCode)
+      if (ev.action != KeyEvent.ACTION_DOWN) return false
+      val physical = ev.deviceId != KeyCharacterMap.VIRTUAL_KEYBOARD && ev.device?.isVirtual != true
+      if (!scanCatch || !physical) {
+        flushHeld()
+        return false
+      }
+      if (ev.keyCode == KeyEvent.KEYCODE_ENTER || ev.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+        if (scanHeld.isEmpty()) return false
+        val quick = ev.eventTime - scanLastAt <= SCAN_MAX_GAP_MS
+        if (quick && ev.repeatCount == 0 && scanHeld.size >= SCAN_MIN_CHARS) {
+          val code = StringBuilder()
+          for (k in scanHeld) code.append(k.unicodeChar.toChar())
+          scanHeld.clear()
+          scanHandler.removeCallbacks(flushLater)
+          // Its up is used up with the shortcuts' (onShortcut runs first on every event).
+          takenDown.add(ev.keyCode)
+          instance?.emitScan(code.toString())
+          return true
+        }
+        flushHeld()
+        return false
+      }
+      val ch = ev.unicodeChar
+      val plain = !ev.isCtrlPressed && !ev.isAltPressed && !ev.isMetaPressed && ev.repeatCount == 0
+      if (!plain || !isCodeChar(ch)) {
+        // Shift comes with every capital letter a scanner types: it never ends a run.
+        if (ev.keyCode == KeyEvent.KEYCODE_SHIFT_LEFT || ev.keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) return false
+        flushHeld()
+        return false
+      }
+      // Too long after the last held key, or already longer than any barcode: typing, so far.
+      if (scanHeld.isNotEmpty() && (ev.eventTime - scanLastAt > SCAN_MAX_GAP_MS || scanHeld.size >= SCAN_MAX_CHARS)) flushHeld()
+      scanHeld.add(KeyEvent(ev))
+      heldUps.add(ev.keyCode)
+      scanLastAt = ev.eventTime
+      scanHandler.removeCallbacks(flushLater)
+      scanHandler.postDelayed(flushLater, SCAN_MAX_GAP_MS + 10)
+      return true
+    }
+
+    /** Hands every held key on to the focused view, in order. Quiet when none are held. */
+    @JvmStatic
+    fun flushHeld() {
+      scanHandler.removeCallbacks(flushLater)
+      if (scanHeld.isEmpty()) return
+      val list = ArrayList(scanHeld)
+      scanHeld.clear()
+      instance?.replay(list)
+    }
+
+    /**
      * Called by MainActivity for every key event. Up, Down and Enter from a hardware keyboard,
      * while a text box has focus, are sent to JavaScript on the way down. Returns true -- the
      * key is used up -- for Up and Down while a suggestion list is open, and for Enter (down,
@@ -491,6 +630,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     fun onKey(ev: KeyEvent, focus: View?): Boolean {
       if (onShortcut(ev)) return true
       if (onUnitMenu(ev)) return true
+      if (onScanKey(ev)) return true
       if (focus !is EditText) return false
       val key = when (ev.keyCode) {
         KeyEvent.KEYCODE_DPAD_UP -> "up"
@@ -577,6 +717,7 @@ class ShridharKeyCatcher(context: Context) : FrameLayout(context) {
   override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {
     if (ShridharNativeModule.onShortcut(event)) return true
     if (ShridharNativeModule.onUnitMenu(event)) return true
+    if (ShridharNativeModule.onScanKey(event)) return true
     return super.dispatchKeyEventPreIme(event)
   }
 

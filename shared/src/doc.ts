@@ -1,5 +1,5 @@
 import { namelessLines, printedLines } from './link';
-import { receiptStyleOf, type Bill, type BillLine, type Ink, type Settings, type HiddenReceipt, type ReceiptStyle } from './types';
+import { receiptStyleOf, type Bill, type BillLine, type Ink, type Quotation, type Settings, type HiddenReceipt, type ReceiptStyle } from './types';
 import { lineAmount, money, qtyText, rateText, round2, roundedRate } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
@@ -275,11 +275,36 @@ export function historyViewSettings<S extends Settings>(settings: S): S {
   return { ...settings, receiptStyle: 'normal', hiddenReceipt: undefined };
 }
 
+/**
+ * A quotation as a bill-shaped slip, for printing, the preview and sharing: every renderer draws
+ * a Bill, and `kind` makes buildReceipt head it QUOTATION and leave the money taken off. Nothing
+ * paid, no balance carried -- a quotation is not a sale.
+ */
+export function quotationAsBill(q: Quotation): Bill {
+  return {
+    kind: 'quotation',
+    no: q.no,
+    at: q.at,
+    ...(q.customer ? { customer: q.customer } : {}),
+    lines: q.lines,
+    total: q.total,
+    paid: 0,
+    balance: 0,
+    showBalance: false,
+    ...(q.hideNames ? { hideNames: true } : {}),
+    note: q.note ?? '',
+    ...(q.roundOff ? { roundOff: q.roundOff } : {}),
+    ...(q.roundTo != null ? { roundTo: q.roundTo } : {}),
+    ...(q.hasInk ? { hasInk: true } : {}),
+  };
+}
+
 export function buildReceipt(
   bill: Bill,
   settings: Settings,
   labels: ReceiptLabels = EN_RECEIPT_LABELS,
 ): ReceiptDoc {
+  const quotation = bill.kind === 'quotation';
   /*
    * Which script the slip speaks. The shop's own language setting decides, and each name falls
    * through to the other when only one was filled in -- so a shop that has not typed a Kannada
@@ -304,10 +329,12 @@ export function buildReceipt(
   if (settings.gstin && settings.gstin.trim() && settings.showGstin !== false) {
     rows.push({ t: 'center', text: labels.gstin + ' ' + settings.gstin.trim(), size: 20 });
   }
+  // A quotation says so at the top, before anyone reads a figure on it.
+  if (quotation) rows.push({ t: 'center', text: labels.quoteTitle, size: 26, bold: true });
 
   rows.push(
     { t: 'space', h: 2 },
-    { t: 'kv', left: labels.bill + bill.no, right: stamp(bill.at), size: 20 },
+    { t: 'kv', left: (quotation ? labels.quote : labels.bill) + bill.no, right: stamp(bill.at), size: 20 },
   );
 
   // Customer details sit at the top of the slip, above the item table.
@@ -527,6 +554,13 @@ export function buildReceipt(
     rows.push(
       { t: 'space', h: 2 },
       { t: 'center', text: labels.note + ': ' + note, size: 22 },
+    );
+  }
+
+  if (quotation) {
+    rows.push(
+      { t: 'space', h: 2 },
+      { t: 'center', text: labels.quoteNote, size: 22, bold: true },
     );
   }
 

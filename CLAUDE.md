@@ -28,6 +28,21 @@ shows its own sign-in inside the app); `/api/backup/whole` is the `shridhar-back
 `stock` erases both. Settings → Stock settings opens stock pages via `mobile/src/lib/stockNav.ts`.
 `npm run wholeshoptest`. The code itself still stays in two projects.
 
+**Barcode scanner (build 87):** a Bluetooth scanner paired as a keyboard. Billing keeps no codes:
+`GET /api/stock/barcode` asks stock (`stockBarcode` in `stockLink.ts`), unknown codes wait in
+stock for the admin. Scan vs typing is `shared/src/scan.ts`; the web reads it in
+`client/src/lib/useScanner.ts`, the tablet natively (`withStylus.js` item 12, `hwScan`,
+`setScanCatch` on the Bill tab only) -- a new APK, not an OTA. `addScanned` in both
+`useStockSuggest.ts` copies fills the line or adds 1.
+
+**Quotations:** `Quotation` in `shared/src/types.ts`, its own `quotations` collection and
+`quotationNo` counter (backup v4), `/api/quotations`. Never a sale: no customer figures move,
+stock never sees them. A bill tab becomes one with `setQuotationMode`; `commitBill` then saves a
+quotation and returns `quotationAsBill` (kind 'quotation') so every printer path prints it headed
+QUOTATION. History → Quotations → Make bill opens a tab with `fromQuotation`.
+
+**Customer filters:** `shared/src/customerFilters.ts`, worked out on the device.
+
 ## Rules that have cost real time before
 
 - **Never write test data to the live Atlas database.** The shop bills on it. Test against a

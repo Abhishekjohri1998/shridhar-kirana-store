@@ -19,11 +19,15 @@ import { customerBalance, type BookSnapshot } from './store/types';
  * are: the file says nothing about them, and that is no reason to erase them. A version 3 file
  * must carry `items` (an empty list is fine); one without is damaged.
  *
+ * Version 4 adds `quotations` and the last quotation number (`counters.quotationNo`). A version 4
+ * file must carry both; an older one has neither, and restoring it leaves the live quotations
+ * exactly as they are, by the same rule as the items.
+ *
  * The top-level fields of version 1 keep their names, so anything that read the old file reads
  * the new one.
  */
 export const BACKUP_FORMAT = 'shridhar-billing-backup';
-export const BACKUP_VERSION = 3;
+export const BACKUP_VERSION = 4;
 
 export type BackupFile = {
   format: typeof BACKUP_FORMAT;
@@ -34,8 +38,9 @@ export type BackupFile = {
   customers: Record<string, unknown>[];
   bills: unknown[];
   payments: unknown[];
-  counters: { billNo: number };
+  counters: { billNo: number; quotationNo: number };
   items: Record<string, unknown>[];
+  quotations: unknown[];
 };
 
 export function buildBackup(book: BookSnapshot, at = new Date()): BackupFile {
@@ -54,8 +59,9 @@ export function buildBackup(book: BookSnapshot, at = new Date()): BackupFile {
     })),
     bills: book.bills,
     payments: book.payments,
-    counters: { billNo: book.billNo },
+    counters: { billNo: book.billNo, quotationNo: book.quotationNo ?? 0 },
     items: book.items ?? [],
+    quotations: book.quotations ?? [],
   };
 }
 
@@ -93,6 +99,16 @@ const customerRow = z.object({
   lastVisit: z.string().nullable().default(null),
 }).passthrough();
 
+const quotationRow = z.object({
+  no: z.number().int().positive(),
+  at: z.string().min(1).max(40),
+  lines: z.array(z.object({ itemId: z.string(), qty: money, rate: money }).passthrough()).max(1000),
+  total: money,
+  status: z.enum(['open', 'billed', 'cancelled']).default('open'),
+  customer: z.object({ id: z.string().min(1) }).passthrough().nullish(),
+  clientId: z.string().nullish(),
+}).passthrough();
+
 const paymentRow = z.object({
   id: z.string().min(1).max(200),
   customerId: z.string().min(1).max(200),
@@ -109,9 +125,11 @@ const fileShape = z.object({
   customers: z.array(customerRow).max(MAX_ROWS),
   bills: z.array(billRow).max(MAX_ROWS),
   payments: z.array(paymentRow).max(MAX_ROWS).default([]),
-  counters: z.object({ billNo: z.number().int().nonnegative() }).passthrough().optional(),
+  counters: z.object({ billNo: z.number().int().nonnegative(), quotationNo: z.number().int().nonnegative().optional() }).passthrough().optional(),
   // Raw catalogue rows; only Mongo's own fields are taken off. Absent before version 3.
   items: z.array(z.record(z.unknown())).max(MAX_ROWS).optional(),
+  // Absent before version 4.
+  quotations: z.array(quotationRow).max(MAX_ROWS).optional(),
 }).passthrough();
 
 /** Mongo's own fields, never carried from a file into a store. */
@@ -157,6 +175,9 @@ export function readBackup(raw: unknown): { book: BookSnapshot; version: number;
   if (version >= 3 && file.items === undefined) {
     throw new HttpError(400, 'The backup file is damaged (items: missing)');
   }
+  if (version >= 4 && file.quotations === undefined) {
+    throw new HttpError(400, 'The backup file is damaged (quotations: missing)');
+  }
   const given = raw as { customers: Record<string, unknown>[]; bills: Record<string, unknown>[]; payments?: Record<string, unknown>[]; settings: Record<string, unknown> };
   // The rows as the file has them, fields in their own order; only a field the checks filled in
   // because an older file lacked it is added. "Exactly as it was" includes the order.
@@ -175,6 +196,8 @@ export function readBackup(raw: unknown): { book: BookSnapshot; version: number;
   if (dupPayment != null) throw new HttpError(400, 'The backup file is damaged: payment ' + dupPayment + ' appears twice');
   const dupClient = duplicate(file.bills.map((b) => b.clientId).filter((c): c is string => typeof c === 'string' && c !== ''));
   if (dupClient != null) throw new HttpError(400, 'The backup file is damaged: one save appears as two bills');
+  const dupQuotation = duplicate((file.quotations ?? []).map((q) => q.no));
+  if (dupQuotation != null) throw new HttpError(400, 'The backup file is damaged: quotation ' + dupQuotation + ' appears twice');
   const dupItem = duplicate((file.items ?? []).map((it) => it.id).filter((id): id is string => typeof id === 'string' && id !== ''));
   if (dupItem != null) throw new HttpError(400, 'The backup file is damaged: item ' + dupItem + ' appears twice');
 
@@ -202,6 +225,14 @@ export function readBackup(raw: unknown): { book: BookSnapshot; version: number;
       billNo: Math.max(file.counters?.billNo ?? 0, highest),
       // Absent (an older file): the store leaves its items as they are. See BookSnapshot.items.
       ...(file.items !== undefined ? { items: file.items.map((it) => clean({ ...it })) } : {}),
+      // Absent (a file from before quotations): the store leaves its quotations as they are.
+      ...(file.quotations !== undefined
+        ? {
+            quotations: asGiven((raw as { quotations: Record<string, unknown>[] }).quotations, file.quotations)
+              .map((q) => clean(q)) as unknown as NonNullable<BookSnapshot['quotations']>,
+            quotationNo: Math.max(file.counters?.quotationNo ?? 0, file.quotations.reduce((m, q) => Math.max(m, q.no), 0)),
+          }
+        : {}),
     },
   };
 }

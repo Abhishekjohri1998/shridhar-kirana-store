@@ -1,21 +1,36 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { historyView, money, stamp, type Bill, type Payment } from '@shridhar/shared';
+import { historyView, money, stamp, type Bill, type Payment, type Quotation } from '@shridhar/shared';
 import { api } from '../lib/api';
 import { BillDialog } from '../components/BillDialog';
+import { QuotationDialog } from '../components/QuotationDialog';
 import { Empty } from '../components/ui';
 import { useShop } from '../lib/useShop';
 import { C, R, shadow } from '../theme';
 import { HistoryIcon } from '../components/Icons';
 
-export function HistoryScreen() {
+export function HistoryScreen({ onOpenBill }: { onOpenBill?: () => void } = {}) {
   const shop = useShop();
   const t = shop.t;
   const [open, setOpen] = useState<Bill | null>(null);
+  /** Bills (and money received), or the quotations, which are never sales. */
+  const [showing, setShowing] = useState<'bills' | 'quotations'>('bills');
+  const [quotations, setQuotations] = useState<Quotation[] | null>(null);
+  const [openQuote, setOpenQuote] = useState<Quotation | null>(null);
+  const [quoteTick, setQuoteTick] = useState(0);
+  useEffect(() => {
+    if (showing !== 'quotations') return;
+    let alive = true;
+    api.listQuotations(100)
+      .then((q) => { if (alive) setQuotations(q); })
+      .catch(() => { if (alive) setQuotations((x) => x ?? []); });
+    return () => { alive = false; };
+  }, [showing, quoteTick, shop.bills, shop.dataVersion]);
   // Pull to refresh; "No bills yet" only after a load that worked, never because one failed.
   const [pulling, setPulling] = useState(false);
   const onPull = () => {
     setPulling(true);
+    setQuoteTick((n) => n + 1);
     void shop.refresh().finally(() => setPulling(false));
   };
   const view = historyView(shop.loadState, shop.bills.length);
@@ -52,7 +67,46 @@ export function HistoryScreen() {
         </Text>
       </View>
 
-      {view.banner === 'failed' ? (
+      <View style={styles.switchRow} accessibilityRole="tablist">
+        {(['bills', 'quotations'] as const).map((k) => (
+          <Pressable
+            key={k}
+            style={[styles.chip, showing === k && styles.chipOn]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: showing === k }}
+            onPress={() => setShowing(k)}
+          >
+            <Text style={[styles.chipText, showing === k && styles.chipTextOn]}>
+              {k === 'bills' ? t('hist.bills') : '📝 ' + t('hist.quotations')}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {showing === 'quotations' ? (
+        quotations == null ? (
+          <ActivityIndicator style={{ marginTop: 24 }} color={C.accent} accessibilityLabel={t('hist.loadingBills')} />
+        ) : quotations.length === 0 ? (
+          <Empty icon={<HistoryIcon size={26} color={C.faint} />}>{t('hist.noQuotations')}</Empty>
+        ) : (
+          quotations.map((q) => (
+            <Pressable key={q.no} style={styles.row} onPress={() => setOpenQuote(q)}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.no}>{t('hist.quoteNo', { no: q.no }) + (q.customer?.name ? ' · ' + q.customer.name : '')}</Text>
+                <Text style={styles.when}>
+                  {stamp(q.at)} ·{' '}
+                  {q.lines.length === 1 ? t('hist.oneItem') : t('hist.nItems', { n: q.lines.length })}
+                  {' · '}
+                  {q.status === 'billed' ? t('hist.quoteBilled', { no: q.billNo ?? '?' }) : q.status === 'cancelled' ? t('hist.cancelled') : t('hist.quoteOpen')}
+                </Text>
+              </View>
+              <Text style={styles.total}>{q.status === 'cancelled' ? '—' : money(q.total)}</Text>
+            </Pressable>
+          ))
+        )
+      ) : null}
+
+      {showing === 'bills' && view.banner === 'failed' ? (
         <View style={styles.failed}>
           <Text style={styles.failedText}>{t('hist.loadFailed')}</Text>
           <Pressable style={styles.retry} onPress={onPull} accessibilityRole="button">
@@ -61,7 +115,7 @@ export function HistoryScreen() {
         </View>
       ) : null}
 
-      {view.body === 'empty' ? (
+      {showing === 'quotations' ? null : view.body === 'empty' ? (
         <Empty icon={<HistoryIcon size={26} color={C.faint} />}>{t('hist.noBills')}</Empty>
       ) : view.body === 'loading' ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={C.accent} accessibilityLabel={t('hist.loadingBills')} />
@@ -95,6 +149,12 @@ export function HistoryScreen() {
       )}
 
       <BillDialog bill={open} onClose={() => setOpen(null)} />
+      <QuotationDialog
+        quotation={openQuote}
+        onClose={() => setOpenQuote(null)}
+        onChanged={() => setQuoteTick((n) => n + 1)}
+        onMakeBill={onOpenBill}
+      />
     </ScrollView>
   );
 }
@@ -127,4 +187,12 @@ const styles = StyleSheet.create({
   failedText: { flex: 1, fontSize: 15, fontWeight: '600', color: C.danger },
   retry: { backgroundColor: C.card, borderColor: C.dangerEdge, borderWidth: 1, borderRadius: R.md, paddingHorizontal: 14, paddingVertical: 8 },
   retryText: { fontSize: 15, fontWeight: '700', color: C.danger },
+  switchRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  chip: {
+    borderWidth: 1, borderColor: C.accentEdge, backgroundColor: C.accentWash,
+    borderRadius: R.pill, paddingHorizontal: 14, paddingVertical: 8,
+  },
+  chipText: { fontSize: 14, fontWeight: '700', color: C.accentDeep },
+  chipOn: { backgroundColor: C.accent, borderColor: C.accent },
+  chipTextOn: { color: C.accentInk },
 });

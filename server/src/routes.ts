@@ -2,7 +2,7 @@ import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { ERASE_WORD, RESTORE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, roundedRate, notSeenFor } from '@shridhar/shared';
+import { ERASE_WORD, RESTORE_WORD, INK_LIMITS, checkGstin, customerPhones, inkPointCount, lineHasInk, roundedRate, notSeenFor, type BillLine, type Quotation } from '@shridhar/shared';
 import { issueToken, phoneOf, pinMatches, requireAdmin, requireAuth, roleOf, secretMatches } from './auth';
 import { SAFETY_NAME, buildBackup, readBackup, safetyDir, sameShop, writeSafetyBackup } from './backup';
 import { env } from './env';
@@ -10,7 +10,7 @@ import { HttpError, handler } from './http';
 import { checkSignInBrake, noteSignInFailure } from './rateLimit';
 import { getRepo } from './store';
 import {
-  STOCK_BIG_TIMEOUT_MS, bigAsk, stockAuth, stockDraft, stockErrorOf, stockItems, stockLinkOn, stockQuote, stockSession, stockShopAuth,
+  STOCK_BIG_TIMEOUT_MS, bigAsk, stockAuth, stockBarcode, stockDraft, stockErrorOf, stockItems, stockLinkOn, stockQuote, stockSession, stockShopAuth,
 } from './stockLink';
 import { ensureRoundTo } from './roundTo';
 import { DuplicateClientId } from './store/types';
@@ -727,6 +727,8 @@ api.post('/restore', requireAdmin, express.json({ limit: RESTORE_BODY_LIMIT }), 
       payments: billing.book.payments.length,
       // Null when the file had no items (version 1 or 2), and the shop's own were left in place.
       items: billing.book.items ? billing.book.items.length : null,
+      // Null when the file is from before quotations, and the shop's own were left in place.
+      quotations: billing.book.quotations ? billing.book.quotations.length : null,
       nextBillNo: billing.book.billNo + 1,
       from: billing.at,
       version: billing.version,
@@ -823,6 +825,8 @@ api.post('/bills', handler(async (req, res) => {
       draftId: z.string().trim().min(1).max(80).optional(),
       // The device's id for this save. Sent again on a retry, it gets the first bill back.
       clientId: z.string().trim().min(1).max(80).optional(),
+      // The quotation this bill was made from ("Make bill"), marked billed once this is saved.
+      fromQuotation: z.number().int().positive().optional(),
     })
     .parse(req.body);
 
@@ -855,27 +859,7 @@ api.post('/bills', handler(async (req, res) => {
   let bill;
   try {
     bill = await getRepo().createBill({
-      lines: body.lines.map((l) => ({
-        itemId: l.itemId,
-        nameKn: l.nameKn || l.nameEn,
-        nameEn: l.nameEn || l.nameKn,
-        ...(l.ink && l.ink.strokes.length > 0 ? { ink: l.ink } : {}),
-        // Named here like every field -- a copy that forgets one drops it silently.
-        ...(l.moreInk && l.moreInk.some((i) => i.strokes.length > 0)
-          ? { moreInk: l.moreInk.filter((i) => i.strokes.length > 0) } : {}),
-        ...(l.lastMode ? { lastMode: l.lastMode } : {}),
-        qty: l.qty,
-        // Each line's amount rounded on billing's step (110.04 to 110): the rate is the one that
-        // makes qty x rate come to it. The total is then their sum, with nothing to round off.
-        rate: roundedRate(l.qty, l.rate, roundTo),
-        given: l.given,
-        // Copied field by field, so every new field has to be named here -- `given` was once lost
-        // exactly this way.
-        ...(l.inkRows === 2 ? { inkRows: 2 } : {}),
-        ...(l.unit ? { unit: l.unit } : {}),
-        ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
-        ...(l.hidden ? { hidden: true } : {}),
-      })),
+      lines: savedLines(body.lines, roundTo),
       ...(body.customerId ? { customerId: body.customerId } : {}),
       ...(body.paid == null ? {} : { paid: body.paid }),
       showBalance: body.showBalance ?? false,
@@ -891,7 +875,127 @@ api.post('/bills', handler(async (req, res) => {
     throw err;
   }
 
+  // Made from a quotation: that one is now billed, with this bill's number. The bill is saved
+  // whatever happens here; a quotation left open is the shopkeeper's to tidy, never a lost sale.
+  if (body.fromQuotation) {
+    await getRepo().setQuotationStatus(body.fromQuotation, 'billed', bill.no).catch(() => null);
+  }
+
   res.status(201).json(bill);
+}));
+
+/**
+ * Lines from a device as the store keeps them: both names filled from each other, empty
+ * handwriting dropped, and each line's amount rounded on billing's step (110.04 to 110), the
+ * rate being the one that makes qty x rate come to it -- the total is then their sum, with
+ * nothing to round off. Copied field by field, so every new field has to be named here; `given`
+ * was once lost exactly this way.
+ */
+function savedLines(lines: z.infer<typeof lineBody>[], roundTo: number): BillLine[] {
+  return lines.map((l) => ({
+    itemId: l.itemId,
+    nameKn: l.nameKn || l.nameEn,
+    nameEn: l.nameEn || l.nameKn,
+    ...(l.ink && l.ink.strokes.length > 0 ? { ink: l.ink } : {}),
+    ...(l.moreInk && l.moreInk.some((i) => i.strokes.length > 0)
+      ? { moreInk: l.moreInk.filter((i) => i.strokes.length > 0) } : {}),
+    ...(l.lastMode ? { lastMode: l.lastMode } : {}),
+    qty: l.qty,
+    rate: roundedRate(l.qty, l.rate, roundTo),
+    given: l.given,
+    ...(l.inkRows === 2 ? { inkRows: 2 as const } : {}),
+    ...(l.unit ? { unit: l.unit } : {}),
+    ...(l.stockItemId ? { stockItemId: l.stockItemId } : {}),
+    ...(l.hidden ? { hidden: true } : {}),
+  }));
+}
+
+// ---------------------------------------------------------------------------- quotations
+/*
+ * Estimates for a customer (Quotation in shared/src/types.ts). Their own numbers and their own
+ * collection: nothing here moves money or a customer's figures, nothing here is a bill, and the
+ * stock app -- which reads /bills -- never sees one. Named "quotations" because /stock/quote is
+ * already stock's price for a quantity.
+ */
+
+/** A quotation without its handwriting, for lists; each written line says `hasInk`. */
+function liteQuotation(q: Quotation): Quotation {
+  let any = false;
+  const lines = q.lines.map((l) => {
+    const { ink: _ink, moreInk: _more, ...rest } = l;
+    if (!lineHasInk(l)) return rest;
+    any = true;
+    return { ...rest, hasInk: true };
+  });
+  return { ...q, lines, hasInk: any };
+}
+
+api.get('/quotations', handler(async (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(500).default(100).parse(req.query.limit ?? 100);
+  const customerId = z.string().trim().min(1).max(80).optional().parse(req.query.customerId || undefined);
+  res.json((await getRepo().listQuotations(limit, customerId)).map(liteQuotation));
+}));
+
+api.get('/quotations/:no', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const q = await getRepo().getQuotation(no);
+  if (!q) throw new HttpError(404, 'No such quotation');
+  res.json(q);
+}));
+
+api.post('/quotations', handler(async (req, res) => {
+  const body = z
+    .object({
+      lines: z.array(lineBody).min(1).max(200),
+      customerId: z.string().trim().min(1).max(80).optional(),
+      hideNames: z.boolean().optional(),
+      note: z.string().trim().max(200).optional(),
+      clientId: z.string().trim().min(1).max(80).optional(),
+    })
+    .parse(req.body);
+  const already = async (): Promise<boolean> => {
+    if (!body.clientId) return false;
+    const had = await getRepo().getQuotationByClientId(body.clientId);
+    if (had) res.status(200).json(had);
+    return had != null;
+  };
+  if (await already()) return;
+  if (body.customerId && !(await getRepo().getCustomer(body.customerId))) {
+    throw new HttpError(400, 'That customer is not on file');
+  }
+  // Rounded the way the bill it may become would be, so the two agree.
+  const roundTo = await ensureRoundTo();
+  let q: Quotation;
+  try {
+    q = await getRepo().createQuotation({
+      lines: savedLines(body.lines, roundTo),
+      ...(body.customerId ? { customerId: body.customerId } : {}),
+      ...(body.hideNames ? { hideNames: true } : {}),
+      ...(body.note ? { note: body.note } : {}),
+      ...(body.clientId ? { clientId: body.clientId } : {}),
+      roundTo,
+    });
+  } catch (err) {
+    if (err instanceof DuplicateClientId && (await already())) return;
+    throw err;
+  }
+  res.status(201).json(q);
+}));
+
+api.post('/quotations/:no/cancel', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const q = await getRepo().getQuotation(no);
+  if (!q) throw new HttpError(404, 'No such quotation');
+  // Billed is final: the bill exists, and cancelling the quotation would not undo it.
+  if (q.status === 'billed') throw new HttpError(409, 'This quotation is already a bill (#' + (q.billNo ?? '?') + ')');
+  if (q.status === 'cancelled') { res.json(q); return; }
+  res.json(await getRepo().setQuotationStatus(no, 'cancelled'));
+}));
+
+api.delete('/quotations/:no', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  if (!(await getRepo().deleteQuotation(no))) throw new HttpError(404, 'No such quotation');
+  res.status(204).end();
 }));
 
 // ---------------------------------------------------------------------------- stock link
@@ -923,6 +1027,25 @@ api.get('/stock/quote', handler(async (req, res) => {
     return;
   }
   res.json(quote);
+}));
+
+/*
+ * A barcode the counter's scanner read. Stock knows every code (billing keeps none): the item in
+ * the unit the code is printed on, or 404 when no item has it yet -- stock then lists it for the
+ * admin to link -- or 503 when stock is off or slow, so the counter says so instead of guessing.
+ */
+api.get('/stock/barcode', handler(async (req, res) => {
+  const code = z.string().trim().regex(/^[0-9A-Za-z -]{4,40}$/).parse(req.query.code);
+  const got = await stockBarcode(code.replace(/\s+/g, ''));
+  if (got.kind === 'found') {
+    res.json({ item: got.item });
+    return;
+  }
+  if (got.kind === 'unknown') {
+    res.status(404).json({ unknown: true, error: 'No item has that barcode yet' });
+    return;
+  }
+  res.status(503).json({ off: true, error: 'Stock did not answer' });
 }));
 
 api.post('/stock/draft', handler(async (req, res) => {

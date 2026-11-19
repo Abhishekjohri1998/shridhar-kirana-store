@@ -39,7 +39,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** What the fake was last sent, and what it is set to answer. */
 // Stock's old rounding step is 5 when the billing servers first start, so the one-time copy into
 // billing's own settings has something to copy.
-const fake = { drafts: [], roundTo: 5, ticks: {}, keyMisses: 0 };
+const fake = { drafts: [], roundTo: 5, ticks: {}, keyMisses: 0, scans: [] };
 
 const PARLE = {
   id: 'it_parle', nameEn: 'Parle-G', nameKn: 'ಪಾರ್ಲೆ-ಜಿ',
@@ -106,6 +106,16 @@ function startFakeStock(port) {
         return;
       }
       send(200, { items: 'parle-g ಪಾರ್ಲೆ'.includes(q) || q.startsWith('par') ? [PARLE] : [] });
+      return;
+    }
+    // A scanned barcode (build 87): the Parle packet's code, the HG carton's, or nobody's.
+    if (req.method === 'GET' && p === '/api/billing-link/barcode') {
+      const code = url.searchParams.get('code');
+      fake.scans.push(code);
+      if (code === '8901063010017') { send(200, { item: { ...PARLE, matchedUnit: 'pack' } }); return; }
+      if (code === '18901234567891') { send(200, { item: { ...HG, matchedUnit: 'box' } }); return; }
+      if (code === '9999999999999') { setTimeout(() => send(200, { item: PARLE }), 6000); return; }
+      send(404, { unknown: true, error: 'No item has that barcode yet' });
       return;
     }
     if (req.method === 'GET' && p === '/api/billing-link/quote') {
@@ -387,6 +397,24 @@ async function main() {
       eq('not when the line was priced again since it asked', lastPriceApplies({ unit: 'NOS' }, { unit: 'NOS', seq: 1 }, 2, false), false);
       eq('not once the line changed unit', lastPriceApplies({ unit: 'pc' }, { unit: 'NOS', seq: 1 }, 1, false), false);
       eq('not for a removed line', lastPriceApplies(undefined, { unit: 'NOS', seq: 1 }, 1, false), false);
+    }
+
+    console.log('\nA scanned barcode (build 87)');
+    {
+      const pack = await on.call('/stock/barcode?code=8901063010017');
+      check('a known code answers the item in the unit it is printed on', pack.status === 200 && pack.body.item.id === 'it_parle' && pack.body.item.matchedUnit === 'pack', JSON.stringify(pack.body));
+      eq('the carton code answers the box', (await on.call('/stock/barcode?code=18901234567891')).body.item.matchedUnit, 'box');
+      const unknown = await on.call('/stock/barcode?code=8900000000001');
+      check('an unknown code is 404 unknown, so the counter can say so', unknown.status === 404 && unknown.body.unknown === true, JSON.stringify(unknown.body));
+      eq('spaces a scanner might add are dropped before stock is asked', (await on.call('/stock/barcode?code=' + encodeURIComponent('8901063 010017'))).status, 200);
+      check('stock was asked for the code itself', fake.scans.includes('8901063010017') && !fake.scans.some((c) => /\s/.test(c)));
+      eq('nonsense is refused here, never sent on', (await on.call('/stock/barcode?code=' + encodeURIComponent('<script>'))).status, 400);
+      eq('off: 503, not "unknown"', (await off.call('/stock/barcode?code=8901063010017')).status, 503);
+      eq('a refused key: 503 too', (await wrong.call('/stock/barcode?code=8901063010017')).status, 503);
+      const t0 = Date.now();
+      eq('a hung stock: 503', (await on.call('/stock/barcode?code=9999999999999')).status, 503);
+      check('within the timeout', Date.now() - t0 < 4500, (Date.now() - t0) + 'ms');
+      eq('and the route needs a login', (await fetch('http://127.0.0.1:' + (BASE_PORT + 2) + '/api/stock/barcode?code=8901063010017')).status, 401);
     }
 
     console.log('\nA stock server that hangs');

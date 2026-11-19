@@ -1,6 +1,6 @@
 import { LOAD_TIMEOUT_MS, SAVE_TIMEOUT_MS } from '@shridhar/shared';
 import type { Bill, BillLine, Customer, Item, Payment, Settings, TodaySummary } from '@shridhar/shared';
-import type { StockItem, StockQuote, StockTicks, draftForStock } from '@shridhar/shared';
+import type { Quotation, ScanAnswer, StockItem, StockQuote, StockTicks, draftForStock } from '@shridhar/shared';
 
 const TOKEN_KEY = 'shridhar.token';
 
@@ -117,10 +117,21 @@ export const api = {
   createBill: (
     payload: {
       lines: BillLine[]; customerId?: string; paid?: number; showBalance?: boolean; note?: string;
-      hideNames?: boolean; draftId?: string; clientId?: string;
+      hideNames?: boolean; draftId?: string; clientId?: string; fromQuotation?: number;
     },
   ) =>
     request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }, SAVE_TIMEOUT_MS),
+  /** Quotations: estimates with their own numbers, never sales (see the server's routes). */
+  createQuotation: (
+    payload: { lines: BillLine[]; customerId?: string; note?: string; hideNames?: boolean; clientId?: string },
+  ) =>
+    request<Quotation>('/quotations', { method: 'POST', body: JSON.stringify(payload) }, SAVE_TIMEOUT_MS),
+  /** Newest first, without handwriting (each written line says hasInk). */
+  listQuotations: (limit = 100, customerId?: string) =>
+    request<Quotation[]>('/quotations?limit=' + limit + (customerId ? '&customerId=' + encodeURIComponent(customerId) : '')),
+  getQuotation: (no: number) => request<Quotation>('/quotations/' + no),
+  cancelQuotation: (no: number) => request<Quotation>('/quotations/' + no + '/cancel', { method: 'POST' }),
+  deleteQuotation: (no: number) => request<void>('/quotations/' + no, { method: 'DELETE' }),
   /** Leaves the item descriptions off a saved bill's reprints and shares, or puts them back. */
   setBillHideNames: (no: number, hideNames: boolean) =>
     request<Bill>('/bills/' + no, { method: 'PATCH', body: JSON.stringify({ hideNames }) }),
@@ -194,6 +205,11 @@ export const api = {
    */
   stockStatus: () => request<{ on: boolean }>('/stock/status'),
   stockItems: (q: string) => request<{ items: StockItem[] }>('/stock/items?q=' + encodeURIComponent(q)),
+  /** A scanned barcode: stock's item in the unit the code is on, else unknown (404), else off. */
+  stockBarcode: (code: string): Promise<ScanAnswer<StockItem>> =>
+    request<{ item: StockItem }>('/stock/barcode?code=' + encodeURIComponent(code))
+      .then((r) => ({ kind: 'found' as const, item: r.item }))
+      .catch((e: unknown) => (e instanceof ApiError && e.status === 404 ? { kind: 'unknown' as const } : { kind: 'off' as const })),
   stockQuote: (item: string, unit: string, qty: number) =>
     request<StockQuote>(
       '/stock/quote?item=' + encodeURIComponent(item) + '&unit=' + encodeURIComponent(unit) + '&qty=' + qty,

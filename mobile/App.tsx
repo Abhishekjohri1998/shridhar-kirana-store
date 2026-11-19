@@ -11,7 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { money, pickLang, shortcutFor, type MsgKey } from '@shridhar/shared';
 import { Mark, SECTION_ICONS } from './src/components/Icons';
-import { onHardwareShortcut, setShortcuts } from './src/lib/native';
+import { onHardwareShortcut, setScanCatch, setShortcuts } from './src/lib/native';
 import { PrintProvider } from './src/lib/usePrint';
 import { ShopProvider, useKeepFresh, useShop } from './src/lib/useShop';
 import { reportInsets, useHeldInsets } from './src/lib/screenEdges';
@@ -161,6 +161,11 @@ function Shell() {
     setShortcuts(!working ? 0 : app === 'billing' && tab === 'bill' ? 2 : 1);
   }, [working, app, tab]);
   useEffect(() => () => setShortcuts(0), []);
+  // The barcode scanner (build 87): read as a scan only while the bill screen shows.
+  useEffect(() => {
+    setScanCatch(working && app === 'billing' && tab === 'bill');
+  }, [working, app, tab]);
+  useEffect(() => () => setScanCatch(false), []);
   // History and the Bill screen reload every 60 s while they show (the tabs stay mounted).
   useKeepFresh(working && app === 'billing' && (tab === 'bill' || tab === 'history'));
   useEffect(() => onHardwareShortcut((e) => {
@@ -314,7 +319,7 @@ function Shell() {
             <CustomersScreen />
           </View>
           <View style={tab === 'history' ? styles.visible : styles.hidden}>
-            <HistoryScreen />
+            <HistoryScreen onOpenBill={() => goRef.current('bill')} />
           </View>
           <View style={tab === 'settings' ? styles.visible : styles.hidden}>
             <SettingsScreen />

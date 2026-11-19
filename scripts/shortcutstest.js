@@ -273,6 +273,85 @@ console.log('\nThe calculator (build 71): F10, the safe parser, Put in box');
   }
 }
 
+console.log('\nThe barcode scanner (build 87): a scan, told from typing');
+{
+  const scan = (text, gap, enterGap = gap) => {
+    const d = S.createScanDetector();
+    let t = 1000;
+    for (const c of text) { d.char(c, t); t += gap; }
+    return d.enter(t - gap + enterGap);
+  };
+  eq('13 digits 5 ms apart, then Enter: the code', scan('8909081007804', 5), '8909081007804');
+  eq('the same typed by a person, 120 ms apart: not a scan', scan('8909081007804', 120), null);
+  eq('a fast typist at 60 ms: still typing', scan('890908', 60), null);
+  eq('a short run is not a scan', scan('12345', 5), null);
+  eq('six is enough', scan('123456', 5), '123456');
+  eq('an Enter that comes late is typing', scan('8909081007804', 5, 200), null);
+  eq('letters and a dash, from the shop\'s own labels', scan('AB-1234', 8), 'AB-1234');
+  eq('a space is not part of a code', scan('1234 5678', 5), null);
+  {
+    const d = S.createScanDetector();
+    for (const [c, t] of [['h', 0], ['e', 150], ['l', 300]]) d.char(c, t);
+    let t = 1000;
+    for (const c of '8901063010017') { d.char(c, t); t += 4; }
+    eq('typing first, then a scan: only the scan is read', d.enter(t), '8901063010017');
+  }
+  {
+    const d = S.createScanDetector();
+    let t = 0;
+    for (const c of '890108') { d.char(c, t); t += 5; }
+    d.reset();
+    eq('another key in between (Backspace, an arrow) breaks the run', d.enter(t), null);
+  }
+  {
+    const d = S.createScanDetector();
+    eq('Enter on its own is not a scan', d.enter(10), null);
+    let t = 0;
+    for (const c of '1'.repeat(40)) { d.char(c, t); t += 3; }
+    eq('a run longer than any barcode keeps its last 32', d.enter(t).length, S.SCAN_MAX_CHARS);
+  }
+  const rd = (p) => require('node:fs').readFileSync(path.join(__dirname, '..', p), 'utf8');
+  check('the web Bill page listens for scans', rd('client/src/pages/BillPage.tsx').includes('useScanner('));
+  check('and puts a box back the way typing would, so React follows', rd('client/src/lib/useScanner.ts').includes("el.dispatchEvent(new Event('input', { bubbles: true }))"));
+  check('the tablet Bill screen takes hwScan', rd('mobile/src/screens/BillScreen.tsx').includes('onHardwareScan('));
+  for (const f of ['client/src/lib/useStockSuggest.ts', 'mobile/src/lib/useStockSuggest.ts']) {
+    check(f + ': a second scan adds one to the same line', rd(f).includes('l.stockItemId === item.id && l.unit === unit.code') && rd(f).includes('onQty(same, l, qty)'));
+  }
+}
+
+console.log('\nCustomer filters and sorts (shared/src/customerFilters.ts)');
+{
+  const now = new Date('2026-11-19T12:00:00.000Z');
+  const daysAgo = (n) => new Date(now.getTime() - n * 86400000).toISOString();
+  const c = (id, name, o) => ({ id, name, phone: '', since: daysAgo(400), totalBilled: 0, totalPaid: 0, balance: 0, billCount: 0, lastVisit: null, ...o });
+  const list = [
+    c('a', 'Anand', { balance: 150, totalBilled: 900, billCount: 6, lastVisit: daysAgo(2) }),
+    c('b', 'Bhavya', { balance: -50, totalBilled: 300, billCount: 2, lastVisit: daysAgo(40) }),
+    c('c', 'Chandru', { totalBilled: 2000, billCount: 9, lastVisit: daysAgo(10) }),
+    c('d', 'Deepa', { since: daysAgo(5) }),
+    c('e', 'Eshwar', { balance: 400, totalBilled: 400, billCount: 1, lastVisit: daysAgo(90), since: daysAgo(90) }),
+  ];
+  const ids = (v) => S.filterCustomers(list, { ...S.DEFAULT_CUSTOMER_VIEW, ...v }, 'en', now).map((x) => x.id).join('');
+  eq('all, by name', ids({}), 'abcde');
+  eq('owes money', ids({ show: 'owes' }), 'ae');
+  eq('paid ahead', ids({ show: 'advance' }), 'b');
+  eq('not come for 30 days: billed before, not since', ids({ show: 'notCome', days: 30 }), 'be');
+  eq('not come for 7 days', ids({ show: 'notCome', days: 7 }), 'bce');
+  eq('never billed', ids({ show: 'never' }), 'd');
+  eq('new this month', ids({ show: 'new' }), 'd');
+  eq('biggest balance first', ids({ sort: 'balance', dir: 'desc' }), 'eacdb');
+  eq('most billed first', ids({ sort: 'billed', dir: 'desc' }), 'caebd');
+  eq('latest visit first, never-billed last', ids({ sort: 'lastVisit', dir: 'desc' }), 'acbed');
+  eq('names Z to A', ids({ dir: 'desc' }), 'edcba');
+  eq('owing, biggest first', ids({ show: 'owes', sort: 'balance', dir: 'desc' }), 'ea');
+  eq('the list itself is left alone', list.map((x) => x.id).join(''), 'abcde');
+  const counts = S.customerShowCounts(list, 30, now);
+  eq('counts for the chips', [counts.all, counts.owes, counts.advance, counts.notCome, counts.never, counts.new], [5, 2, 1, 2, 1, 1]);
+  eq('a stored view is read back', S.readCustomerView({ show: 'owes', days: 15, sort: 'balance', dir: 'asc' }), { show: 'owes', days: 15, sort: 'balance', dir: 'asc' });
+  eq('nonsense in storage is the default', S.readCustomerView({ show: 'x', days: -3, sort: 'y' }), S.DEFAULT_CUSTOMER_VIEW);
+  eq('each sort starts its own way', [S.defaultDir('name'), S.defaultDir('balance')], ['asc', 'desc']);
+}
+
 console.log('');
 if (failures) {
   console.log(failures + ' check(s) failed');

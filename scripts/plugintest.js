@@ -213,8 +213,34 @@ check('every EditText gets setAutoHandwritingEnabled(true) too', pkg.includes('i
 check('checked at every layout', pkg.includes('viewTreeObserver.addOnGlobalLayoutListener { enableHandwriting(this) }'));
 check('the catcher never takes focus', pkg.includes('isFocusable = false') && pkg.includes('isFocusableInTouchMode = false')
   && pkg.includes('descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS'));
-check('pre-IME passes every non-shortcut key straight on',
-  /override fun dispatchKeyEventPreIme\(event: KeyEvent\): Boolean \{\n    if \(ShridharNativeModule\.onShortcut\(event\)\) return true\n    if \(ShridharNativeModule\.onUnitMenu\(event\)\) return true\n    return super\.dispatchKeyEventPreIme\(event\)\n  \}/.test(pkg));
+check('pre-IME passes every other key straight on (shortcuts, the unit list and a scan aside)',
+  /override fun dispatchKeyEventPreIme\(event: KeyEvent\): Boolean \{\n    if \(ShridharNativeModule\.onShortcut\(event\)\) return true\n    if \(ShridharNativeModule\.onUnitMenu\(event\)\) return true\n    if \(ShridharNativeModule\.onScanKey\(event\)\) return true\n    return super\.dispatchKeyEventPreIme\(event\)\n  \}/.test(pkg));
+
+console.log('\nThe barcode scanner (build 87)');
+{
+  const shared = require(path.join(__dirname, '..', 'shared', 'dist', 'cjs'));
+  check('the same numbers as shared/src/scan.ts',
+    mod.includes('const val SCAN_MIN_CHARS = ' + shared.SCAN_MIN_CHARS + '\n')
+    && mod.includes('const val SCAN_MAX_GAP_MS = ' + shared.SCAN_MAX_GAP_MS + 'L\n')
+    && mod.includes('const val SCAN_MAX_CHARS = ' + shared.SCAN_MAX_CHARS + '\n'));
+  check('only while JavaScript switches it on', mod.includes('@ReactMethod fun setScanCatch(on: Boolean) {') && mod.includes('if (!scanCatch || !physical) {'));
+  check('never the on-screen keyboard', mod.includes('ev.deviceId != KeyCharacterMap.VIRTUAL_KEYBOARD && ev.device?.isVirtual != true'));
+  check('after shortcuts and the unit list, before the text-box test',
+    mod.indexOf('if (onScanKey(ev)) return true') > mod.indexOf('if (onUnitMenu(ev)) return true')
+    && mod.indexOf('if (onScanKey(ev)) return true') < mod.indexOf('if (focus !is EditText) return false'));
+  check('one decision per event, pre-IME and dispatch alike', mod.includes('if (ev === lastScanEv && sig == lastScanSig) return lastScanResult'));
+  check('a scan uses up its Enter and the Enter\'s up', /scanHeld\.size >= SCAN_MIN_CHARS[\s\S]*?takenDown\.add\(ev\.keyCode\)[\s\S]*?emitScan/.test(mod));
+  check('anything else hands the held keys on, in order', mod.includes('fun flushHeld() {') && mod.includes('activity.dispatchKeyEvent(KeyEvent(ev))'));
+  check('held keys are handed on after the gap even with no next key', mod.includes('scanHandler.postDelayed(flushLater, SCAN_MAX_GAP_MS + 10)'));
+  check('replayed keys are not held again', mod.includes('if (replaying) return false'));
+  check('cannot throw into dispatch', mod.includes('val used = try { scanKey(ev) } catch (e: Throwable) { false }'));
+  check('no JS template slipped into the Kotlin', !mod.includes('${'));
+  const native = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'src', 'lib', 'native.ts'), 'utf8');
+  check('JS side: setScanCatch, safe on an older build', native.includes('mod?.setScanCatch?.(on)'));
+  check('JS side: hwScan carries the code', native.includes("addListener('hwScan'"));
+  const app = fs.readFileSync(path.join(__dirname, '..', 'mobile', 'App.tsx'), 'utf8');
+  check('caught only on the bill screen', app.includes("setScanCatch(working && app === 'billing' && tab === 'bill')"));
+}
 check('no stylus motion is touched by the catcher', !pkg.includes('MotionEvent') && !pkg.includes('onGenericMotionEvent'));
 check('onMotion cannot throw into dispatch', mod.includes('try { observeMotion(ev) } catch (e: Exception)'));
 check('the pen emit survives a reloading React instance', /emit\("penButton", map\)\n    \} catch \(e: Exception\)/.test(mod));

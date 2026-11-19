@@ -17,6 +17,8 @@ type ShridharNative = {
   setUnitMenuOpen?: (open: boolean) => void;
   /** Absent in builds before 79. */
   refreshHandwriting?: () => void;
+  /** Absent in builds before 87. */
+  setScanCatch?: (on: boolean) => void;
 };
 
 const mod: ShridharNative | undefined =
@@ -120,6 +122,31 @@ export function onHardwareShortcut(fn: (e: HwShortcut) => void): () => void {
  */
 export function setShortcuts(level: 0 | 1 | 2): void {
   try { mod?.setShortcuts?.(level); } catch { /* an older build */ }
+}
+
+/**
+ * A barcode read by a scanner paired as a keyboard (build 87): the code, once per scan. Only
+ * sent while setScanCatch is on. Returns the unsubscribe; does nothing on an older build.
+ */
+export function onHardwareScan(fn: (code: string) => void): () => void {
+  if (!mod) return () => undefined;
+  const sub = DeviceEventEmitter.addListener('hwScan', (e: { code?: unknown }) => {
+    if (typeof e?.code === 'string' && e.code) fn(e.code);
+  });
+  return () => sub.remove();
+}
+
+/**
+ * Whether the native side reads a scanner's burst as a scan (build 87): on while the bill screen
+ * shows. Off everywhere else, so on the Stock tab a scan types into the stock site's box.
+ */
+export function setScanCatch(on: boolean): void {
+  try { mod?.setScanCatch?.(on); } catch { /* an older build */ }
+}
+
+/** Whether this build reads a barcode scanner (87 on). */
+export function readsScanner(): boolean {
+  return typeof mod?.setScanCatch === 'function';
 }
 
 /**

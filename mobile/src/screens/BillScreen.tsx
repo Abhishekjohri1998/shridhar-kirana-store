@@ -20,7 +20,8 @@ import { Button, ErrorText } from '../components/ui';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
-import { onHardwareKey, onHardwareShortcut, setSuggestOpen, setTakeEnter, setUnitMenuOpen } from '../lib/native';
+import { onHardwareKey, onHardwareScan, onHardwareShortcut, setSuggestOpen, setTakeEnter, setUnitMenuOpen } from '../lib/native';
+import { api } from '../lib/api';
 import { C, R, TYPE, shadow } from '../theme';
 
 /**
@@ -137,6 +138,48 @@ export function BillScreen() {
     setPriceText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
     setQtyText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
   };
+
+  /*
+   * The counter's barcode scanner (build 87). The native side reads the scanner's burst while this
+   * screen shows and sends the code (hwScan); stock knows every code, billing only asks. A scan
+   * goes on the open bill: one more of a product already on it, else the blank line at the foot.
+   */
+  const [scanNote, setScanNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  useEffect(() => {
+    if (!scanNote) return undefined;
+    const timer = setTimeout(() => setScanNote(null), scanNote.bad ? 6000 : 3000);
+    return () => clearTimeout(timer);
+  }, [scanNote]);
+  const onScan = useRef<(code: string) => void>(() => undefined);
+  onScan.current = (code: string) => {
+    void (async () => {
+      const got = shop.stockOn ? await api.stockBarcode(code) : ({ kind: 'off' } as const);
+      if (got.kind === 'unknown') {
+        setScanNote({ text: t('bill.scanUnknown', { code }), bad: true });
+        return;
+      }
+      if (got.kind === 'off') {
+        setScanNote({ text: t('bill.scanOff'), bad: true });
+        return;
+      }
+      const item = got.item;
+      const name = (shop.lang === 'kn' ? item.nameKn || item.nameEn : item.nameEn || item.nameKn) || code;
+      setView('items');
+      const done = await stock.addScanned(item);
+      if (!done) {
+        setScanNote({ text: t('bill.scanNoRoom'), bad: true });
+        return;
+      }
+      clearTyped(done.key);
+      const unit = item.units.find((u) => u.code === (item.matchedUnit ?? item.sellUnit)) ?? item.units[0];
+      setScanNote({
+        text: done.more
+          ? t('bill.scanMore', { name, qty: String(done.qty) })
+          : t('bill.scanAdded', { name, rate: unit ? '₹' + money(unit.price) : '' }),
+      });
+    })();
+  };
+  useEffect(() => onHardwareScan((code) => onScan.current(code)), []);
   /**
    * The unit chip Left and Right are on while the list is open (build 67): it starts on the
    * line's current unit; Enter picks it as a tap would, Escape closes. Native code keeps those
@@ -584,6 +627,8 @@ export function BillScreen() {
     ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
     roundTo: shop.settings.roundTo ?? 0,
+    // A quotation previews as it will print: headed QUOTATION, nothing paid, no balance.
+    ...(shop.quotationMode ? { kind: 'quotation' as const, paid: 0, balance: 0, previousBalance: 0, showBalance: false } : {}),
   });
 
   /**
@@ -824,7 +869,7 @@ export function BillScreen() {
             <View key={d.id} style={[styles.tab, on && styles.tabOn]}>
               <Pressable onPress={() => shop.switchBill(d.id)} style={styles.tabFace}>
                 <Text style={[styles.tabLabel, on && styles.tabLabelOn]} numberOfLines={1}>
-                  {label}
+                  {(d.kind === 'quotation' ? '📝 ' : '') + label}
                 </Text>
                 {total > 0 ? (
                   <Text style={[styles.tabTotal, on && styles.tabLabelOn]}>{money(total)}</Text>
@@ -862,12 +907,17 @@ export function BillScreen() {
             the shared bar open, and every other tab lost its chip to an empty entry row. */}
         <CustomerBar key={shop.activeDraftId} focusRef={customerFocus} />
         {error ? <ErrorText onDismiss={() => setError(null)}>{error}</ErrorText> : null}
+        {scanNote ? (
+          scanNote.bad
+            ? <ErrorText onDismiss={() => setScanNote(null)}>{scanNote.text}</ErrorText>
+            : <View style={styles.savedRow}><Text style={styles.savedText}>{scanNote.text}</Text></View>
+        ) : null}
 
         {/* Offered here rather than only from History: the moment a customer asks for a copy is
             the moment they are still at the counter. */}
         {justSaved ? (
           <View style={styles.savedRow}>
-            <Text style={styles.savedText}>{t('bill.savedBill', { no: justSaved.no })}</Text>
+            <Text style={styles.savedText}>{justSaved.kind === 'quotation' ? t('bill.savedQuote', { no: justSaved.no }) : t('bill.savedBill', { no: justSaved.no })}</Text>
             <Button
               label={printer.busy ? t('hist.sharing') : t('hist.share')}
               tone="plain"
@@ -1361,7 +1411,21 @@ export function BillScreen() {
           ) : null}
         </View>
 
-        {shop.customer ? (
+        {/* This tab as a quotation: saved and printed as one, never as a sale. */}
+        <View style={styles.switchRow}>
+          <Switch
+            value={shop.quotationMode}
+            onValueChange={(v) => shop.setQuotationMode(v)}
+            trackColor={{ true: C.accent, false: C.line }}
+          />
+          <Text style={styles.switchLabel}>{'📝 ' + t('bill.quotation')}</Text>
+        </View>
+        {shop.quotationMode ? <Text style={styles.payLabel}>{t('bill.quotationOn')}</Text> : null}
+        {shop.fromQuotation != null && !shop.quotationMode ? (
+          <Text style={styles.payLabel}>{t('bill.fromQuotation', { no: shop.fromQuotation })}</Text>
+        ) : null}
+        {/* Not on a quotation: nothing is paid on one. */}
+        {shop.customer && !shop.quotationMode ? (
           <View style={styles.payBox}>
             <View style={styles.payRow}>
               <View style={{ flex: 1 }}>

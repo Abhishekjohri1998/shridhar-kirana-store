@@ -69,6 +69,33 @@ export async function stockQuote(item: string, unit: string, qty: number): Promi
   return isObj(got) && typeof got.rate === 'number' && Number.isFinite(got.rate) ? got : null;
 }
 
+/**
+ * What a scanned barcode is. Unlike `ask`, this tells "stock has no item with that code" (404)
+ * from "stock is off or did not answer", because the counter says different things for each.
+ */
+export async function stockBarcode(code: string): Promise<{ kind: 'found'; item: StockItem } | { kind: 'unknown' } | { kind: 'off' }> {
+  if (!stockLinkOn()) return { kind: 'off' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STOCK_TIMEOUT_MS);
+  try {
+    const res = await fetch(env.stockUrl + '/api/billing-link/barcode?code=' + encodeURIComponent(code), {
+      headers: { 'x-link-key': env.linkKey },
+      signal: controller.signal,
+    });
+    let body: unknown = null;
+    try { body = await res.json(); } catch { body = null; }
+    if (res.status === 404 && isObj(body) && body.unknown === true) return { kind: 'unknown' };
+    if (res.ok && isObj(body) && isObj(body.item) && typeof body.item.id === 'string' && Array.isArray(body.item.units)) {
+      return { kind: 'found', item: body.item as unknown as StockItem };
+    }
+    return { kind: 'off' };
+  } catch {
+    return { kind: 'off' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The bill being written, sent to the worker screen. Answers with stock's ticks, or none. */
 export async function stockDraft(body: unknown): Promise<StockTicks> {
   const got = await ask<{ ticks?: unknown }>('/draft', { method: 'POST', body });

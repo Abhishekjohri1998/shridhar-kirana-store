@@ -112,6 +112,11 @@ export type Bill = {
   no: number;
   /** ISO timestamp. */
   at: string;
+  /**
+   * 'quotation' on the bill-shaped copy of a quotation made for printing and sharing
+   * (quotationAsBill), so the slip says QUOTATION. Never on a bill that is stored.
+   */
+  kind?: 'quotation';
   /** Copied in, so a renamed customer does not change an old receipt. */
   customer?: BillCustomer;
   lines: BillLine[];
@@ -180,6 +185,39 @@ export type Bill = {
    */
   clientId?: string;
   /** Only on a bill from a `lite` list: whether any line carried handwriting. */
+  hasInk?: boolean;
+};
+
+/**
+ * A quotation (estimate): a bill-like slip given to a customer that is not a sale.
+ *
+ * Kept in its own collection with its own numbers (Q-1, Q-2, ...), so it can never be read as a
+ * bill: it moves no money, never touches a customer's running figures, and the stock app, which
+ * only reads bills, never sees it. "Make bill" turns one into a real bill later, which marks it
+ * `billed` with that bill's number.
+ */
+export type QuotationStatus = 'open' | 'billed' | 'cancelled';
+
+export type Quotation = {
+  no: number;
+  at: string;
+  /** A copy of who it was for, taken when it was saved, like a bill's. */
+  customer?: BillCustomer;
+  lines: BillLine[];
+  /** Worked out by the server from the lines, rounded the way a bill would be. */
+  total: number;
+  roundTo?: number;
+  roundOff?: number;
+  hideNames?: boolean;
+  note?: string;
+  status: QuotationStatus;
+  /** The bill it became, once billed. */
+  billNo?: number;
+  billedAt?: string;
+  cancelledAt?: string;
+  /** The device's id for the save; a second save carrying it is the same quotation. */
+  clientId?: string;
+  /** In lite lists only: whether the full quotation has handwriting to fetch. */
   hasInk?: boolean;
 };
 

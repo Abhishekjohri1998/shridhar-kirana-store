@@ -44,6 +44,14 @@ export type Draft = {
    * this is billing's half of that comparison.
    */
   givenAt: Record<string, number>;
+  /**
+   * 'quotation' while this tab is being written as a quotation (an estimate, not a sale): Save
+   * and Print then save a quotation, and the stock app's worker screen is not sent it. Absent is
+   * a bill, as every draft was before quotations existed.
+   */
+  kind?: 'quotation';
+  /** The quotation this bill was opened from ("Make bill"); marked billed once it is saved. */
+  fromQuotation?: number;
 };
 
 /**
@@ -92,6 +100,8 @@ export function reviveDraft(raw: Draft): Draft {
     note: typeof raw.note === 'string' ? raw.note : '',
     draftId: typeof raw.draftId === 'string' && raw.draftId ? raw.draftId : newDraftId(),
     givenAt: raw.givenAt && typeof raw.givenAt === 'object' ? raw.givenAt : {},
+    kind: raw.kind === 'quotation' ? 'quotation' : undefined,
+    fromQuotation: typeof raw.fromQuotation === 'number' && raw.fromQuotation > 0 ? raw.fromQuotation : undefined,
   };
 }
 
