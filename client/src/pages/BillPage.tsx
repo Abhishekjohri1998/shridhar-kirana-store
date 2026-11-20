@@ -1022,7 +1022,11 @@ export function BillPage() {
                       {stock.openFor === line.itemId ? (
                         <ul className="stock-list" aria-label={t('stock.matches')}>
                           {stock.items.map((item, at) => (
-                            <li key={item.id} className={'stock-item' + (at === stock.highlight ? ' on' : '')}>
+                            <li
+                              key={item.id}
+                              className={'stock-item' + (at === stock.highlight ? ' on' : '')}
+                              ref={at === stock.highlight ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+                            >
                               {/* The item itself: a tap puts it on in stock's selling unit. */}
                               <button
                                 type="button"

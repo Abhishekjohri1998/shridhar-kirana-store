@@ -44,7 +44,7 @@ export function BillScreen() {
    * and bought a column that holds one number and two buttons. Length is what a line of Kannada
    * needs; the total is read once at the end.
    */
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const roomy = width >= 820;
   /**
    * A phone in portrait cannot spare the width for a single row.
@@ -245,6 +245,16 @@ export function BillScreen() {
   const hwEnter = useRef<() => void>(() => undefined);
   useEffect(() => () => setTakeEnter(false), []);
   const stockOpen = stock.openFor;
+  /* The stock suggestions scroll inside a box about a third of the screen tall; the keyboard's
+     Up and Down keep the highlighted one in view. */
+  const stockListRef = useRef<ScrollView>(null);
+  const stockItemY = useRef<number[]>([]);
+  const stockListMax = Math.max(200, Math.round(height * 0.36));
+  useEffect(() => {
+    const y = stockItemY.current[stock.highlight];
+    if (stock.highlight >= 0 && y != null) stockListRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+  }, [stock.highlight]);
+  useEffect(() => { stockItemY.current = []; }, [stock.items]);
   const stockRef = useRef(stock);
   stockRef.current = stock;
   useEffect(() => { setSuggestOpen(stockOpen != null); }, [stockOpen]);
@@ -1246,9 +1256,21 @@ export function BillScreen() {
                       </View>
                     ) : null}
                     {stock.openFor === line.itemId ? (
-                      <View style={styles.stockList} accessibilityLabel={t('stock.matches')}>
+                      /* A list of its own height at most, scrolling inside: a search with many matches
+                         and many units used to push the whole slip down off the screen. */
+                      <ScrollView
+                        ref={stockListRef}
+                        style={[styles.stockList, { maxHeight: stockListMax }]}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                        accessibilityLabel={t('stock.matches')}
+                      >
                         {stock.items.map((item, at) => (
-                          <View key={item.id} style={[styles.stockItem, at === stock.highlight && styles.stockItemOn]}>
+                          <View
+                            key={item.id}
+                            style={[styles.stockItem, at === stock.highlight && styles.stockItemOn]}
+                            onLayout={(e) => { stockItemY.current[at] = e.nativeEvent.layout.y; }}
+                          >
                             {/* The item itself: a tap puts it on in stock's selling unit. */}
                             <Pressable
                               accessibilityRole="button"
@@ -1287,7 +1309,7 @@ export function BillScreen() {
                             </View>
                           </View>
                         ))}
-                      </View>
+                      </ScrollView>
                     ) : null}
                     {stock.warnFor(line) ? (
                       <Text style={styles.stockWarn}>

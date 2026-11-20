@@ -1877,7 +1877,11 @@ select.input {
 .stock-unit-opt[aria-current='true'] { font-weight: 700; }
 /* The chip Left and Right are on (build 67): the suggestion list's own highlight. */
 .stock-unit-opt.on { background: var(--brand-wash); }
+/* Scrolls inside its own box: many matches no longer push the slip down off the screen. */
 .stock-list {
+  max-height: min(340px, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
   margin: 4px 0 0;
   padding: 0;
