@@ -20,6 +20,9 @@ type CustomerDoc = {
    *  existed, which reads as empty. */
   address?: string;
   notes?: string;
+  /** Other names and town; absent on rows written before they existed. */
+  aliases?: string[];
+  town?: string;
   since: string;
   totalBilled: number;
   totalPaid: number;
@@ -165,6 +168,9 @@ const customerSchema = new Schema<CustomerDoc>(
     // Kept in the app only: a 58mm slip has no room for an address.
     address: { type: String, required: false, default: '' },
     notes: { type: String, required: false, default: '' },
+    // Other names and town: optional, no required beside a default (schematest).
+    aliases: { type: [String], required: false, default: undefined },
+    town: { type: String, required: false, default: '' },
     since: { type: String, required: true },
     totalBilled: { type: Number, required: true, default: 0 },
     totalPaid: { type: Number, required: true, default: 0 },
@@ -753,7 +759,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return doc ? toCustomer(doc as unknown as CustomerDoc) : null;
     },
 
-    async upsertCustomer({ id, name, nameKn, phone, phones, address, notes, whatsapp }) {
+    async upsertCustomer({ id, name, nameKn, phone, phones, address, notes, whatsapp, aliases, town }) {
       const contacts = contactsOf({ phone, phones, whatsapp });
       const digits = contacts.phone;
       // An existing record is found by id, or by phone when one is given -- which is what stops
@@ -770,6 +776,9 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
           { $set: {
             name, nameKn: nameKn ?? '', phone: digits, phones: contacts.phones,
             whatsapp: contacts.whatsapp, address: address ?? '', notes: notes ?? '',
+            // Only when given: a save from an older app leaves them as they are.
+            ...(aliases !== undefined ? { aliases } : {}),
+            ...(town !== undefined ? { town } : {}),
           } },
           { new: true },
         ).lean();
@@ -785,6 +794,8 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         whatsapp: contacts.whatsapp,
         address: address ?? '',
         notes: notes ?? '',
+        ...(aliases?.length ? { aliases } : {}),
+        ...(town ? { town } : {}),
         since: new Date().toISOString(),
         totalBilled: 0,
         totalPaid: 0,

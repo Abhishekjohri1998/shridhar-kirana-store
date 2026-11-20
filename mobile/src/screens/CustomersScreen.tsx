@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  CUSTOMER_SHOWS, CUSTOMER_SORTS, customerShowCounts, defaultDir, filterCustomers, readCustomerView,
+  CUSTOMER_SHOWS, CUSTOMER_SORTS, customerShowCounts, defaultDir, filterCustomers, knownTowns, readCustomerView, townOf,
   type CustomerShow, type CustomerSort, type CustomerView,
   checkCustomer, customerMatches, customerName, customerPhones, localInput, money, parseLocalInput,
   stamp, type Bill, type Customer, type Payment, whatsappNumber,
@@ -24,7 +24,7 @@ function daysSince(iso: string | null): number | null {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
 }
 
-export function CustomersScreen() {
+export function CustomersScreen({ onOpenBill }: { onOpenBill?: () => void } = {}) {
   const shop = useShop();
   const t = shop.t;
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -37,6 +37,8 @@ export function CustomersScreen() {
       id?: string; name: string; nameKn: string; phone: string; address: string; notes: string;
       /** Numbers after the first, and the WhatsApp one. */
       more: string[]; whatsapp: string;
+      /** Other names as typed, separated by commas; and the town. */
+      aliases: string; town: string;
     } | null>(null);
   /** The "Receive payment" form, open for the customer being looked at. */
   const [pay, setPay] = useState<{ amount: string; when: string; note: string; error: string | null } | null>(null);
@@ -103,7 +105,7 @@ export function CustomersScreen() {
     notCome: t('cs.showNotCome'), never: t('cs.showNever'), new: t('cs.showNew'),
   };
   const sortWords: Record<CustomerSort, string> = {
-    name: t('cs.sortName'), balance: t('cs.sortBalance'), lastVisit: t('cs.sortLastVisit'),
+    name: t('cs.sortName'), town: t('cs.sortTown'), balance: t('cs.sortBalance'), lastVisit: t('cs.sortLastVisit'),
     billed: t('cs.sortBilled'), bills: t('cs.sortBills'),
   };
 
@@ -134,6 +136,8 @@ export function CustomersScreen() {
         whatsapp: draft.whatsapp.trim(),
         address: draft.address.trim(),
         notes: draft.notes.trim(),
+        aliases: draft.aliases.split(/[,\n]/).map((a) => a.trim()).filter(Boolean),
+        town: draft.town.trim(),
       });
       setDraft(null);
       setError(null);
@@ -281,7 +285,7 @@ export function CustomersScreen() {
             placeholder={t('cs.searchPlaceholder')}
             placeholderTextColor={C.soft}
           />
-          <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '' })} style={styles.slim} />
+          <Button label={t('common.new')} onPress={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '', aliases: '', town: '' })} style={styles.slim} />
         </View>
 
         {/* Which customers: one chip at a time, each with how many it holds. */}
@@ -368,9 +372,12 @@ export function CustomersScreen() {
             {customers.length === 0 ? t('cs.noneYet') : t('cs.nobody')}
           </Empty>
         ) : (
-          results.map((c) => {
+          results.map((c, i) => {
             const quiet = daysSince(c.lastVisit);
+            // Sorted by town: each town's customers under its own heading.
+            const townHead = view.sort === 'town' && (i === 0 || townOf(results[i - 1]!).toLowerCase() !== townOf(c).toLowerCase());
             const detail =
+              (townOf(c) && view.sort !== 'town' ? townOf(c) + ' · ' : '') +
               (c.phone || t('cs.noNumber')) +
               ' · ' +
               (c.billCount === 0
@@ -381,6 +388,7 @@ export function CustomersScreen() {
             const wa = whatsappNumber(c);
             return (
               <View key={c.id}>
+              {townHead ? <Text style={styles.townHead}>{townOf(c) || t('cs.noTown')}</Text> : null}
               <Pressable style={styles.row} onPress={() => void openCustomer(c)}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.name}>{c.name || t('cs.unnamed')}</Text>
@@ -457,9 +465,27 @@ export function CustomersScreen() {
                     phone: open.customer.phone,
                     more: customerPhones(open.customer).slice(1),
                     whatsapp: open.customer.whatsapp ?? '',
+                    aliases: (open.customer.aliases ?? []).join(', '),
+                    town: open.customer.town ?? '',
                   })
               }
               style={{ flex: 1 }}
+            />
+            {/* A bill with this customer on it, straight from their profile. */}
+            <Button
+              label={'🧾 ' + t('cs.makeBill')}
+              onPress={() => {
+                if (!open) return;
+                void shop.billForCustomer(open.customer).then((ok) => {
+                  if (ok) {
+                    setOpen(null);
+                    onOpenBill?.();
+                  } else {
+                    setError(t('hist.tooManyTabs'));
+                  }
+                });
+              }}
+              style={{ flex: 1.3 }}
             />
           </>
         )}
@@ -487,6 +513,10 @@ export function CustomersScreen() {
                 (open.customer.lastVisit ? t('cs.lastVisit', { date: stamp(open.customer.lastVisit) }) : '')}
             </Text>
 
+            {open.customer.aliases?.length ? (
+              <Text style={styles.small}>{t('cs.alsoCalled', { names: open.customer.aliases.join(', ') })}</Text>
+            ) : null}
+            {townOf(open.customer) ? <Text style={styles.small}>{t('cs.townLine', { town: townOf(open.customer) })}</Text> : null}
             {/* Kept in the app, never on the paper: a 58mm roll has no room for either. */}
             {open.customer.address ? (
               <Text style={styles.small}>{t('cs.address')}: {open.customer.address}</Text>
@@ -681,6 +711,32 @@ export function CustomersScreen() {
               hint={t('cust.whatsappHint')}
               onChangeText={(whatsapp) => setDraft((d) => (d ? { ...d, whatsapp } : d))}
             />
+            <Field
+              label={t('cs.aliases')}
+              value={draft.aliases}
+              hint={t('cs.aliasesHint')}
+              onChangeText={(aliases) => setDraft((d) => (d ? { ...d, aliases } : d))}
+            />
+            <Field
+              label={t('cs.town')}
+              value={draft.town}
+              onChangeText={(town) => setDraft((d) => (d ? { ...d, town } : d))}
+            />
+            {/* The towns already in the book, one tap each, so the same place is not typed three ways. */}
+            {knownTowns(customers).length ? (
+              <View style={[styles.chips, { marginTop: -4, marginBottom: 10 }]}>
+                {knownTowns(customers).slice(0, 12).map((town) => (
+                  <Pressable
+                    key={town}
+                    style={[styles.chip, draft.town.trim().toLowerCase() === town.toLowerCase() && styles.chipOn]}
+                    accessibilityRole="button"
+                    onPress={() => setDraft((d) => (d ? { ...d, town } : d))}
+                  >
+                    <Text style={[styles.chipText, draft.town.trim().toLowerCase() === town.toLowerCase() && styles.chipTextOn]}>{town}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
             {/* Both kept in the app only: a 58mm roll has no room for an address. */}
             <Field
               label={t('cs.address')}
@@ -749,4 +805,5 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: '700', color: C.accentDeep },
   chipOn: { backgroundColor: C.accent, borderColor: C.accent },
   chipTextOn: { color: C.accentInk },
+  townHead: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8, color: C.soft, marginTop: 12, marginBottom: 4, textTransform: 'uppercase' },
 });

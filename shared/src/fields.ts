@@ -158,7 +158,7 @@ export function customerName(c: { name: string; nameKn?: string }, lang: Lang): 
 }
 
 export function customerMatches(
-  c: { name: string; nameKn?: string; phone: string; phones?: string[] },
+  c: { name: string; nameKn?: string; phone: string; phones?: string[]; aliases?: string[] },
   query: string,
 ): boolean {
   const typed = String(query ?? '').trim();
@@ -180,7 +180,8 @@ export function customerMatches(
 
   // Both names, if there are two. A customer entered in Kannada and searched for in English has
   // to be found by either, or the second box would make people harder to find rather than easier.
-  for (const name of [c.name, c.nameKn ?? '']) {
+  // And every other name they go by ("Ravi Anna", "Bakery Ravi"), searched exactly like the name.
+  for (const name of [c.name, c.nameKn ?? '', ...(c.aliases ?? [])]) {
     if (!name) continue;
     const words = name.split(/\s+/).filter(Boolean);
     if (name.toLowerCase().startsWith(lower)) return true;

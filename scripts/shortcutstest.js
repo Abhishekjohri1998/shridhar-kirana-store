@@ -350,6 +350,22 @@ console.log('\nCustomer filters and sorts (shared/src/customerFilters.ts)');
   eq('a stored view is read back', S.readCustomerView({ show: 'owes', days: 15, sort: 'balance', dir: 'asc' }), { show: 'owes', days: 15, sort: 'balance', dir: 'asc' });
   eq('nonsense in storage is the default', S.readCustomerView({ show: 'x', days: -3, sort: 'y' }), S.DEFAULT_CUSTOMER_VIEW);
   eq('each sort starts its own way', [S.defaultDir('name'), S.defaultDir('balance')], ['asc', 'desc']);
+
+  // Sorted by town: A to Z, each town's people by name, no town last.
+  const towns = [
+    c('p', 'Prakash', { town: 'Kamalapura' }),
+    c('q', 'Anil', { town: ' hosapete ' }),
+    c('r', 'Zubair', { town: 'Hosapete' }),
+    c('s', 'Bharath', {}),
+    c('t', 'Girish', { town: 'Kamalapura' }),
+  ];
+  const byTown = (dir) => S.filterCustomers(towns, { ...S.DEFAULT_CUSTOMER_VIEW, sort: 'town', dir }, 'en', now).map((x) => x.id).join('');
+  eq('by town, then name, no town last', byTown('asc'), 'qrtps');
+  eq('towns Z to A, still no town last', byTown('desc'), 'tpqrs');
+  eq('the town sort starts A to Z', S.defaultDir('town'), 'asc');
+  eq('known towns: each once, A to Z, first spelling kept', S.knownTowns(towns), ['hosapete', 'Kamalapura']);
+  eq('a town is tidied', S.townOf({ town: '  Old   Town ' }), 'Old Town');
+  eq('a town sort is read back from storage', S.readCustomerView({ sort: 'town' }).sort, 'town');
 }
 
 console.log('');

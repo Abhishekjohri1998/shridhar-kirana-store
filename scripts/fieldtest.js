@@ -487,6 +487,13 @@ check('a middle fragment does not match -- prefix, not substring',
   !F.customerMatches(LATIN, 'mesha'));
 // Digits alone must not be read as a name prefix.
 check('a number that is not theirs does not match', !F.customerMatches(RAMESH, '9000'));
+// Other names are searched like the name.
+const NICK = { name: 'Ravi', phone: '', aliases: ['Bakery Ravi', 'ರವಿ ಅಣ್ಣ'] };
+check('another name finds them', F.customerMatches(NICK, 'bakery'));
+check('its second word too', F.customerMatches(NICK, 'bakery ra'));
+check('a Kannada other name finds them', F.customerMatches(NICK, 'ರವಿ ಅ'));
+check('a name they are not called does not', !F.customerMatches(NICK, 'suresh'));
+check('no other names is fine', F.customerMatches({ name: 'Ravi', phone: '' }, 'rav'));
 
 check('the key is stable under itself',
   SH.searchKey(SH.searchKey('ರಮೇಶ್')) === SH.searchKey('ರಮೇಶ್'));

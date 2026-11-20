@@ -247,6 +247,13 @@ export type Customer = {
   address?: string;
   /** Anything worth remembering about them that is nobody else's business. */
   notes?: string;
+  /**
+   * Other names the shop knows them by: "Ravi Anna", "Bakery Ravi", "ರವಿ ಅಣ್ಣ". Searched like
+   * the name, never printed. Absent on records saved before it existed.
+   */
+  aliases?: string[];
+  /** Their town or area, for finding and sorting them by where they live. Absent on older records. */
+  town?: string;
   /** ISO timestamp of the first bill, or of when the record was created. */
   since: string;
   /** Everything ever billed to them -- the "customer total transaction" figure. */

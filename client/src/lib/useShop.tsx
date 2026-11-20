@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   tokenState,
   lineHasSomething,
-  DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, makeT,
+  DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, isDraftEmpty, makeT,
   nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
   LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
@@ -210,6 +210,11 @@ type Shop = {
    * bill and marks the quotation billed. False when MAX_PARKED tabs are already open.
    */
   billFromQuotation: (q: Quotation) => Promise<boolean>;
+  /**
+   * "Make bill" from a customer's profile: the open tab when it is empty, else a new tab, with
+   * them attached (and what they owe dated). False when MAX_PARKED tabs are already full.
+   */
+  billForCustomer: (c: Customer) => Promise<boolean>;
   /** A saved bill's item descriptions left off, or put back on, its reprints and shares. */
   setBillHideNames: (no: number, hideNames: boolean) => Promise<Bill>;
   customerDraft: { name: string; nameKn: string; phone: string };
@@ -666,6 +671,37 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     return true;
   }, [parked.list.length]);
 
+  const billForCustomer = useCallback(async (c: Customer): Promise<boolean> => {
+    const reuse = isDraftEmpty(active) && active.kind !== 'quotation' && active.fromQuotation == null;
+    if (!reuse && parked.list.length >= MAX_PARKED) return false;
+    // Fresh figures and the date their balance was last added to, for the slip; the profile's copy will do.
+    let who = c;
+    let balanceAt: string | null = null;
+    try {
+      const got = await api.getCustomer(c.id);
+      who = got.customer;
+      balanceAt = got.balanceAt;
+    } catch { /* offline: the profile's copy is enough to start the bill */ }
+    const theirs = (d: Draft): Draft => ({
+      ...d,
+      customer: who,
+      customerBalanceAt: balanceAt,
+      typed: { name: '', nameKn: '', phone: '' },
+      paidInput: '',
+      printBalance: false,
+      printBalanceTouched: false,
+    });
+    setParked((prev) => {
+      if (reuse && prev.list.some((d) => d.id === prev.activeId)) {
+        return { ...prev, list: prev.list.map((d) => (d.id === prev.activeId ? theirs(d) : d)) };
+      }
+      if (prev.list.length >= MAX_PARKED) return prev;
+      const fresh = theirs(emptyDraft(nextLineId('bill')));
+      return { list: [...prev.list, fresh], activeId: fresh.id };
+    });
+    return true;
+  }, [active, parked.list.length]);
+
   const newBill = useCallback(() => {
     setParked((prev) => {
       if (prev.list.length >= MAX_PARKED) return prev;
@@ -1043,7 +1079,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
-      quotationMode, setQuotationMode, fromQuotation, billFromQuotation,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
       customerDraft, setCustomerDraft,
       saveSettings, forgetEverything, dataVersion,
@@ -1056,7 +1092,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,
-      quotationMode, setQuotationMode, fromQuotation, billFromQuotation,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,
       saveSettings, forgetEverything, dataVersion,
     ],

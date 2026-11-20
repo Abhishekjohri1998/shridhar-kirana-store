@@ -183,7 +183,7 @@ export const api = {
   listPayments: (limit = 100) => request<Payment[]>('/payments?limit=' + limit),
   saveCustomer: (input: {
     id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
-    phones?: string[]; whatsapp?: string;
+    phones?: string[]; whatsapp?: string; aliases?: string[]; town?: string;
   }) =>
     input.id
       ? request<Customer>('/customers/' + encodeURIComponent(input.id), {

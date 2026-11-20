@@ -55,6 +55,10 @@ export class DuplicateClientId extends Error {
 
 export type CustomerInput = {
   id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
+  /** Other names; absent leaves what is stored (an older app never sends it). */
+  aliases?: string[];
+  /** Town or area; absent leaves what is stored. */
+  town?: string;
   /** Every number, primary first. When given, `phone` is taken from its first entry. */
   phones?: string[];
   whatsapp?: string;
@@ -69,6 +73,17 @@ export function contactsOf(input: { phone: string; phones?: string[]; whatsapp?:
     ? input.phones.map(normalisePhone).filter((p, i, a) => p && a.indexOf(p) === i)
     : [normalisePhone(input.phone)].filter(Boolean);
   return { phone: list[0] ?? '', phones: list, whatsapp: normalisePhone(input.whatsapp ?? '') };
+}
+
+/** Other names as stored: trimmed, empty ones dropped, each once (by lower case), at most 10. */
+export function cleanAliases(list: string[] | undefined): string[] | undefined {
+  if (list == null) return undefined;
+  const out: string[] = [];
+  for (const raw of list) {
+    const a = String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (a && !out.some((x) => x.toLowerCase() === a.toLowerCase())) out.push(a);
+  }
+  return out.slice(0, 10);
 }
 
 /** Readable payment ids, like the customer ones. */

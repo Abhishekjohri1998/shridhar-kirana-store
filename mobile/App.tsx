@@ -316,7 +316,7 @@ function Shell() {
             <BillScreen />
           </View>
           <View style={tab === 'customers' ? styles.visible : styles.hidden}>
-            <CustomersScreen />
+            <CustomersScreen onOpenBill={() => goRef.current('bill')} />
           </View>
           <View style={tab === 'history' ? styles.visible : styles.hidden}>
             <HistoryScreen onOpenBill={() => goRef.current('bill')} />

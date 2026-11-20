@@ -13,7 +13,7 @@ import {
   STOCK_BIG_TIMEOUT_MS, bigAsk, stockAuth, stockBarcode, stockDraft, stockErrorOf, stockItems, stockLinkOn, stockQuote, stockSession, stockShopAuth,
 } from './stockLink';
 import { ensureRoundTo } from './roundTo';
-import { DuplicateClientId } from './store/types';
+import { DuplicateClientId, cleanAliases } from './store/types';
 
 
 /** Handwriting arrives as pen paths. Capped so one bill cannot carry a megabyte of scribble. */
@@ -122,6 +122,9 @@ const customerBody = z.object({
   whatsapp: z.string().trim().max(24).optional(),
   address: z.string().trim().max(400).default(''),
   notes: z.string().trim().max(1000).default(''),
+  // Other names and town. Optional, no default: an older app that sends neither keeps them.
+  aliases: z.array(z.string().max(80)).max(20).optional(),
+  town: z.string().trim().max(60).optional(),
 });
 
 /**
@@ -141,6 +144,8 @@ const customerPatch = z.object({
   whatsapp: z.string().trim().max(24).optional(),
   address: z.string().trim().max(400).optional(),
   notes: z.string().trim().max(1000).optional(),
+  aliases: z.array(z.string().max(80)).max(20).optional(),
+  town: z.string().trim().max(60).optional(),
 });
 
 /** Money received with no bill. */
@@ -385,6 +390,7 @@ api.post('/customers', handler(async (req, res) => {
   }
   res.status(201).json(await getRepo().upsertCustomer({
     ...body,
+    aliases: cleanAliases(body.aliases),
     phones: phoneList(body.phone, body.phones),
     ...(body.whatsapp != null ? { whatsapp: body.whatsapp } : {}),
   }));
@@ -410,6 +416,8 @@ api.put('/customers/:id', handler(async (req, res) => {
     whatsapp: patch.whatsapp ?? existing.whatsapp ?? '',
     address: patch.address ?? existing.address ?? '',
     notes: patch.notes ?? existing.notes ?? '',
+    aliases: cleanAliases(patch.aliases) ?? existing.aliases ?? [],
+    town: patch.town ?? existing.town ?? '',
   };
   if (!body.name && !body.nameKn && !body.phone) {
     throw new HttpError(400, 'Give the customer a name or a phone number');

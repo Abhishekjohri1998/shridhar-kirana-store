@@ -1002,6 +1002,32 @@ async function main() {
     eq('an edit elsewhere leaves the address alone', phoneOnly.body.address, '2nd Cross, Gandhi Bazaar, Bengaluru 560004');
     eq('and the note too', phoneOnly.body.notes, 'Rings the bell twice. Prefers evening delivery.');
 
+    // Other names and town.
+    const known = await post('/api/customers', {
+      name: 'Ravi', phone: '9000000460', town: '  Hosapete ',
+      aliases: [' Ravi Anna ', 'Bakery Ravi', 'ravi anna', '', 'ರವಿ ಅಣ್ಣ'],
+    });
+    eq('other names are kept, tidied, each once', JSON.stringify(known.body.aliases), JSON.stringify(['Ravi Anna', 'Bakery Ravi', 'ರವಿ ಅಣ್ಣ']));
+    eq('and the town, trimmed', known.body.town, 'Hosapete');
+    const knownPhone = await call('/api/customers/' + known.body.id, {
+      method: 'PUT', headers: auth, body: JSON.stringify({ phone: '9000000461' }),
+    });
+    eq('an edit that does not mention them keeps the other names', JSON.stringify(knownPhone.body.aliases), JSON.stringify(['Ravi Anna', 'Bakery Ravi', 'ರವಿ ಅಣ್ಣ']));
+    eq('and the town', knownPhone.body.town, 'Hosapete');
+    // An older app saves with POST and an id, sending neither field.
+    const olderApp = await post('/api/customers', { id: known.body.id, name: 'Ravi', phone: '9000000461' });
+    eq('a save from an older app keeps the other names', JSON.stringify(olderApp.body.aliases), JSON.stringify(['Ravi Anna', 'Bakery Ravi', 'ರವಿ ಅಣ್ಣ']));
+    eq('and the town', olderApp.body.town, 'Hosapete');
+    const renamedTown = await call('/api/customers/' + known.body.id, {
+      method: 'PUT', headers: auth, body: JSON.stringify({ town: 'Kamalapura', aliases: ['Bakery Ravi'] }),
+    });
+    eq('the town can be changed', renamedTown.body.town, 'Kamalapura');
+    eq('and the other names', JSON.stringify(renamedTown.body.aliases), JSON.stringify(['Bakery Ravi']));
+    const fromList = (await call('/api/customers', { headers: auth })).body.find((x) => x.id === known.body.id);
+    eq('the list carries both', JSON.stringify([fromList && fromList.town, fromList && fromList.aliases]), JSON.stringify(['Kamalapura', ['Bakery Ravi']]));
+    eq('too many characters in a town is refused',
+      (await post('/api/customers', { name: 'Far', phone: '9000000462', town: 'x'.repeat(61) })).status, 400);
+
     const editPhone = await call('/api/customers/' + twoNames.body.id, {
       method: 'PUT', headers: auth,
       body: JSON.stringify({ name: 'Suresh Kumar', phone: '9000000126' }),

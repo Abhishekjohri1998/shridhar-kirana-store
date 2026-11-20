@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CUSTOMER_SHOWS,
   CUSTOMER_SORTS,
+  knownTowns,
+  townOf,
   customerShowCounts,
   defaultDir,
   filterCustomers,
@@ -53,7 +56,19 @@ export function CustomersPage() {
     useState<{
       id?: string; name: string; nameKn: string; phone: string; address: string; notes: string;
       more: string[]; whatsapp: string;
+      /** Other names as typed, separated by commas; and the town. */
+      aliases: string; town: string;
     } | null>(null);
+  const navigate = useNavigate();
+  /** "Make bill" on a customer's profile: a bill with them on it, on the Bill screen. */
+  const makeBill = async (c: Customer) => {
+    if (await shop.billForCustomer(c)) {
+      setOpen(null);
+      navigate('/bill');
+    } else {
+      setError(t('hist.tooManyTabs'));
+    }
+  };
 
   const receive = async () => {
     if (!open || !pay) return;
@@ -137,7 +152,7 @@ export function CustomersPage() {
     notCome: t('cs.showNotCome'), never: t('cs.showNever'), new: t('cs.showNew'),
   };
   const sortWords: Record<CustomerSort, string> = {
-    name: t('cs.sortName'), balance: t('cs.sortBalance'), lastVisit: t('cs.sortLastVisit'),
+    name: t('cs.sortName'), town: t('cs.sortTown'), balance: t('cs.sortBalance'), lastVisit: t('cs.sortLastVisit'),
     billed: t('cs.sortBilled'), bills: t('cs.sortBills'),
   };
 
@@ -167,6 +182,8 @@ export function CustomersPage() {
         whatsapp: draft.whatsapp.trim(),
         address: draft.address.trim(),
         notes: draft.notes.trim(),
+        aliases: draft.aliases.split(/[,\n]/).map((a) => a.trim()).filter(Boolean),
+        town: draft.town.trim(),
       });
       setDraft(null);
       setError(null);
@@ -267,7 +284,7 @@ export function CustomersPage() {
         <button
           className="btn"
           style={{ flex: '0 0 auto', paddingInline: 16 }}
-          onClick={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '' })}
+          onClick={() => setDraft({ name: '', nameKn: '', phone: '', address: '', notes: '', more: [], whatsapp: '', aliases: '', town: '' })}
         >
           {t('common.new')}
         </button>
@@ -357,16 +374,20 @@ export function CustomersPage() {
         </Empty>
       ) : (
         <div className="list">
-          {results.map((c) => {
+          {results.map((c, i) => {
             const quiet = daysSince(c.lastVisit);
             const who = customerName(c, shop.lang) || c.phone || t('cs.unnamed');
             const wa = whatsappNumber(c);
+            // Sorted by town: each town's customers under its own heading.
+            const townHead = view.sort === 'town' && (i === 0 || townOf(results[i - 1]!).toLowerCase() !== townOf(c).toLowerCase());
             return (
               <div key={c.id}>
+              {townHead ? <div className="muted small town-head">{townOf(c) || t('cs.noTown')}</div> : null}
               <button className="list-row" onClick={() => void openCustomer(c)}>
                 <span className="grow">
                   <span style={{ display: 'block', fontWeight: 700 }}>{customerName(c, shop.lang) || t('cs.unnamed')}</span>
                   <span className="muted small">
+                    {townOf(c) && view.sort !== 'town' ? townOf(c) + ' · ' : ''}
                     {c.phone || t('cs.noNumber')} ·{' '}
                     {reachOut && c.billCount === 0
                       ? t('cs.neverBilled')
@@ -455,10 +476,16 @@ export function CustomersPage() {
                     phone: open.customer.phone,
                     more: customerPhones(open.customer).slice(1),
                     whatsapp: open.customer.whatsapp ?? '',
+                    aliases: (open.customer.aliases ?? []).join(', '),
+                    town: open.customer.town ?? '',
                   })
                 }
               >
                 {t('common.edit')}
+              </button>
+              {/* A bill with this customer on it, straight from their profile. */}
+              <button className="btn primary" onClick={() => void makeBill(open.customer)}>
+                🧾 {t('cs.makeBill')}
               </button>
             </>
           )}
@@ -485,6 +512,10 @@ export function CustomersPage() {
             {open.customer.lastVisit ? t('cs.lastVisit', { date: stamp(open.customer.lastVisit) }) : ''}
           </p>
 
+          {open.customer.aliases?.length ? (
+            <p className="muted small"><strong>{t('cs.alsoCalled', { names: open.customer.aliases.join(', ') })}</strong></p>
+          ) : null}
+          {townOf(open.customer) ? <p className="muted small">{t('cs.townLine', { town: townOf(open.customer) })}</p> : null}
           {/* Kept in the app, never on the paper: a 58mm roll has no room for either. */}
           {open.customer.address ? (
             <p className="muted small" style={{ whiteSpace: 'pre-wrap' }}>
@@ -656,6 +687,21 @@ export function CustomersPage() {
                 value={draft.address}
                 onChange={(e) => setDraft({ ...draft, address: e.target.value })}
               />
+            </div>
+            <div className="field">
+              <label htmlFor="c-aliases">{t('cs.aliases')}</label>
+              <input id="c-aliases" className="input" value={draft.aliases} maxLength={300}
+                onChange={(e) => setDraft({ ...draft, aliases: e.target.value })} />
+              <span className="muted small">{t('cs.aliasesHint')}</span>
+            </div>
+            <div className="field">
+              <label htmlFor="c-town">{t('cs.town')}</label>
+              <input id="c-town" className="input" list="c-towns" value={draft.town} maxLength={60}
+                onChange={(e) => setDraft({ ...draft, town: e.target.value })} />
+              {/* The towns already in the book, so the same place is not typed three ways. */}
+              <datalist id="c-towns">
+                {knownTowns(customers).map((town) => <option key={town} value={town} />)}
+              </datalist>
             </div>
             <div className="field">
               <label htmlFor="c-notes">{t('cs.notes')}</label>

@@ -22,6 +22,9 @@ type CustomerRow = {
    *  existed, which reads as empty. */
   address?: string;
   notes?: string;
+  /** Other names and town; absent on rows written before they existed. */
+  aliases?: string[];
+  town?: string;
   since: string;
   totalBilled: number;
   totalPaid: number;
@@ -315,7 +318,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       return row ? toCustomer(row) : null;
     },
 
-    upsertCustomer({ id, name, nameKn, phone, phones, address, notes, whatsapp }) {
+    upsertCustomer({ id, name, nameKn, phone, phones, address, notes, whatsapp, aliases, town }) {
       return serial(async () => {
         const contacts = contactsOf({ phone, phones, whatsapp });
         const digits = contacts.phone;
@@ -335,6 +338,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           existing.whatsapp = contacts.whatsapp;
           existing.address = address ?? '';
           existing.notes = notes ?? '';
+          if (aliases !== undefined) existing.aliases = aliases;
+          if (town !== undefined) existing.town = town;
           await flush();
           return toCustomer(existing);
         }
@@ -348,6 +353,8 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           whatsapp: contacts.whatsapp,
           address: address ?? '',
           notes: notes ?? '',
+          ...(aliases?.length ? { aliases } : {}),
+          ...(town ? { town } : {}),
           since: new Date().toISOString(),
           totalBilled: 0,
           totalPaid: 0,

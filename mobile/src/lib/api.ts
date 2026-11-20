@@ -274,7 +274,7 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = LOAD
 
 export type CustomerInput = {
   id?: string; name: string; nameKn?: string; phone: string; address?: string; notes?: string;
-  phones?: string[]; whatsapp?: string;
+  phones?: string[]; whatsapp?: string; aliases?: string[]; town?: string;
 };
 
 export const api = {
