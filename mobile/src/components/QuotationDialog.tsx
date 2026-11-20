@@ -134,7 +134,7 @@ export function QuotationDialog({
         />
       </View>
       {/* Turning it into the sale: a new bill tab with its lines and customer. */}
-      {q && q.status !== 'billed' ? (
+      {q && q.status === 'open' ? (
         <Button label={t('hist.makeBill')} disabled={busy || loading} onPress={() => void makeBill()} />
       ) : null}
     </View>

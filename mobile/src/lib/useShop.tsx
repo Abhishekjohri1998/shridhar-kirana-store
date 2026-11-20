@@ -547,7 +547,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         // New line ids: the slip keys its lines by them, and stock's ticks are per line.
         lines: full.lines.map((l) => {
           const { hasInk: _h, given: _g, ...rest } = l;
-          return { ...rest, itemId: nextLineId() };
+          // A typed line shows as typed: one saved without its mode would open as a writing pad.
+          const typed = !rest.lastMode && !(rest.ink && rest.ink.strokes.length) && (rest.nameKn.trim() || rest.nameEn.trim());
+          return { ...rest, itemId: nextLineId(), ...(typed ? { lastMode: 'text' as const } : {}) };
         }),
         customer: who,
         customerBalanceAt: balanceAt,

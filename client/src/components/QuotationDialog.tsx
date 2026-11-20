@@ -115,7 +115,7 @@ export function QuotationDialog({
         {printer.busy ? t('hist.printing') : t('hist.printAgain')}
       </button>
       {/* Turning it into the sale: a new bill tab with its lines and customer. */}
-      {q.status !== 'billed' ? (
+      {q.status === 'open' ? (
         <button className="btn" disabled={busy || loading} onClick={() => void makeBill()}>{t('hist.makeBill')}</button>
       ) : null}
     </>

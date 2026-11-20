@@ -610,6 +610,17 @@ export function BillScreen() {
       : undefined;
   };
 
+  /** The number the next quotation will most likely get, for its preview (bills count apart). */
+  const [nextQuoteNo, setNextQuoteNo] = useState(1);
+  useEffect(() => {
+    if (!shop.quotationMode) return;
+    let alive = true;
+    api.listQuotations(1)
+      .then((list) => { if (alive) setNextQuoteNo((list[0]?.no ?? 0) + 1); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [shop.quotationMode]);
+
   const draft = (): Bill => ({
     no: (shop.bills[0]?.no ?? 0) + 1,
     at: new Date().toISOString(),
@@ -627,9 +638,13 @@ export function BillScreen() {
     ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
     roundTo: shop.settings.roundTo ?? 0,
-    // A quotation previews as it will print: headed QUOTATION, nothing paid, no balance.
-    ...(shop.quotationMode ? { kind: 'quotation' as const, paid: 0, balance: 0, previousBalance: 0, showBalance: false } : {}),
+    // A quotation previews as it will print: headed QUOTATION, its own next number, nothing
+    // paid, no balance.
+    ...(shop.quotationMode
+      ? { kind: 'quotation' as const, no: nextQuoteNo, paid: 0, balance: 0, previousBalance: 0, showBalance: false }
+      : {}),
   });
+
 
   /**
    * A customer typed in but never attached.
