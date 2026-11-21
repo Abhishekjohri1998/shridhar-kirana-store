@@ -34,6 +34,11 @@ export type ReceiptLabels = {
   quoteTitle: string;
   /** Above the footer of a quotation, so nobody takes it for a bill. */
   quoteNote: string;
+  /** The shared PDF's extra column headings, and its "Page 2 / 3". */
+  qty: string;
+  rate: string;
+  amount: string;
+  page: string;
 };
 
 export const EN_RECEIPT_LABELS: ReceiptLabels = {
@@ -53,4 +58,8 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   quote: 'Quote #',
   quoteTitle: 'QUOTATION',
   quoteNote: 'Not a bill',
+  qty: 'Qty',
+  rate: 'Rate',
+  amount: 'Amount',
+  page: 'Page',
 };

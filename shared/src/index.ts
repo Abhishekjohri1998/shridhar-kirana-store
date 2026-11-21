@@ -28,3 +28,4 @@ export * from './session';
 export * from './reconnect';
 export * from './scan';
 export * from './customerFilters';
+export * from './billPdf';

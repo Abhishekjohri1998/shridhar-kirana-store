@@ -318,8 +318,9 @@ function screens() {
   check('tablet: the quantity focus waits for the box', /kind === 'qty' \? qtys\.current\[target\]/.test(mobile));
   check('web: the quantity focus waits for the box', /wantQty\.current = id/.test(web) && /const field = qtys\.current\[id\]/.test(web));
   check('tablet: a hardware Enter is handled once, by the focused box', /hwEnter\.current\(\)/.test(mobile) && /firstSubmit\('name:'/.test(mobile));
-  check('tablet: the bill boxes claim Enter natively', (mobile.match(/setTakeEnter\(true\)/g) || []).length === 3
-    && (mobile.match(/setTakeEnter\(false\)/g) || []).length >= 3);
+  // Name, quantity, rate (build 90) and price.
+  check('tablet: the bill boxes claim Enter natively', (mobile.match(/setTakeEnter\(true\)/g) || []).length === 4
+    && (mobile.match(/setTakeEnter\(false\)/g) || []).length >= 4);
   check('web: a held Enter does not repeat the pick', /e\.repeat/.test(web));
   const plugin = fs.readFileSync(path.join(ROOT, 'mobile', 'plugins', 'withStylus.js'), 'utf8');
   check('native: Enter is used up while a bill box owns it', /fun setTakeEnter/.test(plugin) && /if \(!takeEnter \|\| multiLine\)/.test(plugin));

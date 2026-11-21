@@ -109,4 +109,5 @@ export {
   SERIAL_BAUD_RATES, loadBaudRate, saveBaudRate, SerialPrintError,
 } from './serial';
 export { rasterize, receiptPng } from './raster';
+export { billPdf } from './pdf';
 export { rasterToEscPos } from './escpos';

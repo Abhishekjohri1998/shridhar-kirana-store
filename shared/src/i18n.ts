@@ -130,6 +130,8 @@ const EN = {
   'bill.selectNone': 'Untick every item',
   'bill.priceOfLine': 'Price for line {n}',
   'bill.each': '₹{rate} each',
+  'bill.rate': 'Rate',
+  'bill.rateOfLine': 'Rate for line {n}',
   'bill.eraseLine': 'Eraser for line {n}: the pen rubs out what it touches',
   'bill.clearLine': 'Remove line {n}',
   'bill.currentBill': 'Current bill',
@@ -563,6 +565,8 @@ const KN: Record<MsgKey, string> = {
   'bill.selectNone': 'ಎಲ್ಲಾ ಗುರುತುಗಳನ್ನು ತೆಗೆಯಿರಿ',
   'bill.priceOfLine': '{n}ನೇ ಸಾಲಿನ ಬೆಲೆ',
   'bill.each': 'ಒಂದಕ್ಕೆ ₹{rate}',
+  'bill.rate': 'ದರ',
+  'bill.rateOfLine': 'ಸಾಲು {n} ರ ದರ',
   'bill.eraseLine': 'ಸಾಲು {n}ರ ರಬ್ಬರ್: ಪೆನ್ ಮುಟ್ಟಿದ್ದನ್ನು ಅಳಿಸುತ್ತದೆ',
   'bill.clearLine': '{n}ನೇ ಸಾಲು ತೆಗೆದುಹಾಕಿ',
   'bill.currentBill': 'ಈಗಿನ ಬಿಲ್',
@@ -933,5 +937,9 @@ export function receiptLabelsFor(lang: Lang): ReceiptLabels {
     quote: 'ಕೊಟೇಶನ್ #',
     quoteTitle: 'ಕೊಟೇಶನ್',
     quoteNote: 'ಬಿಲ್ ಅಲ್ಲ',
+    qty: 'ಪ್ರಮಾಣ',
+    rate: 'ದರ',
+    amount: 'ಮೊತ್ತ',
+    page: 'ಪುಟ',
   };
 }

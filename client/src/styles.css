@@ -1865,6 +1865,8 @@ select.input {
 .stock-row { display: flex; align-items: center; gap: 6px; }
 .stock-row .slip-name { flex: 1; min-width: 0; }
 .stock-qty { width: 64px; flex: none; min-height: 40px; padding: 6px 8px; font-size: 1rem; }
+/* The rate of a typed line, after its unit: wide enough for 1,250.50. */
+.stock-rate { width: 84px; margin-left: 6px; }
 .stock-unit-wrap { position: relative; flex: none; }
 .stock-unit {
   min-width: 28px; padding: 6px 4px; font: inherit; font-size: 0.82rem; color: var(--ink-500);

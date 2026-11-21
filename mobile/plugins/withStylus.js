@@ -13,7 +13,8 @@
  *     - `shareToWhatsApp(phone, fileUri, text)`: ACTION_SEND to com.whatsapp, then
  *       com.whatsapp.w4b, with the "jid" extra so the chat opens directly, the picture shared
  *       through expo-file-system's FileProvider. Rejects when neither is installed, so the app
- *       can fall back to the share sheet.
+ *       can fall back to the share sheet. `shareFileToWhatsApp(phone, fileUri, text, mime)`
+ *       (build 90) is the same for any file type: the bill goes as a PDF.
  *  2. Adds to MainActivity a dispatchTouchEvent / dispatchGenericMotionEvent hook that passes
  *     every motion event to the module first.
  *  3. Registers the package in MainApplication.
@@ -349,6 +350,15 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
 
   @ReactMethod
   fun shareToWhatsApp(phone: String, fileUri: String, text: String, promise: Promise) {
+    sendToWhatsApp(phone, fileUri, text, "image/png", promise)
+  }
+
+  @ReactMethod
+  fun shareFileToWhatsApp(phone: String, fileUri: String, text: String, mime: String, promise: Promise) {
+    sendToWhatsApp(phone, fileUri, text, mime, promise)
+  }
+
+  private fun sendToWhatsApp(phone: String, fileUri: String, text: String, mime: String, promise: Promise) {
     val activity = currentActivity
     if (activity == null) {
       promise.reject("NO_ACTIVITY", "The app is not in front")
@@ -366,7 +376,7 @@ class ShridharNativeModule(private val ctx: ReactApplicationContext) : ReactCont
     val digits = phone.filter { it.isDigit() }
     for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
       val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "image/png"
+        type = mime
         setPackage(pkg)
         putExtra(Intent.EXTRA_STREAM, uri)
         if (text.isNotEmpty()) putExtra(Intent.EXTRA_TEXT, text)

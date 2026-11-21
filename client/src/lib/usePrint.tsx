@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { buildReceipt, paperProfile, printSpeedOf, type Bill, type ReceiptDoc, type Settings } from '@shridhar/shared';
+import { billPdfName, buildReceipt, paperProfile, printSpeedOf, type Bill, type ReceiptDoc, type Settings } from '@shridhar/shared';
 import { ReceiptView } from '../components/ReceiptView';
 import {
   applyPaperToPrintSheet,
   chooseBluetoothPrinter, chooseSerialPrinter, connectedPrinterName, connectedSerialName,
   isWebBluetoothAvailable, isWebSerialAvailable, loadBaudRate, loadPrintMode,
-  printViaBluetooth, printViaSerial, printViaSystem, receiptPng, saveBaudRate, savePrintMode,
+  billPdf, printViaBluetooth, printViaSerial, printViaSystem, saveBaudRate, savePrintMode,
   type PrintMode,
 } from '../print';
 import { useShop } from './useShop';
@@ -28,7 +28,7 @@ type PrintApi = {
 
   /** Renders the receipt and sends it to whichever printer the shop is set up for. */
   printBill: (bill: Bill, settings: Settings) => Promise<void>;
-  /** Hands a picture of the slip to the browser's share sheet, or saves it if there is none. */
+  /** Hands the bill as an A4 PDF to the browser's share sheet, or saves it if there is none. */
   shareBill: (bill: Bill, settings: Settings) => Promise<void>;
 };
 
@@ -91,10 +91,10 @@ export function PrintProvider({ children }: { children: ReactNode }) {
   );
 
   /**
-   * A picture of the slip, shared or saved.
+   * The bill as an A4 PDF, shared or saved.
    *
-   * The same document the printer gets, so what reaches a customer's phone is what came out of
-   * the machine -- handwriting included, which is why this is an image and not a typed summary.
+   * It used to be a picture of the slip, which a forty-line bill turned into a strip nobody could
+   * read. The PDF is a table on A4 pages (billPdfPages), handwriting included.
    *
    * navigator.share with a file is the good path and it exists on Android Chrome, which is what
    * the counter would use. Where it does not -- a desktop browser, or one that will not take
@@ -105,9 +105,9 @@ export function PrintProvider({ children }: { children: ReactNode }) {
     async (bill: Bill, settings: Settings) => {
       setBusy(true);
       try {
-        const blob = await receiptPng(buildReceipt(bill, settings, shop.receiptLabels));
-        const name = (bill.kind === 'quotation' ? 'quotation-' : 'bill-') + bill.no + '.png';
-        const file = new File([blob], name, { type: 'image/png' });
+        const blob = await billPdf(bill, settings, shop.receiptLabels);
+        const name = billPdfName(bill);
+        const file = new File([blob], name, { type: 'application/pdf' });
 
         const canShareFile =
           typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });

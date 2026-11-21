@@ -7,6 +7,8 @@ import { DeviceEventEmitter, NativeModules, Platform } from 'react-native';
  */
 type ShridharNative = {
   shareToWhatsApp: (phoneE164: string, fileUri: string, text: string) => Promise<string>;
+  /** Absent in builds before 90. */
+  shareFileToWhatsApp?: (phoneE164: string, fileUri: string, text: string, mime: string) => Promise<string>;
   /** Absent in builds before 59. */
   setSuggestOpen?: (open: boolean) => void;
   /** Absent in builds before 62. */
@@ -49,6 +51,17 @@ export function hasNativeWhatsApp(): boolean {
 export async function shareToWhatsApp(phoneE164: string, fileUri: string, text: string): Promise<void> {
   if (!mod) throw new Error('no native module');
   await mod.shareToWhatsApp(phoneE164, fileUri, text);
+}
+
+/** Whether this build can hand WhatsApp a file other than a picture (build 90 on). */
+export function whatsAppTakesPdf(): boolean {
+  return typeof mod?.shareFileToWhatsApp === 'function';
+}
+
+/** As shareToWhatsApp, for any file: the bill's PDF. Rejects on a build before 90. */
+export async function shareFileToWhatsApp(phoneE164: string, fileUri: string, text: string, mime: string): Promise<void> {
+  if (!mod?.shareFileToWhatsApp) throw new Error('no native module');
+  await mod.shareFileToWhatsApp(phoneE164, fileUri, text, mime);
 }
 
 /** A key from a hardware keyboard, read natively: React Native's TextInput never reports arrows. */

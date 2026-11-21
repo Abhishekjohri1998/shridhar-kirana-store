@@ -52,6 +52,8 @@ import { api } from '../lib/api';
 const STRIP_H = 56;
 /** Longer than the paper's shape, for more room to write; the tablet uses the same. */
 const STRIP_LONG = 1.3;
+/** More room for a typed line than the writing strip has: it carries a rate box too. */
+const TYPED_EXTRA = 200;
 
 /**
  * A strip down the side of the bill for scrolling it with the pen or a finger: every line is a
@@ -98,6 +100,8 @@ export function BillPage() {
   const [priceText, setPriceText] = useState<Record<string, string>>({});
   /** The same for the quantity of a typed line: '' while the box is entered, until typed in. */
   const [qtyText, setQtyText] = useState<Record<string, string>>({});
+  /** And for the rate of a typed line, while its box is being typed in. */
+  const [rateBox, setRateBox] = useState<Record<string, string>>({});
   /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
   const stock = useStockSuggest();
 
@@ -131,6 +135,7 @@ export function BillPage() {
     }
     setPriceText((prev) => { const { [done.key]: _p, ...rest } = prev; return rest; });
     setQtyText((prev) => { const { [done.key]: _q, ...rest } = prev; return rest; });
+    setRateBox((prev) => { const { [done.key]: _r, ...rest } = prev; return rest; });
     const unit = item.units.find((u) => u.code === (item.matchedUnit ?? item.sellUnit)) ?? item.units[0];
     setScanNote({
       text: done.more
@@ -169,6 +174,7 @@ export function BillPage() {
   const clearTyped = (key: string) => {
     setPriceText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
     setQtyText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
+    setRateBox((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
   };
   /** The open unit list's chips in the order shown -- stock's units, then NOS. */
   const unitCodes = (line: BillLine) => [...stock.unitsFor(line).map((u) => u.code), FALLBACK_UNIT];
@@ -215,6 +221,8 @@ export function BillPage() {
   /** The quantity and price boxes, which Enter hands on through: name, quantity, price. */
   const qtys = useRef<Record<string, HTMLInputElement | null>>({});
   const prices = useRef<Record<string, HTMLInputElement | null>>({});
+  /** The rate boxes of typed lines, between the quantity and the price. */
+  const rates = useRef<Record<string, HTMLInputElement | null>>({});
   /** The tick boxes and unit buttons, so Up and Down can walk those columns too. */
   const ticks = useRef<Record<string, HTMLInputElement | null>>({});
   const units = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -430,6 +438,19 @@ export function BillPage() {
     // The box holds the line total (qty x rate); typing one sets the rate from it.
     const parsed = parsePrice(text);
     if (parsed.ok) shop.setLineTotal(index, parsed.value);
+  };
+
+  /** The rate box of a typed line: the price box then shows quantity x rate. */
+  const onRate = (index: number, key: string, text: string) => {
+    setRateBox((prev) => ({ ...prev, [key]: text }));
+    const line = shop.cart[index];
+    if (line) stock.onRateTyped(line);
+    if (text.trim() === '') {
+      shop.setLineRate(index, 0);
+      return;
+    }
+    const parsed = parsePrice(text);
+    if (parsed.ok) shop.setLineRate(index, parsed.value);
   };
 
   /**
@@ -847,7 +868,7 @@ export function BillPage() {
                     onChange={(e) => shop.setLineGiven(index, e.target.checked)}
                   />
 
-                  <div className="slip-write" style={{ maxWidth: STRIP_H * stripAspect * STRIP_LONG }}>
+                  <div className="slip-write" style={{ maxWidth: STRIP_H * stripAspect * STRIP_LONG + (isWriting ? 0 : TYPED_EXTRA) }}>
                     {/* Typed by default, written when asked for: handwriting is one click away
                         and a line that already holds strokes opens as writing. */}
                     {isWriting ? (
@@ -951,7 +972,7 @@ export function BillPage() {
                             onKeyDown={(e) => {
                               if (e.key !== 'Enter') return;
                               e.preventDefault();
-                              prices.current[line.itemId]?.focus();
+                              (rates.current[line.itemId] ?? prices.current[line.itemId])?.focus();
                             }}
                             onChange={(e) => {
                               const text = e.target.value;
@@ -1017,6 +1038,28 @@ export function BillPage() {
                               </ul>
                             ) : null}
                           </span>
+                          {/* The rate: quantity x rate is the price box's total. Typing a total
+                              there instead still works, and sets this from it. */}
+                          <input
+                            ref={(el) => { rates.current[line.itemId] = el; }}
+                            className="slip-price stock-qty stock-rate"
+                            inputMode="decimal"
+                            aria-label={t('bill.rateOfLine', { n: index + 1 })}
+                            title={t('bill.rate')}
+                            placeholder={t('bill.rate')}
+                            value={rateBox[line.itemId] ?? (line.rate > 0 ? rateText(line.rate) : '')}
+                            onChange={(e) => onRate(index, line.itemId, e.target.value)}
+                            onFocus={() => calcBus.setTarget((text) => onRate(index, line.itemId, text))}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter') return;
+                              e.preventDefault();
+                              prices.current[line.itemId]?.focus();
+                            }}
+                            onBlur={() => setRateBox((prev) => {
+                              const { [line.itemId]: _d, ...rest } = prev;
+                              return rest;
+                            })}
+                          />
                         </>
                       </div>
                       {stock.openFor === line.itemId ? (
@@ -1121,7 +1164,7 @@ export function BillPage() {
                     }}
                   />
                   {/* The box is the line total; the rate it comes from sits small underneath. */}
-                  {line.rate > 0 && line.qty !== 1 ? (
+                  {isWriting && line.rate > 0 && line.qty !== 1 ? (
                     <span className="line-amount">{t('bill.each', { rate: rateText(line.rate) })}</span>
                   ) : null}
                   </div>

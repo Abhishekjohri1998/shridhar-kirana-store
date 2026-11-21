@@ -127,6 +127,8 @@ export function BillScreen() {
   const [preview, setPreview] = useState<Bill | null>(null);
   /** Price text per line, so half-typed values like "12." survive keystrokes. */
   const [priceText, setPriceText] = useState<Record<string, string>>({});
+  /** The rate of a typed line, while its box is being typed in. */
+  const [rateBox, setRateBox] = useState<Record<string, string>>({});
   /** The same for the quantity of a typed line: '' while the box is entered, until typed in. */
   const [qtyText, setQtyText] = useState<Record<string, string>>({});
   /** Stock's suggestions and re-quoting, which hide themselves when the link is off. */
@@ -137,6 +139,7 @@ export function BillScreen() {
   const clearTyped = (key: string) => {
     setPriceText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
     setQtyText((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
+    setRateBox((prev) => { const { [key]: _d, ...rest } = prev; return rest; });
   };
 
   /*
@@ -232,6 +235,8 @@ export function BillScreen() {
   const names = useRef<Record<string, TextInput | null>>({});
   /** And the quantity boxes, which Enter in a name box hands on to. */
   const qtys = useRef<Record<string, TextInput | null>>({});
+  /** The rate boxes of typed lines, between the quantity and the price. */
+  const rates = useRef<Record<string, TextInput | null>>({});
 
   /*
    * A keyboard plugged into the tablet: Up and Down move through the suggestions under the name
@@ -486,7 +491,25 @@ export function BillScreen() {
   const submitQty = (id: string) => {
     if (!firstSubmit('qty:' + id)) return;
     focusRow(id);
+    (rates.current[id] ?? prices.current[id])?.focus();
+  };
+  /** Enter in a rate box: on to the price, which now shows quantity x rate. */
+  const submitRate = (id: string) => {
+    if (!firstSubmit('rate:' + id)) return;
+    focusRow(id);
     prices.current[id]?.focus();
+  };
+  /** The rate box of a typed line: the price box then shows quantity x rate. */
+  const onRate = (index: number, key: string, text: string) => {
+    setRateBox((prev) => ({ ...prev, [key]: text }));
+    const line = shop.cart[index];
+    if (line) stock.onRateTyped(line);
+    if (text.trim() === '') {
+      shop.setLineRate(index, 0);
+      return;
+    }
+    const parsed = parsePrice(text);
+    if (parsed.ok) shop.setLineRate(index, parsed.value);
   };
   /** Enter in a price box: down to the next price. */
   const submitPrice = (index: number) => {
@@ -508,6 +531,8 @@ export function BillScreen() {
     }
     id = owner(qtys.current);
     if (id != null) { submitQty(id); return; }
+    id = owner(rates.current);
+    if (id != null) { submitRate(id); return; }
     id = owner(prices.current);
     if (id != null) {
       const index = shop.cart.findIndex((l) => l.itemId === id);
@@ -1080,7 +1105,8 @@ export function BillScreen() {
                 </Pressable>
 
                 <View style={[
-                  styles.slipWrite, { maxWidth: stripH * stripAspect * STRIP_LONG + MORE_SLOT },
+                  // A typed line has a rate box as well as the quantity: more room than the strip.
+                  styles.slipWrite, { maxWidth: stripH * stripAspect * STRIP_LONG + MORE_SLOT + (isWriting ? 0 : 150) },
                   line.hidden && styles.slipHidden,
                 ]}>
                   {isWriting ? (
@@ -1221,6 +1247,32 @@ export function BillScreen() {
                         >
                           <Text style={styles.stockUnit}>{(line.unit || FALLBACK_UNIT) + ' ▾'}</Text>
                         </Pressable>
+                        {/* The rate: quantity x rate is the price box's total. Typing a total there
+                            instead still works, and sets this from it. */}
+                        <TextInput
+                          ref={(el) => { rates.current[line.itemId] = el; }}
+                          style={[styles.slipPrice, styles.stockQty, styles.stockRate]}
+                          keyboardType="decimal-pad"
+                          accessibilityLabel={t('bill.rateOfLine', { n: index + 1 })}
+                          value={rateBox[line.itemId] ?? (line.rate > 0 ? rateText(line.rate) : '')}
+                          placeholder={t('bill.rate')}
+                          placeholderTextColor={C.faint}
+                          onChangeText={(text) => onRate(index, line.itemId, text)}
+                          returnKeyType="next"
+                          blurOnSubmit={false}
+                          onSubmitEditing={() => submitRate(line.itemId)}
+                          onFocus={() => {
+                            setTakeEnter(true);
+                            focusRow(line.itemId);
+                            setView('items');
+                            calcBus.setTarget((text) => onRate(index, line.itemId, text));
+                          }}
+                          onBlur={() => {
+                            blurRow();
+                            setTakeEnter(false);
+                            setRateBox((prev) => { const { [line.itemId]: _d, ...rest } = prev; return rest; });
+                          }}
+                        />
                       </>
                     </View>
                     {unitMenu === line.itemId ? (
@@ -1384,7 +1436,7 @@ export function BillScreen() {
                   }}
                 />
                 {/* The box is the line total; the rate it comes from sits small underneath. */}
-                {line.rate > 0 && line.qty !== 1 ? (
+                {isWriting && line.rate > 0 && line.qty !== 1 ? (
                   <Text style={styles.lineAmount} numberOfLines={1} adjustsFontSizeToFit>
                     {t('bill.each', { rate: rateText(line.rate) })}
                   </Text>
@@ -1790,6 +1842,7 @@ const styles = StyleSheet.create({
   /* The stock app's suggestions under a typed name, and the quantity of a picked line. Quiet on
      purpose: they help the typing and must not compete with the slip. */
   stockQty: { width: 64, minHeight: 40, paddingVertical: 6, marginLeft: 6 },
+  stockRate: { width: 84 },
   stockUnit: { fontSize: 13, color: C.soft, marginLeft: 6, minWidth: 28 },
   stockList: {
     marginTop: 4, backgroundColor: C.card, borderWidth: 1, borderColor: C.line,

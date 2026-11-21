@@ -1,9 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { buildReceipt, receiptAsText, money, pickLang, printSpeedOf, whatsappNumber, type Bill, type Settings } from '@shridhar/shared';
+import {
+  billPdfName, billPdfPages, buildReceipt, pdfFromJpegs, receiptAsText, money, pickLang, printSpeedOf, whatsappNumber,
+  type Bill, type Settings,
+} from '@shridhar/shared';
 import { api } from './api';
-import { shareToWhatsApp } from './native';
+import { base64ToBytes, bytesToBase64 } from './base64';
+import { shareFileToWhatsApp, shareToWhatsApp, whatsAppTakesPdf } from './native';
 import { RasterBridge, type RasterHandle } from '../print/RasterBridge';
 import { rasterToEscPos } from '../print/escpos';
 import {
@@ -19,10 +23,11 @@ type PrintApi = {
   choosePrinter: (printer: PairedPrinter | null) => Promise<void>;
   listPrinters: () => Promise<PairedPrinter[]>;
   printBill: (bill: Bill, settings: Settings) => Promise<void>;
-  /** Hands a picture of the slip to whatever the phone can share with. */
+  /** Hands the bill, as an A4 PDF, to whatever the phone can share with. */
   shareBill: (bill: Bill, settings: Settings) => Promise<void>;
   /**
-   * The slip's picture straight into the customer's WhatsApp chat; the shopkeeper taps Send.
+   * The bill's PDF straight into the customer's WhatsApp chat; the shopkeeper taps Send. A build
+   * before 90 cannot hand WhatsApp a PDF, and sends the slip's picture as it always did.
    * Falls back to the share sheet when WhatsApp is not installed or the build lacks the module.
    */
   whatsappBill: (bill: Bill, settings: Settings) => Promise<void>;
@@ -76,7 +81,22 @@ export function PrintProvider({ children }: { children: ReactNode }) {
   );
 
   /**
-   * A picture of the slip, handed to the phone's share sheet.
+   * The bill as an A4 PDF in the cache, ready to share: billPdfPages drawn in the receipt
+   * WebView, a picture per page. Replaces the slip picture, which a forty-line bill turned into
+   * a strip too thin to read.
+   */
+  const writePdf = useCallback(async (bill: Bill, settings: Settings): Promise<string> => {
+    const handle = raster.current;
+    if (!handle) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
+    const drawn = await handle.pdfPages(billPdfPages(bill, settings, shop.receiptLabels));
+    const pdf = pdfFromJpegs(drawn.map((p) => ({ jpeg: base64ToBytes(p.jpeg), width: p.w, height: p.h })));
+    const file = FileSystem.cacheDirectory + billPdfName(bill);
+    await FileSystem.writeAsStringAsync(file, bytesToBase64(pdf), { encoding: FileSystem.EncodingType.Base64 });
+    return file;
+  }, [shop]);
+
+  /**
+   * The slip as a picture (kept for WhatsApp on builds before 90).
    *
    * The same document the printer gets, through the same renderer, so what lands in a chat is
    * what came out of the machine -- handwriting included, which is the whole reason this is an
@@ -94,25 +114,17 @@ export function PrintProvider({ children }: { children: ReactNode }) {
         if (!(await Sharing.isAvailableAsync())) {
           throw new PrinterError(shop.t('hist.cannotShare'));
         }
-        const doc = buildReceipt(bill, settings, shop.receiptLabels);
-        const picture = await raster.current?.imageOf(doc);
-        if (!picture) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
-
-        const base64 = picture.image.replace(/^data:image\/png;base64,/, '');
-        const file = FileSystem.cacheDirectory + (bill.kind === 'quotation' ? 'quotation-' : 'bill-') + bill.no + '.png';
-        await FileSystem.writeAsStringAsync(file, base64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        const file = await writePdf(bill, settings);
         await Sharing.shareAsync(file, {
-          mimeType: 'image/png',
+          mimeType: 'application/pdf',
           dialogTitle: (bill.kind === 'quotation' ? shop.t('hist.quoteNo', { no: bill.no }) : shop.t('hist.billNo', { no: bill.no })),
-          UTI: 'public.png',
+          UTI: 'com.adobe.pdf',
         });
       } finally {
         setBusy(false);
       }
     },
-    [busy, shop],
+    [busy, shop, writePdf],
   );
 
   const whatsappBill = useCallback(
@@ -129,32 +141,39 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       setBusy(true);
       let file = '';
       try {
-        const doc = buildReceipt(bill, settings, shop.receiptLabels);
-        const picture = await raster.current?.imageOf(doc);
-        if (!picture) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
-        file = FileSystem.cacheDirectory + (bill.kind === 'quotation' ? 'quotation-' : 'bill-') + bill.no + '.png';
-        await FileSystem.writeAsStringAsync(file, picture.image.replace(/^data:image\/png;base64,/, ''), {
-          encoding: FileSystem.EncodingType.Base64,
-        });
         const text = pickLang(settings.shopName, settings.shopNameKn, shop.lang) + ' · '
           + (bill.kind === 'quotation' ? shop.t('hist.quoteNo', { no: bill.no }) : shop.t('hist.billNo', { no: bill.no })) + ' · ' + money(bill.total);
+        // The PDF where this build can hand WhatsApp one; the slip's picture where it cannot.
+        const pdf = whatsAppTakesPdf();
+        if (pdf) {
+          file = await writePdf(bill, settings);
+        } else {
+          const doc = buildReceipt(bill, settings, shop.receiptLabels);
+          const picture = await raster.current?.imageOf(doc);
+          if (!picture) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
+          file = FileSystem.cacheDirectory + (bill.kind === 'quotation' ? 'quotation-' : 'bill-') + bill.no + '.png';
+          await FileSystem.writeAsStringAsync(file, picture.image.replace(/^data:image\/png;base64,/, ''), {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
         try {
-          await shareToWhatsApp(number, file, text);
+          if (pdf) await shareFileToWhatsApp(number, file, text, 'application/pdf');
+          else await shareToWhatsApp(number, file, text);
           return;
         } catch {
           // No WhatsApp, or a build without the module: the ordinary share sheet below.
         }
         if (!(await Sharing.isAvailableAsync())) throw new PrinterError(shop.t('wa.failed'));
         await Sharing.shareAsync(file, {
-          mimeType: 'image/png',
+          mimeType: pdf ? 'application/pdf' : 'image/png',
           dialogTitle: number ? shop.t('wa.send') : shop.t('wa.noNumber'),
-          UTI: 'public.png',
+          UTI: pdf ? 'com.adobe.pdf' : 'public.png',
         });
       } finally {
         setBusy(false);
       }
     },
-    [busy, shop],
+    [busy, shop, writePdf],
   );
 
   const value = useMemo<PrintApi>(

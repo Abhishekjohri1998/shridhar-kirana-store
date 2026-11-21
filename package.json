@@ -17,7 +17,7 @@
     "start": "npm run start --workspace @shridhar/server",
     "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
     "selftest": "npm run build:shared && node scripts/selftest.js",
-    "test": "npm run typecheck && npm run fieldtest && npm run i18ntest && npm run rastertest && npm run printertest && npm run schematest && npm run selftest && npm run stocklinktest && npm run ledgertest && npm run plugintest && npm run fastbillstest && npm run shortcutstest && npm run freshtest && npm run sessiontest && npm run restoretest && npm run wholeshoptest",
+    "test": "npm run typecheck && npm run fieldtest && npm run i18ntest && npm run rastertest && npm run printertest && npm run schematest && npm run selftest && npm run stocklinktest && npm run ledgertest && npm run plugintest && npm run fastbillstest && npm run shortcutstest && npm run pdftest && npm run freshtest && npm run sessiontest && npm run restoretest && npm run wholeshoptest",
     "restoretest": "node scripts/restoretest.js",
     "sessiontest": "node scripts/sessiontest.js",
     "fieldtest": "node scripts/fieldtest.js",
@@ -34,7 +34,8 @@
     "fastbillstest": "node scripts/fastbillstest.js",
     "shortcutstest": "node scripts/shortcutstest.js",
     "freshtest": "node scripts/freshtest.js",
-    "wholeshoptest": "node scripts/wholeshoptest.js"
+    "wholeshoptest": "node scripts/wholeshoptest.js",
+    "pdftest": "npm run build:shared && node scripts/pdftest.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
