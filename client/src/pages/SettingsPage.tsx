@@ -15,6 +15,7 @@ import {
   type Lang,
   type PaperKey,
   receiptStyleOf,
+  receiptLangOf,
   PRINT_SPEEDS,
   printSpeedOf,
   type PrintSpeed,
@@ -416,6 +417,19 @@ export function SettingsPage() {
           <span className="grow">
             <span style={{ display: 'block' }}>{t('set.receiptStyle')}</span>
             <span className="muted small">{t('set.receiptStyleHint')}</span>
+          </span>
+        </label>
+        {/* The paper's language, apart from the app's: the screens can be English, the slip Kannada. */}
+        <label className="row" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={receiptLangOf(shop.settings) === 'kn'}
+            onChange={(e) => void save({ receiptKannada: e.target.checked }, 'set.savedReceiptKannada')}
+            style={{ width: 20, height: 20 }}
+          />
+          <span className="grow">
+            <span style={{ display: 'block' }}>{t('set.receiptKannada')}</span>
+            <span className="muted small">{t('set.receiptKannadaHint')}</span>
           </span>
         </label>
       </section>

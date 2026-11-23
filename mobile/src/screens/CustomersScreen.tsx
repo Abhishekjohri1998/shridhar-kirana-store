@@ -586,6 +586,7 @@ export function CustomersScreen({ onOpenBill }: { onOpenBill?: () => void } = {}
       <BillDialog
         bill={bill}
         onClose={() => setBill(null)}
+        onOpenBill={onOpenBill}
         onCancelled={(cancelled) => {
           // Rewrite the row in the open customer's list, and reload their running figures --
           // cancelling took money back out of them.

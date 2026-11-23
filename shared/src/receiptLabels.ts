@@ -34,6 +34,8 @@ export type ReceiptLabels = {
   quoteTitle: string;
   /** Above the footer of a quotation, so nobody takes it for a bill. */
   quoteNote: string;
+  /** A customer's money paid ahead, taken off this bill. */
+  advance: string;
   /** The shared PDF's extra column headings, and its "Page 2 / 3". */
   qty: string;
   rate: string;
@@ -58,6 +60,7 @@ export const EN_RECEIPT_LABELS: ReceiptLabels = {
   quote: 'Quote #',
   quoteTitle: 'QUOTATION',
   quoteNote: 'Not a bill',
+  advance: 'Advance',
   qty: 'Qty',
   rate: 'Rate',
   amount: 'Amount',

@@ -152,6 +152,19 @@ export type Bill = {
    */
   note?: string;
   /**
+   * The customer's advance this bill used up: what they had paid ahead, up to the bill's own
+   * total. It prints as "Advance -200" and comes off TOTAL. Saved by the server on bills made
+   * from build 91 on; absent on older ones, which print exactly as they always did.
+   */
+  advance?: number;
+  /**
+   * Bumped each time the saved bill is edited (absent = 1, never edited). Stock reads it to know
+   * the bill's sales have to be taken back and posted again.
+   */
+  rev?: number;
+  /** When the bill was last edited. Absent on a bill never edited. */
+  editedAt?: string;
+  /**
    * Set when the bill has been cancelled.
    *
    * Cancelled rather than deleted, and the record stays whole: the customer may be holding the
@@ -299,6 +312,11 @@ export type Settings = {
    * descriptions at all. See receiptLayout. Absent reads from the old hiddenReceipt, else normal.
    */
   receiptStyle?: ReceiptStyle;
+  /**
+   * Print the receipt in Kannada, whatever language the app's own screens are in. Absent until
+   * the switch is first used, and then the receipt follows `language` as it always did.
+   */
+  receiptKannada?: boolean;
   /** The setting receiptStyle replaced ('list' = normal). Still read, never written. */
   hiddenReceipt?: HiddenReceipt;
   /** A customer quiet for this many days is flagged as needing a nudge. */
@@ -320,6 +338,13 @@ export type HiddenReceipt = 'list' | 'compact';
 export type ReceiptStyle = 'normal' | 'compact';
 
 /** The shop's receipt style, reading the old hiddenReceipt field when the new one is absent. */
+/** The language the receipt (and the shared PDF) is printed in. See Settings.receiptKannada. */
+export function receiptLangOf(s: { language?: string; receiptKannada?: boolean }): Lang {
+  if (s.receiptKannada === true) return 'kn';
+  if (s.receiptKannada === false) return 'en';
+  return s.language === 'kn' ? 'kn' : 'en';
+}
+
 export function receiptStyleOf(s: { receiptStyle?: ReceiptStyle | string; hiddenReceipt?: HiddenReceipt | string }): ReceiptStyle {
   if (s.receiptStyle === 'compact' || s.receiptStyle === 'normal') return s.receiptStyle;
   return s.hiddenReceipt === 'compact' ? 'compact' : 'normal';

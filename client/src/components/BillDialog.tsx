@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { billAsText, historyViewSettings, receiptStyleOf, buildReceipt, hiddenLinesText, pickLang, whatsappNumber, type Bill } from '@shridhar/shared';
+import { useNavigate } from 'react-router-dom';
+import { billAsText, stamp, historyViewSettings, receiptStyleOf, buildReceipt, hiddenLinesText, pickLang, whatsappNumber, type Bill } from '@shridhar/shared';
 import { api as billingApi } from '../lib/api';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
@@ -34,6 +35,16 @@ export function BillDialog({
   /** Which question the footer is asking, if any: cancelling it, or removing it for good. */
   const [asking, setAsking] = useState<'cancel' | 'delete' | null>(null);
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+  /** "Edit bill": the saved bill in a tab of its own on the Bill screen; Save updates it. */
+  const startEdit = async () => {
+    if (await shop.editBill(bill)) {
+      onClose();
+      navigate('/bill');
+    } else {
+      setError(t('hist.tooManyTabs'));
+    }
+  };
 
   /*
    * A bill from the list comes without its handwriting (`lite`). The receipt, a reprint and the
@@ -175,6 +186,7 @@ export function BillDialog({
         <>
           <button className="btn plain grow" onClick={() => setAsking('cancel')}>{t('hist.cancelBill')}</button>
           <button className="btn danger" onClick={() => setAsking('delete')}>{t('hist.deleteBill')}</button>
+          <button className="btn plain" disabled={loading} onClick={() => void startEdit()}>✎ {t('hist.edit')}</button>
         </>
       )}
       <button className="btn plain" onClick={onClose}>{t('common.close')}</button>
@@ -196,6 +208,7 @@ export function BillDialog({
 
       {/* Said before the receipt, not after it: this is the thing that changes what follows. */}
       {bill.cancelled ? <p className="notice">{t('hist.cancelled')}</p> : null}
+      {bill.editedAt ? <p className="muted small">{t('hist.edited')} · {stamp(bill.editedAt)}</p> : null}
       {asking === 'cancel' ? <p className="notice">{t('hist.cancelNote')}</p> : null}
       {asking === 'delete' ? (
         <p className="notice">

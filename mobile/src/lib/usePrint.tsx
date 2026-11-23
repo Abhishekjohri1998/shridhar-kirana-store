@@ -11,9 +11,12 @@ import { shareFileToWhatsApp, shareToWhatsApp, whatsAppTakesPdf } from './native
 import { RasterBridge, type RasterHandle } from '../print/RasterBridge';
 import { rasterToEscPos } from '../print/escpos';
 import {
-  PrinterError, isPrintingAvailable, listPairedPrinters, loadSavedPrinter, printBytes,
+  PrinterError, connectPrinter, isPrintingAvailable, listPairedPrinters, loadSavedPrinter, printBytes, printerStatus,
   saveSelectedPrinter, type PairedPrinter,
 } from '../print/bluetooth';
+
+/** What the Bill screen's printer chip says. */
+export type PrinterState = 'none' | 'checking' | 'connected' | 'disconnected' | 'off';
 import { useShop } from './useShop';
 
 type PrintApi = {
@@ -31,6 +34,10 @@ type PrintApi = {
    * Falls back to the share sheet when WhatsApp is not installed or the build lacks the module.
    */
   whatsappBill: (bill: Bill, settings: Settings) => Promise<void>;
+  /** Whether the chosen printer is connected, checked every little while. */
+  printerState: PrinterState;
+  /** The chip's tap: connect now (or check again). */
+  connectNow: () => Promise<void>;
 };
 
 const Ctx = createContext<PrintApi | null>(null);
@@ -40,6 +47,27 @@ export function PrintProvider({ children }: { children: ReactNode }) {
   const raster = useRef<RasterHandle | null>(null);
   const [busy, setBusy] = useState(false);
   const [printer, setPrinter] = useState<PairedPrinter | null>(null);
+  const [printerState, setPrinterState] = useState<PrinterState>('none');
+
+  // Checked now and every 20 seconds: a printer switched off or out of range shows at once.
+  useEffect(() => {
+    if (!printer) { setPrinterState('none'); return; }
+    let alive = true;
+    const check = () => { void printerStatus(printer.address).then((s) => { if (alive) setPrinterState(s); }); };
+    setPrinterState('checking');
+    check();
+    const timer = setInterval(check, 20000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [printer]);
+
+  const connectNow = useCallback(async () => {
+    if (!printer) return;
+    setPrinterState('checking');
+    try {
+      await connectPrinter(printer.address);
+    } catch { /* the state below says how it went */ }
+    setPrinterState(await printerStatus(printer.address));
+  }, [printer]);
 
   useEffect(() => {
     let alive = true;
@@ -73,6 +101,7 @@ export function PrintProvider({ children }: { children: ReactNode }) {
           bytes = rasterToEscPos(dots, speed);
         }
         await printBytes(printer.address, bytes, speed);
+        setPrinterState('connected');
       } finally {
         setBusy(false);
       }
@@ -186,8 +215,10 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       printBill,
       shareBill,
       whatsappBill,
+      printerState,
+      connectNow,
     }),
-    [busy, printer, choosePrinter, printBill, shareBill, whatsappBill],
+    [busy, printer, choosePrinter, printBill, shareBill, whatsappBill, printerState, connectNow],
   );
 
   return (

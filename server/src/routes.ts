@@ -99,6 +99,7 @@ const settingsBody = z.object({
   footerKn: z.string().trim().max(120).optional(),
   showRate: z.boolean().optional(),
   receiptStyle: z.enum(['normal', 'compact']).optional(),
+  receiptKannada: z.boolean().optional(),
   // The old name, from an app that predates receiptStyle: accepted and moved across below.
   hiddenReceipt: z.enum(['list', 'compact']).optional(),
   showGstin: z.boolean().optional(),
@@ -459,7 +460,11 @@ api.get('/bills', handler(async (req, res) => {
   const customerId = z.string().trim().min(1).max(80).optional().parse(req.query.customerId || undefined);
   const lite = req.query.lite === '1' || req.query.lite === 'true';
   const since = z.coerce.number().int().nonnegative().optional().parse(req.query.since || undefined);
-  res.json(await getRepo().listBills(limit, customerId, { lite, ...(since != null ? { since } : {}) }));
+  // Stock asks for bills edited since its last look, so an edit of an older bill reaches it too.
+  const editedAfter = z.string().trim().max(40).optional().parse(req.query.editedAfter || undefined);
+  res.json(await getRepo().listBills(limit, customerId, {
+    lite, ...(since != null ? { since } : {}), ...(editedAfter ? { editedAfter } : {}),
+  }));
 }));
 
 /*
@@ -506,6 +511,45 @@ api.patch('/bills/:no', handler(async (req, res) => {
   const bill = await getRepo().setBillHideNames(no, hideNames);
   if (!bill) throw new HttpError(404, 'No such bill');
   res.json(bill);
+}));
+
+/*
+ * A saved bill edited: lines, customer, payment, note -- the same body as a new bill, bar the
+ * device's ids. It keeps its number and date; the customer's figures follow (Repo.editBill), and
+ * stock, reading `rev`, takes the old sales back and posts the new ones.
+ */
+api.put('/bills/:no', handler(async (req, res) => {
+  const no = z.coerce.number().int().positive().parse(req.params.no);
+  const body = z
+    .object({
+      lines: z.array(lineBody).min(1).max(200),
+      customerId: z.string().trim().min(1).max(80).optional(),
+      paid: z.coerce.number().finite().nonnegative().max(10_000_000).optional(),
+      showBalance: z.boolean().optional(),
+      hideNames: z.boolean().optional(),
+      note: z.string().trim().max(200).optional(),
+    })
+    .parse(req.body);
+  if (body.customerId && !(await getRepo().getCustomer(body.customerId))) {
+    throw new HttpError(400, 'That customer is not on file');
+  }
+  if (body.showBalance && !body.customerId) {
+    throw new HttpError(400, 'A balance can only be printed for a named customer');
+  }
+  const roundTo = await ensureRoundTo();
+  const outcome = await getRepo().editBill(no, {
+    lines: savedLines(body.lines, roundTo),
+    ...(body.customerId ? { customerId: body.customerId } : {}),
+    ...(body.paid == null ? {} : { paid: body.paid }),
+    showBalance: body.showBalance ?? false,
+    ...(body.hideNames ? { hideNames: true } : {}),
+    ...(body.note ? { note: body.note } : {}),
+    roundTo,
+  });
+  if (outcome === 'missing') throw new HttpError(404, 'No such bill');
+  if (outcome === 'cancelled') throw new HttpError(400, 'That bill is cancelled');
+  if (outcome === 'stale') throw new HttpError(409, 'Someone else changed this bill just now. Open it again.');
+  res.json(outcome);
 }));
 
 /* Cancelled, not deleted: see Repo.cancelBill. A POST rather than a DELETE because the bill is

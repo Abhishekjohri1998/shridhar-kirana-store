@@ -9,7 +9,8 @@ import { C, R } from '../theme';
 
 /** Points closer together than this are dropped: a finger reports far more than a line needs. */
 const MIN_STEP = 1.5;
-const STROKE_WIDTH = 2.8;
+// 3.6, up from 2.8 (build 91): the shop found writing hard to read back after hours at the counter.
+const STROKE_WIDTH = 3.6;
 
 type Point = { x: number; y: number };
 

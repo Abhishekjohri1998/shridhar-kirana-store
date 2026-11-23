@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  DEFAULT_SETTINGS, migrateSettings, billTotal, liteBill, customerMatches, lastPriceOf, round2, roundToStep,
+  DEFAULT_SETTINGS, migrateSettings, advanceFor, billTotal, liteBill, customerMatches, lastPriceOf, round2, roundToStep,
   type Bill, type Customer, type Item, type Payment, type Quotation, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -105,8 +105,9 @@ export async function createFileRepo(dir: string): Promise<Repo> {
     },
 
     async listBills(limit, customerId, options = {}) {
-      const { since, lite } = options;
-      const mine = db.bills.filter((b) => (customerId ? b.customer?.id === customerId : true));
+      const { since, lite, editedAfter } = options;
+      const mine = db.bills.filter((b) => (customerId ? b.customer?.id === customerId : true))
+        .filter((b) => (editedAfter ? (b.editedAt ?? '') > editedAfter : true));
       const picked = since != null
         ? mine.filter((b) => b.no > since).sort((a, b) => a.no - b.no).slice(0, limit).reverse()
         : mine.sort((a, b) => b.no - a.no).slice(0, limit);
@@ -132,13 +133,15 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         const exact = billTotal(lines);
         const total = roundToStep(exact, roundTo ?? 0);
         const roundOff = round2(total - exact);
-        const takings = round2(paid ?? total);
 
         let row: CustomerRow | undefined;
         let previousBalance = 0;
         let previousBalanceAt: string | null = null;
+        if (customerId) row = db.customers.find((c) => c.id === customerId);
+        // Paid ahead: that much comes off this bill, so "paid in full" is the rest.
+        const advance = row ? advanceFor(customerBalance(row), total) : 0;
+        const takings = round2(paid ?? total - advance);
         if (customerId) {
-          row = db.customers.find((c) => c.id === customerId);
           if (row) {
             // Both read before the figures move: this store mutates the row in place, so there
             // is no "before" to go back to afterwards. The mongo store reaches the same number
@@ -179,6 +182,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
           ...(hideNames ? { hideNames: true } : {}),
           note: note ?? '',
           ...(roundOff !== 0 ? { roundOff } : {}),
+          ...(advance > 0 ? { advance } : {}),
           roundTo: roundTo ?? 0,
           ...(draftId ? { draftId } : {}),
           ...(clientId ? { clientId } : {}),
@@ -186,6 +190,65 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         db.bills.push(bill);
         await flush();
         return bill;
+      });
+    },
+
+    editBill(no, { lines, customerId, paid, showBalance, hideNames, note, roundTo }) {
+      return serial(async () => {
+        const bill = db.bills.find((b) => b.no === no);
+        if (!bill) return 'missing';
+        if (bill.cancelled) return 'cancelled';
+        const exact = billTotal(lines);
+        const total = roundToStep(exact, roundTo ?? 0);
+        const roundOff = round2(total - exact);
+
+        // Out of the customer it had, as a cancel would.
+        const oldRow = bill.customer ? db.customers.find((c) => c.id === bill.customer?.id) : undefined;
+        if (oldRow) {
+          oldRow.totalBilled = round2(oldRow.totalBilled - bill.total);
+          oldRow.totalPaid = round2(oldRow.totalPaid - bill.paid);
+          oldRow.billCount = Math.max(0, oldRow.billCount - 1);
+        }
+        const row = customerId ? db.customers.find((c) => c.id === customerId) : undefined;
+        const same = row != null && oldRow != null && row.id === oldRow.id;
+        // The same customer: what they owed before this bill stays what it was. Another customer:
+        // what they owe now, as for a new bill.
+        const previousBalance = row ? (same ? round2(bill.previousBalance ?? 0) : customerBalance(row)) : 0;
+        const advance = row ? advanceFor(previousBalance, total) : 0;
+        const takings = round2(paid ?? total - advance);
+        let previousBalanceAt: string | null = null;
+        if (row && same) previousBalanceAt = bill.previousBalanceAt ?? null;
+        else if (row) {
+          const owing = db.bills
+            .filter((b) => b.customer?.id === row.id && !b.cancelled && b.no !== no && b.paid < b.total)
+            .sort((a, b) => b.no - a.no)[0];
+          previousBalanceAt = owing ? owing.at : null;
+        }
+        if (row) {
+          row.totalBilled = round2(row.totalBilled + total);
+          row.totalPaid = round2(row.totalPaid + takings);
+          row.billCount += 1;
+          if (!same) row.lastVisit = new Date().toISOString();
+        }
+
+        if (row) bill.customer = { id: row.id, name: row.name, nameKn: row.nameKn ?? '', phone: row.phone };
+        else delete bill.customer;
+        bill.lines = lines;
+        bill.total = total;
+        bill.paid = takings;
+        bill.balance = row ? round2(previousBalance + total - takings) : round2(total - takings);
+        bill.previousBalance = previousBalance;
+        bill.previousBalanceAt = previousBalance === 0 ? null : previousBalanceAt;
+        bill.showBalance = Boolean(showBalance && row);
+        if (hideNames) bill.hideNames = true; else delete bill.hideNames;
+        bill.note = note ?? '';
+        if (roundOff !== 0) bill.roundOff = roundOff; else delete bill.roundOff;
+        if (advance > 0) bill.advance = advance; else delete bill.advance;
+        bill.roundTo = roundTo ?? 0;
+        bill.rev = (bill.rev ?? 1) + 1;
+        bill.editedAt = new Date().toISOString();
+        await flush();
+        return { ...bill };
       });
     },
 

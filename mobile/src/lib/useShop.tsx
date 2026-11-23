@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, isDraftEmpty, makeT,
-  nextLineId, receiptLabelsFor, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
+  nextLineId, receiptLabelsFor, receiptLangOf, type EditTarget, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
   coldStart, acceptStockToken, tokenState,
   LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, BOOK_STAMP_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang, type PersonRole,
@@ -214,6 +214,13 @@ type Shop = {
   setQuotationMode: (on: boolean) => void;
   /** The quotation this tab was opened from by "Make bill", if any. */
   fromQuotation: number | null;
+  /** The saved bill this tab is editing (History -> Edit), if any. */
+  editing: EditTarget | null;
+  /**
+   * History -> Edit: the saved bill in a tab of its own (or the tab already editing it), which
+   * Save then updates in place. False when MAX_PARKED tabs are already open.
+   */
+  editBill: (bill: Bill) => Promise<boolean>;
   /**
    * "Make bill": a new tab holding a quotation's lines, customer and note, which saves as a real
    * bill and marks the quotation billed. False when MAX_PARKED tabs are already open.
@@ -340,6 +347,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const hideNames = active.hideNames === true;
   const quotationMode = active.kind === 'quotation';
   const fromQuotation = active.fromQuotation ?? null;
+  const editing = active.editsBill ?? null;
 
   const setCart = useCallback(
     (next: BillLine[] | ((prev: BillLine[]) => BillLine[])) => {
@@ -439,7 +447,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const pushDraft = useCallback(async (d: Draft) => {
     if (stockSaved.current.has(d.draftId)) return;
     // A quotation is not picked: the worker screen never sees one, and loses it if it was shown.
-    if (d.kind === 'quotation') {
+    // Nor is a saved bill being edited: stock reads the edit itself, from the bill.
+    if (d.kind === 'quotation' || d.editsBill) {
       if (stockSent.current.delete(d.draftId)) {
         void api.stockDraft({ draftId: d.draftId, closed: true, lines: [] }).catch(() => undefined);
       }
@@ -488,7 +497,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const lang: Lang = settings.language === 'kn' ? 'kn' : 'en';
   const t = useMemo(() => makeT(lang), [lang]);
-  const receiptLabels = useMemo(() => receiptLabelsFor(lang), [lang]);
+  // The paper's own language (Settings -> Print receipt in Kannada), not necessarily the app's.
+  const receiptLang = receiptLangOf(settings);
+  const receiptLabels = useMemo(() => receiptLabelsFor(receiptLang), [receiptLang]);
 
   const setPrintBalance = useCallback((value: boolean, fromUser = true) => {
     setPrintBalanceState(value);
@@ -551,7 +562,8 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...emptyDraft(nextLineId('bill')),
         // New line ids: the slip keys its lines by them, and stock's ticks are per line.
         lines: full.lines.map((l) => {
-          const { hasInk: _h, given: _g, ...rest } = l;
+          // `given` kept: what was ticked on the quotation is still ticked on the bill.
+          const { hasInk: _h, ...rest } = l;
           // A typed line shows as typed: one saved without its mode would open as a writing pad.
           const typed = !rest.lastMode && !(rest.ink && rest.ink.strokes.length) && (rest.nameKn.trim() || rest.nameEn.trim());
           return { ...rest, itemId: nextLineId(), ...(typed ? { lastMode: 'text' as const } : {}) };
@@ -567,6 +579,55 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     });
     return true;
   }, [parked.list.length]);
+
+  const editBill = useCallback(async (b: Bill): Promise<boolean> => {
+    // Already open for editing: that tab.
+    const open = parked.list.find((d) => d.editsBill?.no === b.no);
+    if (open) {
+      setParked((prev) => ({ ...prev, activeId: open.id }));
+      return true;
+    }
+    if (parked.list.length >= MAX_PARKED) return false;
+    // In full: a list's copy comes without its handwriting.
+    let full = b;
+    try { full = await api.getBill(b.no); } catch { /* the copy in hand */ }
+    let who: Customer | null = null;
+    if (full.customer?.id) {
+      try { who = (await api.getCustomer(full.customer.id)).customer; } catch { /* removed since */ }
+    }
+    // Paid in full stays "in full", so editing the lines moves the payment with them.
+    const inFull = round2(full.paid) === round2(full.total - (full.advance ?? 0));
+    setParked((prev) => {
+      if (prev.list.length >= MAX_PARKED) return prev;
+      const fresh: Draft = {
+        ...emptyDraft(nextLineId('bill')),
+        // The saved line ids kept: stock knows the bill's lines by them.
+        lines: full.lines.map((l) => {
+          const { hasInk: _h, ...rest } = l as BillLine & { hasInk?: boolean };
+          const typed = !rest.lastMode && !(rest.ink && rest.ink.strokes.length) && (rest.nameKn.trim() || rest.nameEn.trim());
+          return { ...rest, ...(typed ? { lastMode: 'text' as const } : {}) };
+        }),
+        customer: who,
+        customerBalanceAt: who ? (full.previousBalanceAt ?? null) : null,
+        typed: who || !full.customer ? { name: '', nameKn: '', phone: '' }
+          : { name: full.customer.name, nameKn: full.customer.nameKn ?? '', phone: full.customer.phone },
+        note: full.note ?? '',
+        ...(full.hideNames ? { hideNames: true } : {}),
+        paidInput: inFull ? '' : String(full.paid),
+        printBalance: full.showBalance,
+        printBalanceTouched: true,
+        editsBill: {
+          no: full.no,
+          at: full.at,
+          ...(full.customer?.id ? { customerId: full.customer.id } : {}),
+          previousBalance: full.previousBalance ?? 0,
+          previousBalanceAt: full.previousBalanceAt ?? null,
+        },
+      };
+      return { list: [...prev.list, fresh], activeId: fresh.id };
+    });
+    return true;
+  }, [parked.list]);
 
   const billForCustomer = useCallback(async (c: Customer): Promise<boolean> => {
     const reuse = isDraftEmpty(active) && active.kind !== 'quotation' && active.fromQuotation == null;
@@ -1259,6 +1320,28 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         });
         return quotationAsBill(q);
       }
+      if (active.editsBill) {
+        // A saved bill edited: the same number, the figures redone on the server.
+        const edited = await api.updateBill(active.editsBill.no, {
+          lines,
+          ...(billTo ? { customerId: billTo.id } : {}),
+          ...(options.paid == null ? {} : { paid: options.paid }),
+          showBalance: Boolean(options.showBalance && billTo),
+          ...(hideNames ? { hideNames: true } : {}),
+          ...(note.trim() ? { note: note.trim() } : {}),
+        });
+        setParked((prev) => {
+          if (prev.list.length <= 1) {
+            return { ...prev, list: prev.list.map((d) => (d.id === prev.activeId ? emptyDraft(d.id) : d)) };
+          }
+          const nextActive = afterClosing(prev.list, prev.activeId, prev.activeId);
+          const list = closeDraft(prev.list, prev.activeId, nextLineId('bill'));
+          return { list, activeId: list.some((d) => d.id === nextActive) ? nextActive : list[0]!.id };
+        });
+        setBills((prev) => prev.map((b) => (b.no === edited.no ? edited : b)));
+        void api.today().then(setToday).catch(() => undefined);
+        return edited;
+      }
       const payload = {
         lines,
         ...(billTo ? { customerId: billTo.id } : {}),
@@ -1303,7 +1386,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       if (bill.customer) setInactive((prev) => prev.filter((c) => c.id !== bill.customer?.id));
       return bill;
     },
-    [cart, customer, note, hideNames, resetDraft, t, stockOn, active.draftId, active.kind, active.fromQuotation],
+    [cart, customer, note, hideNames, resetDraft, t, stockOn, active.draftId, active.kind, active.fromQuotation, active.editsBill],
   );
 
   const setBillHideNames = useCallback(async (no: number, hide: boolean) => {
@@ -1365,7 +1448,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
-      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer, editing, editBill,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
       customerDraft, setCustomerDraft,
       saveSettings, forgetEverything, dataVersion,
@@ -1379,7 +1462,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,
-      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer, editing, editBill,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft, saveSettings,
       forgetEverything, dataVersion,
     ],

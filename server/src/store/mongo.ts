@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import {
-  DEFAULT_SETTINGS, migrateSettings, billTotal, customerMatches, itemNameKey, lastPriceOf, round2, roundToStep,
+  DEFAULT_SETTINGS, migrateSettings, advanceFor, billTotal, customerMatches, itemNameKey, lastPriceOf, round2, roundToStep,
   type Bill, type BillLine, type Customer, type Ink, type Payment, type Quotation, type Settings, type TodaySummary,
 } from '@shridhar/shared';
 import {
@@ -106,6 +106,10 @@ const billSchema = new Schema<Bill>(
     // The step that was asked for, and the device's id for the save. Optional, no defaults.
     roundTo: { type: Number, required: false },
     clientId: { type: String, required: false },
+    // The advance this bill used, and its edit count and time. Optional, no defaults (schematest).
+    advance: { type: Number, required: false },
+    rev: { type: Number, required: false },
+    editedAt: { type: String, required: false },
   },
   { versionKey: false },
 );
@@ -216,6 +220,8 @@ const settingsSchema = new Schema<SettingsDoc>(
     // receiptStyle: absent means "never set", which falls back to hiddenReceipt.
     hiddenReceipt: { type: String, required: false },
     receiptStyle: { type: String, required: false },
+    // Absent until the switch is first used: then the receipt follows `language`.
+    receiptKannada: { type: Boolean, required: false },
     inactiveAfterDays: { type: Number, required: true, default: DEFAULT_SETTINGS.inactiveAfterDays },
     // No default on purpose: absent means "never set", which the first start fills from stock.
     roundTo: { type: Number, required: false },
@@ -325,9 +331,10 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
     },
 
     async listBills(limit, customerId, options = {}) {
-      const { since, lite } = options;
+      const { since, lite, editedAfter } = options;
       const filter: Record<string, unknown> = customerId ? { 'customer.id': customerId } : {};
       if (since != null) filter.no = { $gt: since };
+      if (editedAfter) filter.editedAt = { $gt: editedAfter };
       // Catching up takes the bills just after `since`, oldest first, then hands them back newest
       // first like every list -- so a reader paging forward never skips one.
       const order = since != null ? 1 : -1;
@@ -426,7 +433,14 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       // Rounded before anything moves, so the customer's figures move by the printed total.
       const total = roundToStep(exact, roundTo ?? 0);
       const roundOff = round2(total - exact);
-      const takings = round2(paid ?? total);
+      // Paid ahead: that much comes off this bill, so "paid in full" (no figure sent) is the rest.
+      // Read before the $inc below, as previousBalanceAt is; the bill records what it used.
+      let advance = 0;
+      if (customerId) {
+        const had = await Customers.findOne({ id: customerId }).lean();
+        if (had) advance = advanceFor(customerBalance(strip(had as unknown as CustomerDoc)), total);
+      }
+      const takings = round2(paid ?? total - advance);
 
       /*
        * When the balance was last added to: the newest earlier bill of theirs that was not
@@ -508,6 +522,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         ...(hideNames ? { hideNames: true } : {}),
         note: note ?? '',
         ...(roundOff !== 0 ? { roundOff } : {}),
+        ...(advance > 0 ? { advance } : {}),
         roundTo: roundTo ?? 0,
         ...(draftId ? { draftId } : {}),
         ...(clientId ? { clientId } : {}),
@@ -541,6 +556,79 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       }
 
       return bill;
+    },
+
+    async editBill(no, { lines, customerId, paid, showBalance, hideNames, note, roundTo }) {
+      const doc = await Bills.findOne({ no }).lean();
+      if (!doc) return 'missing';
+      const bill = strip(doc as unknown as Bill);
+      if (bill.cancelled) return 'cancelled';
+      const exact = billTotal(lines);
+      const total = roundToStep(exact, roundTo ?? 0);
+      const roundOff = round2(total - exact);
+      const oldId = bill.customer?.id;
+      const same = customerId != null && customerId === oldId;
+
+      let fresh: CustomerDoc | null = null;
+      if (customerId) {
+        const had = await Customers.findOne({ id: customerId }).lean();
+        fresh = had ? strip(had as unknown as CustomerDoc) : null;
+      }
+      // The same customer: what they owed before this bill stays what it was. Another: what they
+      // owe now (this bill not on them yet), as for a new bill.
+      const previousBalance = fresh ? (same ? round2(bill.previousBalance ?? 0) : customerBalance(fresh)) : 0;
+      const advance = fresh ? advanceFor(previousBalance, total) : 0;
+      const takings = round2(paid ?? total - advance);
+      let previousBalanceAt: string | null = null;
+      if (fresh && same) previousBalanceAt = bill.previousBalanceAt ?? null;
+      else if (fresh) {
+        const owing = await Bills.findOne(
+          { 'customer.id': customerId, cancelled: { $ne: true }, no: { $ne: no }, $expr: { $lt: ['$paid', '$total'] } },
+          { at: 1 },
+        ).sort({ no: -1 }).lean();
+        previousBalanceAt = owing ? (owing as unknown as Bill).at : null;
+      }
+
+      const set: Record<string, unknown> = {
+        lines, total, paid: takings,
+        balance: fresh ? round2(previousBalance + total - takings) : round2(total - takings),
+        previousBalance,
+        previousBalanceAt: previousBalance === 0 ? null : previousBalanceAt,
+        showBalance: Boolean(showBalance && fresh),
+        note: note ?? '',
+        roundTo: roundTo ?? 0,
+        rev: (bill.rev ?? 1) + 1,
+        editedAt: new Date().toISOString(),
+        ...(fresh ? { customer: { id: fresh.id, name: fresh.name, nameKn: fresh.nameKn ?? '', phone: fresh.phone } } : {}),
+        ...(hideNames ? { hideNames: true } : {}),
+        ...(roundOff !== 0 ? { roundOff } : {}),
+        ...(advance > 0 ? { advance } : {}),
+      };
+      const unset: Record<string, ''> = {};
+      if (!fresh) unset.customer = '';
+      if (!hideNames) unset.hideNames = '';
+      if (roundOff === 0) unset.roundOff = '';
+      if (advance === 0) unset.advance = '';
+      // Claimed on the revision it was read at: two edits racing cannot both land.
+      const claimed = await Bills.findOneAndUpdate(
+        { no, cancelled: { $ne: true }, ...(bill.rev ? { rev: bill.rev } : { rev: { $exists: false } }) },
+        { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+        { new: true },
+      ).lean();
+      if (!claimed) return 'stale';
+
+      // The money: out of the customer it had, onto the one it has now. Moved after the claim,
+      // so a lost race moves nothing.
+      if (oldId) {
+        await Customers.updateOne({ id: oldId }, { $inc: { totalBilled: -bill.total, totalPaid: -bill.paid, billCount: -1 } });
+      }
+      if (fresh) {
+        await Customers.updateOne(
+          { id: fresh.id },
+          { $inc: { totalBilled: total, totalPaid: takings, billCount: 1 }, ...(same ? {} : { $set: { lastVisit: new Date().toISOString() } }) },
+        );
+      }
+      return strip(claimed as unknown as Bill);
     },
 
     async cancelBill(no) {

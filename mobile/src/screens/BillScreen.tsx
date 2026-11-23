@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import {
   FALLBACK_UNIT, lineHasSomething, nextTypingLine, roundedLineAmount, roundLines, lineName,
-  MAX_PARKED, buildReceipt, carriedBalance, checkCustomer, customerName, dateStamp, draftTotal,
+  MAX_PARKED, buildReceipt, carriedBalance, advanceFor, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
@@ -37,6 +37,12 @@ export function BillScreen() {
   const shop = useShop();
   const printer = usePrint();
   const t = shop.t;
+  /** The printer chip's words: connected, checking, Bluetooth off, none chosen, or not connected. */
+  const printerWords = printer.printerState === 'connected' ? t('prn.connected')
+    : printer.printerState === 'checking' ? t('prn.checking')
+    : printer.printerState === 'off' ? t('prn.btOff')
+    : printer.printerState === 'none' ? t('prn.none')
+    : t('prn.notConnected');
   /**
    * The totals stay at the foot at every width.
    *
@@ -493,11 +499,11 @@ export function BillScreen() {
     focusRow(id);
     (rates.current[id] ?? prices.current[id])?.focus();
   };
-  /** Enter in a rate box: on to the price, which now shows quantity x rate. */
+  /** Enter in a rate box: the price is qty x rate already, so on to the next line, typing. */
   const submitRate = (id: string) => {
     if (!firstSubmit('rate:' + id)) return;
-    focusRow(id);
-    prices.current[id]?.focus();
+    const index = shop.cart.findIndex((l) => l.itemId === id);
+    if (index >= 0) goToNextName(index);
   };
   /** The rate box of a typed line: the price box then shows quantity x rate. */
   const onRate = (index: number, key: string, text: string) => {
@@ -563,14 +569,24 @@ export function BillScreen() {
 
   const paid = shop.paidInput;
   const showBalance = shop.printBalance;
-  const paidCheck = parsePaid(paid, shop.cartTotal);
+  /*
+   * What the customer owed walking in. Editing a saved bill, that is what they owed before that
+   * bill (theirs now already has it in), as long as it is still their bill.
+   */
+  const walkIn = shop.editing && shop.customer?.id === shop.editing.customerId
+    ? shop.editing.previousBalance
+    : shop.customer?.balance ?? 0;
+  // Paid ahead: that much comes off today's lines, so "paid in full" is the rest (advanceFor).
+  const advance = shop.customer && !shop.quotationMode ? advanceFor(walkIn, shop.cartTotal) : 0;
+  const toPay = round2(shop.cartTotal - advance);
+  const paidCheck = parsePaid(paid, toPay);
   const paidValid = paidCheck.ok;
-  const paidAmount = paidCheck.ok ? paidCheck.value : shop.cartTotal;
+  const paidAmount = paidCheck.ok ? paidCheck.value : toPay;
   // Deliberately unchanged: customer.balance + cartTotal is already carried + today, so this
   // is (carried + today) - paid. Rewriting it in terms of grandTotal would count the old
   // balance twice.
   const balanceAfter = shop.customer
-    ? round2(shop.customer.balance + shop.cartTotal - paidAmount)
+    ? round2(walkIn + shop.cartTotal - paidAmount)
     : 0;
 
   /*
@@ -579,8 +595,8 @@ export function BillScreen() {
    * total and what buildReceipt is handed, and buildReceipt adds the carried balance itself.
    * The same carriedBalance() decides both, so the footer and the paper cannot disagree.
    */
-  const carried = carriedBalance(showBalance, shop.customer?.balance);
-  const grandTotal = round2(shop.cartTotal + carried);
+  const carried = carriedBalance(showBalance, shop.customer ? walkIn : 0);
+  const grandTotal = round2(shop.cartTotal + carried - advance);
 
   useEffect(() => {
     if (shop.printBalanceTouched) return;
@@ -591,7 +607,7 @@ export function BillScreen() {
      * total and printed TOTAL 150 against Paid 600. The bill that settles an account is exactly
      * the one the customer most needs the arithmetic on.
      */
-    const anyBalance = (shop.customer?.balance ?? 0) !== 0 || balanceAfter !== 0;
+    const anyBalance = walkIn !== 0 || balanceAfter !== 0;
     shop.setPrintBalance(shop.customer != null && anyBalance, false);
   }, [shop, balanceAfter]);
 
@@ -601,7 +617,8 @@ export function BillScreen() {
   const written = shop.cart.filter(lineHasSomething);
   /* The strip's height on screen. Shorter than it was (80/72, then 70/64) at the shop's asking for a
      shorter bill; its shape still follows the paper, so the printed size is unchanged. */
-  const stripH = roomy ? 56 : 52;
+  // Taller (build 91), so writing reads back larger; printed size follows the strip, unchanged.
+  const stripH = roomy ? 64 : 60;
   const contentH = useRef(0);
   const padScroll = useCallback((y: number) => sheet.current?.scrollTo({ y, animated: false }), []);
   const padOffset = useCallback(() => offset.current, []);
@@ -657,8 +674,9 @@ export function BillScreen() {
   }, [shop.quotationMode]);
 
   const draft = (): Bill => ({
-    no: (shop.bills[0]?.no ?? 0) + 1,
-    at: new Date().toISOString(),
+    // Editing: the bill's own number and date, as the paper will keep them.
+    no: shop.editing ? shop.editing.no : (shop.bills[0]?.no ?? 0) + 1,
+    at: shop.editing ? shop.editing.at : new Date().toISOString(),
     ...(previewCustomer() ? { customer: previewCustomer() } : {}),
     // Each line on the rounding step, as the server will save it.
     lines: roundLines(written, shop.settings.roundTo ?? 0),
@@ -667,8 +685,11 @@ export function BillScreen() {
     balance: balanceAfter,
     // What they owed walking in. `balanceAfter` above is already this plus today's lines less
     // what is paid, so the preview and the printed slip cannot disagree on any figure.
-    previousBalance: shop.customer ? shop.customer.balance : 0,
-    previousBalanceAt: shop.customerBalanceAt,
+    previousBalance: shop.customer ? walkIn : 0,
+    previousBalanceAt: shop.editing && shop.customer?.id === shop.editing.customerId
+      ? shop.editing.previousBalanceAt
+      : shop.customerBalanceAt,
+    ...(advance > 0 ? { advance } : {}),
     showBalance: showBalance && shop.customer != null,
     ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
@@ -950,6 +971,18 @@ export function BillScreen() {
         >
           <Text style={styles.tabNewText}>⌨</Text>
         </Pressable>
+        {/* Is the printer there? Green connected, red not; a tap connects. */}
+        {printer.available ? (
+          <Pressable
+            onPress={() => void printer.connectNow()}
+            style={[styles.tabNew, styles.printerChip]}
+            accessibilityRole="button"
+            accessibilityLabel={printerWords}
+          >
+            <View style={[styles.printerDot, { backgroundColor: printer.printerState === 'connected' ? '#2e7d32' : printer.printerState === 'checking' ? '#b8860b' : '#c62828' }]} />
+            <Text style={styles.tabNewText} numberOfLines={1}>{'🖨 ' + printerWords}</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       <View style={styles.top}>
@@ -1510,6 +1543,7 @@ export function BillScreen() {
           <Text style={styles.switchLabel}>{'📝 ' + t('bill.quotation')}</Text>
         </View>
         {shop.quotationMode ? <Text style={styles.payLabel}>{t('bill.quotationOn')}</Text> : null}
+        {shop.editing ? <Text style={styles.payLabel}>{t('bill.editing', { no: shop.editing.no })}</Text> : null}
         {shop.fromQuotation != null && !shop.quotationMode ? (
           <Text style={styles.payLabel}>{t('bill.fromQuotation', { no: shop.fromQuotation })}</Text>
         ) : null}
@@ -1523,7 +1557,7 @@ export function BillScreen() {
                   style={styles.payInput}
                   keyboardType="decimal-pad"
                   value={paid}
-                  placeholder={t('bill.paidPlaceholder', { amount: money(shop.cartTotal) })}
+                  placeholder={t('bill.paidPlaceholder', { amount: money(toPay) })}
                   placeholderTextColor={C.faint}
                   onChangeText={shop.setPaidInput}
                 />
@@ -1583,6 +1617,13 @@ export function BillScreen() {
               {shop.customerBalanceAt ? '  ' + dateStamp(shop.customerBalanceAt) : ''}
             </Text>
             <Text style={styles.carriedValue}>{money(carried)}</Text>
+          </View>
+        ) : null}
+        {/* Paid ahead: it comes off, so TOTAL is what is left to pay. */}
+        {advance > 0 ? (
+          <View style={styles.carriedRow}>
+            <Text style={styles.carriedLabel}>{t('bill.advance')}</Text>
+            <Text style={styles.carriedValue}>-{money(advance)}</Text>
           </View>
         ) : null}
 
@@ -1744,7 +1785,8 @@ const styles = StyleSheet.create({
   /* The typed description. Same height as the writing strip's baseline so a mixed bill does not
      look like two different slips stacked together. */
   slipName: {
-    flex: 1, minHeight: 44, fontSize: 17, color: C.ink, paddingHorizontal: 8,
+    // A floor on its width: the quantity, unit and rate beside it must never squeeze it to nothing.
+    flex: 1, minWidth: 120, minHeight: 44, fontSize: 19, color: C.ink, paddingHorizontal: 8,
     borderBottomWidth: 1, borderColor: C.line,
   },
   sheet: { flex: 1, minHeight: 0 },
@@ -1811,7 +1853,7 @@ const styles = StyleSheet.create({
   slipRowWideRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   slipRowTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   slipRowBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
-  slipNo: { fontSize: 12, color: C.faint, textAlign: 'center' },
+  slipNo: { fontSize: 15, color: C.soft, textAlign: 'center' },
   slipWrite: { flex: 1, justifyContent: 'center' },
   moreStrip: { marginTop: 3 },
   stripRow: { flexDirection: 'row', alignItems: 'center' },
@@ -1822,7 +1864,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     textAlign: 'right',
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '700',
     color: C.ink,
     backgroundColor: C.card,
@@ -1843,6 +1885,8 @@ const styles = StyleSheet.create({
      purpose: they help the typing and must not compete with the slip. */
   stockQty: { width: 64, minHeight: 40, paddingVertical: 6, marginLeft: 6 },
   stockRate: { width: 84 },
+  printerChip: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 320 },
+  printerDot: { width: 10, height: 10, borderRadius: 5 },
   stockUnit: { fontSize: 13, color: C.soft, marginLeft: 6, minWidth: 28 },
   stockList: {
     marginTop: 4, backgroundColor: C.card, borderWidth: 1, borderColor: C.line,

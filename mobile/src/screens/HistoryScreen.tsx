@@ -89,8 +89,13 @@ export function HistoryScreen({ onOpenBill }: { onOpenBill?: () => void } = {}) 
         ) : quotations.length === 0 ? (
           <Empty icon={<HistoryIcon size={26} color={C.faint} />}>{t('hist.noQuotations')}</Empty>
         ) : (
-          quotations.map((q) => (
-            <Pressable key={q.no} style={styles.row} onPress={() => setOpenQuote(q)}>
+          // Open ones first; a quotation made into a bill (or cancelled) is closed, under its own heading.
+          [...quotations.filter((q) => q.status === 'open'), ...quotations.filter((q) => q.status !== 'open')].map((q, i, all) => (
+            <View key={q.no} style={q.status !== 'open' ? { opacity: 0.65 } : undefined}>
+            {q.status !== 'open' && (i === 0 || all[i - 1]!.status === 'open') ? (
+              <Text style={styles.closedHead}>{t('hist.closedQuotes')}</Text>
+            ) : null}
+            <Pressable style={styles.row} onPress={() => setOpenQuote(q)}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.no}>{t('hist.quoteNo', { no: q.no }) + (q.customer?.name ? ' · ' + q.customer.name : '')}</Text>
                 <Text style={styles.when}>
@@ -102,6 +107,7 @@ export function HistoryScreen({ onOpenBill }: { onOpenBill?: () => void } = {}) 
               </View>
               <Text style={styles.total}>{q.status === 'cancelled' ? '—' : money(q.total)}</Text>
             </Pressable>
+            </View>
           ))
         )
       ) : null}
@@ -148,7 +154,7 @@ export function HistoryScreen({ onOpenBill }: { onOpenBill?: () => void } = {}) 
         ))(row))
       )}
 
-      <BillDialog bill={open} onClose={() => setOpen(null)} />
+      <BillDialog bill={open} onClose={() => setOpen(null)} onOpenBill={onOpenBill} />
       <QuotationDialog
         quotation={openQuote}
         onClose={() => setOpenQuote(null)}
@@ -195,4 +201,5 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 14, fontWeight: '700', color: C.accentDeep },
   chipOn: { backgroundColor: C.accent, borderColor: C.accent },
   chipTextOn: { color: C.accentInk },
+  closedHead: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8, color: C.soft, marginTop: 14, marginBottom: 4, textTransform: 'uppercase' },
 });

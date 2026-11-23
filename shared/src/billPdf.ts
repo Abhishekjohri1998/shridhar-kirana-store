@@ -1,5 +1,5 @@
 import { namelessLines, printedLines } from './link';
-import type { Bill, BillLine, Ink, Settings } from './types';
+import { receiptLangOf, type Bill, type BillLine, type Ink, type Settings } from './types';
 import { lineAmount, money, qtyText, rateText, round2 } from './money';
 import { inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
@@ -148,12 +148,16 @@ function tableRows(bill: Bill, lang: 'en' | 'kn', labels: ReceiptLabels): TableR
       given: false, strips: [], qty: '', rate: '', amount: money(carried),
     });
   }
+  const advance = round2(bill.advance ?? 0);
+  if (advance > 0) {
+    out.push({ no: '', text: [labels.advance], given: false, strips: [], qty: '', rate: '', amount: '-' + money(advance) });
+  }
   return out;
 }
 
 /** The bill laid out on A4 pages, as drawing steps. Always at least one page. */
 export function billPdfPages(bill: Bill, settings: Settings, labels: ReceiptLabels = EN_RECEIPT_LABELS): PdfPage[] {
-  const lang = settings.language === 'kn' ? 'kn' : 'en';
+  const lang = receiptLangOf(settings);
   const quotation = bill.kind === 'quotation';
   const shopName = pickLang(settings.shopName, settings.shopNameKn, lang);
   const billNo = (quotation ? labels.quote : labels.bill) + bill.no;
@@ -279,7 +283,7 @@ export function billPdfPages(bill: Bill, settings: Settings, labels: ReceiptLabe
   if (roundOff !== 0) kv(labels.roundOff, (roundOff > 0 ? '+' : '') + money(roundOff), 11);
   ops.push({ t: 'line', x1: 336, y1: y, x2: RIGHT, y2: y, w: 1, color: '#333333' });
   y += 4;
-  kv(labels.total, money(round2(bill.total + carried)), 15, true);
+  kv(labels.total, money(round2(bill.total + carried - round2(bill.advance ?? 0))), 15, true);
   if (bill.showBalance) {
     kv(labels.paid, money(bill.paid), 11);
     kv(labels.balance, money(bill.balance), 12, true);

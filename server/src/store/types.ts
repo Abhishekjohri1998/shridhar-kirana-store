@@ -44,7 +44,12 @@ export type BillListOptions = {
    * every other list.
    */
   since?: number;
+  /** Only bills edited after this time (ISO), for stock to catch edits of older bills. */
+  editedAfter?: string;
 };
+
+/** What an edit of a saved bill brings: everything a new bill does, bar the device's ids. */
+export type BillEdit = Omit<NewBill, 'draftId' | 'clientId'>;
 
 /** A save that carries a clientId already on file: the bill exists, and is not made again. */
 export class DuplicateClientId extends Error {
@@ -134,6 +139,14 @@ export type Repo = {
    * cancelling twice must not subtract twice. Returns null when there is no such bill.
    */
   cancelBill(no: number): Promise<Bill | null>;
+  /**
+   * A saved bill changed: its lines, customer, payment, note -- everything a new bill has. It
+   * keeps its number and date, takes its old figures back out of the customer it had (the same
+   * arithmetic cancelBill runs) and puts the new ones on the customer it has now, and counts
+   * `rev` up so stock knows to take its sales back and post them again. A cancelled bill is
+   * refused; so is an edit that raced another (`stale`).
+   */
+  editBill(no: number, input: BillEdit): Promise<Bill | 'missing' | 'cancelled' | 'stale'>;
   /**
    * Removes a cancelled bill for good.
    *

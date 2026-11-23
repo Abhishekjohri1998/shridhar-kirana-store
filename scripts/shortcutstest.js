@@ -368,6 +368,29 @@ console.log('\nCustomer filters and sorts (shared/src/customerFilters.ts)');
   eq('a town sort is read back from storage', S.readCustomerView({ sort: 'town' }).sort, 'town');
 }
 
+console.log('\nTyped quantity in front of an item (stockQueryOf)');
+{
+  eq('a plain name', S.stockQueryOf('sugar'), { q: 'sugar' });
+  eq('"2 sugar"', S.stockQueryOf('2 sugar'), { q: 'sugar', qty: 2 });
+  eq('"2kg sugar"', S.stockQueryOf('2kg sugar'), { q: 'sugar', qty: 2 });
+  eq('"1.5 kg toor dal"', S.stockQueryOf('1.5 kg toor dal'), { q: 'toor dal', qty: 1.5 });
+  eq('"1/2 kg dal"', S.stockQueryOf('1/2 kg dal'), { q: 'dal', qty: 0.5 });
+  eq('"3 pkt parle g"', S.stockQueryOf('3 pkt parle g'), { q: 'parle g', qty: 3 });
+  eq('a number alone is asked as typed', S.stockQueryOf('500'), { q: '500' });
+  eq('a name with a number in it', S.stockQueryOf('1 to 3 noodles'), { q: '1 to 3 noodles' });
+  eq('the advance a bill uses', [S.advanceFor(-200, 500), S.advanceFor(-200, 150), S.advanceFor(100, 500), S.advanceFor(-50, 0)], [200, 150, 0, 0]);
+  eq('the receipt language: its own switch, else the app\'s', [
+    S.receiptLangOf({ language: 'en', receiptKannada: true }),
+    S.receiptLangOf({ language: 'kn', receiptKannada: false }),
+    S.receiptLangOf({ language: 'kn' }),
+    S.receiptLangOf({ language: 'en' }),
+  ], ['kn', 'en', 'kn', 'en']);
+  const doc = S.buildReceipt({ no: 1, at: '2026-11-23T10:00:00.000Z', lines: [{ itemId: 'a', nameKn: 'ಅಕ್ಕಿ', nameEn: 'Rice', qty: 1, rate: 50 }], total: 50, paid: 50, balance: 0, showBalance: false },
+    { ...S.DEFAULT_SETTINGS, shopName: 'Shop', shopNameKn: 'ಅಂಗಡಿ', language: 'en', receiptKannada: true }, S.receiptLabelsFor('kn'));
+  check('Kannada receipt from an English app: the Kannada shop name', doc.rows[0].text === 'ಅಂಗಡಿ');
+  check('and the Kannada item name', doc.rows.some((r) => r.t === 'item' && r.name === 'ಅಕ್ಕಿ'));
+}
+
 console.log('');
 if (failures) {
   console.log(failures + ' check(s) failed');

@@ -83,3 +83,43 @@ export function matchedLabel(item: Pick<StockItem, 'units' | 'matchedUnit'>, lan
   if (!u) return '';
   return (lang === 'kn' && u.labelKn) || u.label || u.code;
 }
+
+/** Short unit words a shopkeeper types after a quantity: "2 kg sugar", "3 pkt parle". */
+const TYPED_UNITS = new Set([
+  'kg', 'kgs', 'g', 'gm', 'gms', 'gram', 'grams', 'l', 'lt', 'ltr', 'ltrs', 'litre', 'ml',
+  'pc', 'pcs', 'pkt', 'pkts', 'pack', 'nos', 'no', 'dz', 'doz', 'dozen', 'bag', 'bags', 'box',
+  'bottle', 'btl', 'tin', 'bundle', 'roll', 'x',
+]);
+
+/**
+ * What to ask stock for when a line's item box is typed in, and the quantity typed in front of
+ * the name. The box says "Quantity and item", and stock's search knows names, not "2 sugar" --
+ * which found nothing at all, so no suggestions came up. A leading number (and a unit word after
+ * it) is split off: "2 sugar", "2kg sugar", "1.5 kg toor dal" ask for "sugar" / "toor dal" with
+ * the quantity kept for the pick. A name that is all number, or nothing after the number, is
+ * asked for as typed.
+ */
+export function stockQueryOf(typed: string): { q: string; qty?: number } {
+  const text = typed.replace(/\s+/g, ' ').trim();
+  const m = /^(\d+(?:[.,]\d+)?|\d+\/\d+)\s*([a-zA-Z]+)?\.?\s+(.+)$/.exec(text)
+    ?? /^(\d+(?:[.,]\d+)?)([a-zA-Z]+)\s+(.+)$/.exec(text);
+  if (!m) return { q: text };
+  const [, num, unit, rest] = m;
+  // "5 star": a number and a word that is not a unit is part of the name, not a quantity.
+  if (unit && !TYPED_UNITS.has(unit.toLowerCase())) {
+    return /^\d+(?:[.,]\d+)?\s+\S/.test(text) && !/^\d/.test(rest!)
+      ? { q: unit + ' ' + rest, qty: qtyOf(num!) }
+      : { q: text };
+  }
+  const qty = qtyOf(num!);
+  return rest!.trim() ? { q: rest!.trim(), ...(qty ? { qty } : {}) } : { q: text };
+}
+
+function qtyOf(num: string): number | undefined {
+  if (num.includes('/')) {
+    const [a, b] = num.split('/').map(Number);
+    return a! > 0 && b! > 0 ? a! / b! : undefined;
+  }
+  const n = Number(num.replace(',', '.'));
+  return n > 0 && n < 100000 ? n : undefined;
+}

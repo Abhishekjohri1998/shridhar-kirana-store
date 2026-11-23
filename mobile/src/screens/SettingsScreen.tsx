@@ -12,6 +12,7 @@ import {
   parseQuietDays,
   type Bill, type Lang, type MsgKey, type PaperKey,
   receiptStyleOf,
+  receiptLangOf,
   PRINT_SPEEDS,
   printSpeedOf,
   type PrintSpeed,
@@ -467,6 +468,19 @@ export function SettingsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.switchLabel}>{t('set.receiptStyle')}</Text>
             <Text style={styles.hint}>{t('set.receiptStyleHint')}</Text>
+          </View>
+        </View>
+
+        {/* The paper's language, apart from the app's: the screens can be English, the slip Kannada. */}
+        <View style={styles.switchRow}>
+          <Switch
+            value={receiptLangOf(shop.settings) === 'kn'}
+            onValueChange={(v) => void save({ receiptKannada: v }, 'set.savedReceiptKannada')}
+            trackColor={{ true: C.accent, false: C.line }}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.switchLabel}>{t('set.receiptKannada')}</Text>
+            <Text style={styles.hint}>{t('set.receiptKannadaHint')}</Text>
           </View>
         </View>
       </Card>

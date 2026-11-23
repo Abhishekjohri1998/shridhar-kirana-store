@@ -121,6 +121,12 @@ export const api = {
     },
   ) =>
     request<Bill>('/bills', { method: 'POST', body: JSON.stringify(payload) }, SAVE_TIMEOUT_MS),
+  /** A saved bill edited: the same body as a new one, bar the device's ids. */
+  updateBill: (
+    no: number,
+    payload: { lines: BillLine[]; customerId?: string; paid?: number; showBalance?: boolean; note?: string; hideNames?: boolean },
+  ) =>
+    request<Bill>('/bills/' + no, { method: 'PUT', body: JSON.stringify(payload) }, SAVE_TIMEOUT_MS),
   /** Quotations: estimates with their own numbers, never sales (see the server's routes). */
   createQuotation: (
     payload: { lines: BillLine[]; customerId?: string; note?: string; hideNames?: boolean; clientId?: string },

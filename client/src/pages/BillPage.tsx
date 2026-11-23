@@ -17,7 +17,7 @@ import {
   roundedLineAmount, roundLines,
   lineName,
   slipTailPadding,
-  carriedBalance,
+  carriedBalance, advanceFor,
   dateStamp,
   type Bill,
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
@@ -49,7 +49,7 @@ import { api } from '../lib/api';
  */
 /** The writing strip's height. Shorter than the old 80 at the shop's asking; its shape still
  *  follows the paper, so the printed size is unchanged. */
-const STRIP_H = 56;
+const STRIP_H = 64;
 /** Longer than the paper's shape, for more room to write; the tablet uses the same. */
 const STRIP_LONG = 1.3;
 /** More room for a typed line than the writing strip has: it carries a rate box too. */
@@ -385,14 +385,24 @@ export function BillPage() {
 
   const paid = shop.paidInput;
   const showBalance = shop.printBalance;
-  const paidCheck = parsePaid(paid, shop.cartTotal);
+  /*
+   * What the customer owed walking in. Editing a saved bill, that is what they owed before that
+   * bill (theirs now already has it in), as long as it is still their bill.
+   */
+  const walkIn = shop.editing && shop.customer?.id === shop.editing.customerId
+    ? shop.editing.previousBalance
+    : shop.customer?.balance ?? 0;
+  // Paid ahead: that much comes off today's lines, so "paid in full" is the rest (advanceFor).
+  const advance = shop.customer && !shop.quotationMode ? advanceFor(walkIn, shop.cartTotal) : 0;
+  const toPay = round2(shop.cartTotal - advance);
+  const paidCheck = parsePaid(paid, toPay);
   const paidValid = paidCheck.ok;
-  const paidAmount = paidCheck.ok ? paidCheck.value : shop.cartTotal;
+  const paidAmount = paidCheck.ok ? paidCheck.value : toPay;
   // Deliberately unchanged: customer.balance + cartTotal is already carried + today, so this is
   // (carried + today) - paid. Rewriting it in terms of grandTotal would count the old balance
   // twice.
   const balanceAfter = shop.customer
-    ? round2(shop.customer.balance + shop.cartTotal - paidAmount)
+    ? round2(walkIn + shop.cartTotal - paidAmount)
     : 0;
 
   /*
@@ -401,8 +411,8 @@ export function BillPage() {
    * total and what buildReceipt is handed, and buildReceipt adds the carried balance itself.
    * The same carriedBalance() decides both, so the footer and the paper cannot disagree.
    */
-  const carried = carriedBalance(showBalance, shop.customer?.balance);
-  const grandTotal = round2(shop.cartTotal + carried);
+  const carried = carriedBalance(showBalance, shop.customer ? walkIn : 0);
+  const grandTotal = round2(shop.cartTotal + carried - advance);
 
   // Suggest printing the balance when there is one -- but stop suggesting once the shopkeeper has
   // made the choice themselves, otherwise editing a price would silently re-tick the box.
@@ -415,7 +425,7 @@ export function BillPage() {
      * total and printed TOTAL 150 against Paid 600. The bill that settles an account is exactly
      * the one the customer most needs the arithmetic on.
      */
-    const anyBalance = (shop.customer?.balance ?? 0) !== 0 || balanceAfter !== 0;
+    const anyBalance = walkIn !== 0 || balanceAfter !== 0;
     shop.setPrintBalance(shop.customer != null && anyBalance, false);
   }, [shop, balanceAfter]);
 
@@ -487,8 +497,9 @@ export function BillPage() {
   }, [shop.quotationMode]);
 
   const draft = (): Bill => ({
-    no: (shop.bills[0]?.no ?? 0) + 1,
-    at: new Date().toISOString(),
+    // Editing: the bill's own number and date, as the paper will keep them.
+    no: shop.editing ? shop.editing.no : (shop.bills[0]?.no ?? 0) + 1,
+    at: shop.editing ? shop.editing.at : new Date().toISOString(),
     ...(previewCustomer() ? { customer: previewCustomer() } : {}),
     // Each line on the rounding step, as the server will save it.
     lines: roundLines(written, shop.settings.roundTo ?? 0),
@@ -497,8 +508,11 @@ export function BillPage() {
     balance: balanceAfter,
     // What they owed walking in. `balanceAfter` above is already this plus today's lines less
     // what is paid, so the preview and the printed slip cannot disagree on any figure.
-    previousBalance: shop.customer ? shop.customer.balance : 0,
-    previousBalanceAt: shop.customerBalanceAt,
+    previousBalance: shop.customer ? walkIn : 0,
+    previousBalanceAt: shop.editing && shop.customer?.id === shop.editing.customerId
+      ? shop.editing.previousBalanceAt
+      : shop.customerBalanceAt,
+    ...(advance > 0 ? { advance } : {}),
     showBalance: showBalance && shop.customer != null,
     ...(shop.hideNames ? { hideNames: true } : {}),
     note: shop.note,
@@ -785,6 +799,27 @@ export function BillPage() {
         >
           ⌨
         </button>
+        {/* Is the printer there? The computer's own printer always is; a Bluetooth or USB one shows
+            green when connected, red when not, and a click connects it. */}
+        {(() => {
+          const direct = printer.mode === 'bluetooth' ? printer.bluetoothPrinter : printer.mode === 'serial' ? printer.serialPrinter : null;
+          const ok = printer.mode === 'system' || direct != null;
+          const words = printer.mode === 'system' ? t('prn.system') : direct ? t('prn.connected') + ': ' + direct : t('prn.notConnected');
+          return (
+            <button
+              type="button"
+              className="bill-tab-new printer-chip"
+              title={words}
+              onClick={() => {
+                if (printer.mode === 'bluetooth' && !direct) void printer.connectBluetooth().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+                if (printer.mode === 'serial' && !direct) void printer.connectSerial().catch((e) => setError(e instanceof Error ? e.message : String(e)));
+              }}
+            >
+              <span className="printer-dot" style={{ background: ok ? '#2e7d32' : '#c62828' }} />
+              🖨 {words}
+            </button>
+          );
+        })()}
       </div>
 
       {/* Pinned at the top, above the writing. Forty lines into a bill these fields used to be
@@ -1053,7 +1088,9 @@ export function BillPage() {
                             onKeyDown={(e) => {
                               if (e.key !== 'Enter') return;
                               e.preventDefault();
-                              prices.current[line.itemId]?.focus();
+                              // The price is qty x rate already: on to the next line, typing, at its item box.
+                              if (e.repeat) return;
+                              goToNextName(index);
                             }}
                             onBlur={() => setRateBox((prev) => {
                               const { [line.itemId]: _d, ...rest } = prev;
@@ -1229,6 +1266,13 @@ export function BillPage() {
             <strong>{money(carried)}</strong>
           </div>
         ) : null}
+        {/* Paid ahead: it comes off, so TOTAL is what is left to pay. */}
+        {advance > 0 ? (
+          <div className="carried-row">
+            <span className="muted small">{t('bill.advance')}</span>
+            <strong>-{money(advance)}</strong>
+          </div>
+        ) : null}
 
         {/* What rounding moved the lines by, so the TOTAL under it still adds up. */}
         {shop.cartRoundOff !== 0 ? (
@@ -1247,6 +1291,9 @@ export function BillPage() {
         </div>
 
         {shop.quotationMode ? <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.quotationOn')}</p> : null}
+        {shop.editing ? (
+          <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.editing', { no: shop.editing.no })}</p>
+        ) : null}
         {shop.fromQuotation != null && !shop.quotationMode ? (
           <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.fromQuotation', { no: shop.fromQuotation })}</p>
         ) : null}
@@ -1262,7 +1309,7 @@ export function BillPage() {
                   inputMode="decimal"
                   value={paid}
                   onChange={(e) => shop.setPaidInput(e.target.value)}
-                  placeholder={t('bill.paidPlaceholder', { amount: money(shop.cartTotal) })}
+                  placeholder={t('bill.paidPlaceholder', { amount: money(toPay) })}
                 />
                 {/* Cash is counted out in notes, so it can be typed as one: 100+50+20. */}
                 {looksLikeSum(paid) && evaluateAmount(paid) != null ? (

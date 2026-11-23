@@ -579,7 +579,7 @@ button, input, select, textarea {
 }
 
 .slip-no {
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   color: var(--ink-400);
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -622,7 +622,7 @@ button, input, select, textarea {
   min-height: 44px;
   padding: 8px 10px;
   text-align: right;
-  font-size: 1.15rem;
+  font-size: 1.3rem;
   font-weight: 700;
   color: var(--ink-900);
   background: var(--paper-1);
@@ -1806,7 +1806,7 @@ select.input {
   min-height: 40px;
   padding: 6px 8px;
   font: inherit;
-  font-size: 16px;
+  font-size: 18px;
   color: var(--ink);
   background: transparent;
   border: 0;
@@ -1867,6 +1867,11 @@ select.input {
 .stock-qty { width: 64px; flex: none; min-height: 40px; padding: 6px 8px; font-size: 1rem; }
 /* The rate of a typed line, after its unit: wide enough for 1,250.50. */
 .stock-rate { width: 84px; margin-left: 6px; }
+/* The printer chip beside the bill tabs. */
+.printer-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.printer-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+/* The item box never squeezed out by the quantity, unit and rate beside it. */
+.stock-row .slip-name { min-width: 7.5em; }
 .stock-unit-wrap { position: relative; flex: none; }
 .stock-unit {
   min-width: 28px; padding: 6px 4px; font: inherit; font-size: 0.82rem; color: var(--ink-500);

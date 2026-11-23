@@ -134,6 +134,31 @@ export async function printBytes(address: string, bytes: Uint8Array, speed: Prin
   }
 }
 
+/**
+ * Whether the chosen printer is connected right now, for the Bill screen's printer chip. Never
+ * throws and never asks for anything: a status, not an action.
+ */
+export async function printerStatus(address: string): Promise<'connected' | 'disconnected' | 'off'> {
+  const bt = nativeModule();
+  if (!bt) return 'disconnected';
+  try {
+    if ((await bt.isBluetoothEnabled()) === false) return 'off';
+  } catch {
+    return 'disconnected';
+  }
+  return (await connected(bt, address)) ? 'connected' : 'disconnected';
+}
+
+/** Connects to the printer now (the chip's tap), so the first print does not wait on it. */
+export async function connectPrinter(address: string): Promise<void> {
+  const bt = requireModule();
+  await ensurePermissions();
+  if ((await bt.isBluetoothEnabled()) === false) throw new PrinterError('Bluetooth is off. Turn it on and try again.');
+  if (!(await connected(bt, address))) {
+    await bt.connectToDevice(address, { CONNECTOR_TYPE: 'rfcomm', DELIMITER: '', READ_SIZE: 1024 });
+  }
+}
+
 export async function disconnectPrinter(address: string): Promise<void> {
   const bt = nativeModule();
   if (!bt) return;

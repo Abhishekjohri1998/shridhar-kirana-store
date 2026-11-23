@@ -43,6 +43,13 @@ QUOTATION. History → Quotations → Make bill opens a tab with `fromQuotation`
 
 **Customer filters:** `shared/src/customerFilters.ts`, worked out on the device.
 
+**Build 91:** History -> Edit bill (`PUT /api/bills/:no`, `Repo.editBill`, `Draft.editsBill`): same
+number, customer figures redone, `rev`/`editedAt` on the bill; stock reverses and reposts on a new
+`rev` (`saleKeyOf` in stock's sync) and reads `?editedAfter=`. A customer's advance (balance < 0)
+comes off the next bill (`advanceFor`, `Bill.advance`, saved by the server). `Settings.receiptKannada`
+(`receiptLangOf`) sets the paper's language apart from the app's. Shared bills are an A4 PDF
+(`shared/src/billPdf.ts`). Item search splits a typed quantity off the name (`stockQueryOf`).
+
 ## Rules that have cost real time before
 
 - **Never write test data to the live Atlas database.** The shop bills on it. Test against a

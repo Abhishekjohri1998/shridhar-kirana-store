@@ -360,8 +360,9 @@ async function main() {
       const rd = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
       for (const f of ['client/src/lib/useStockSuggest.ts', 'mobile/src/lib/useStockSuggest.ts']) {
         const src = rd(f);
-        check(f + ': a pick starts at the slab rate', src.includes('rate: pickRate(unit, line.qty > 0 ? line.qty : 1),'));
-        check(f + ': and asks stock at once, qty 1 too', src.includes('requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0);') && !src.includes('if (line.qty !== 1) requote'));
+        // The quantity typed in front of the name ("2 sugar", build 91), else the line's, else 1.
+        check(f + ': a pick starts at the slab rate', src.includes('const qty = typed ?? (line.qty > 0 ? line.qty : 1);') && src.includes('rate: pickRate(unit, qty),'));
+        check(f + ': and asks stock at once, qty 1 too', src.includes('requote(line.itemId, item.id, unit.code, qty, 0);') && !src.includes('if (line.qty !== 1) requote'));
         check(f + ': and requotes on a quantity change', src.includes('requote(line.itemId, line.stockItemId, line.unit, qty);'));
         check(f + ': a stock pick never asks for the last price', !/fillLastPrice\([^)]*item\.id/.test(src) && !src.includes('() => fillLastPrice'));
         check(f + ': the last price is asked by name only, for NOS', src.includes('fillLastPrice(line.itemId, name, FALLBACK_UNIT);') && src.includes('api.lastPrice(name, undefined,'));

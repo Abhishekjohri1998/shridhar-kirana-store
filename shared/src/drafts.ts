@@ -52,6 +52,21 @@ export type Draft = {
   kind?: 'quotation';
   /** The quotation this bill was opened from ("Make bill"); marked billed once it is saved. */
   fromQuotation?: number;
+  /** The saved bill this tab is editing (History -> Edit): Save updates it instead of a new one. */
+  editsBill?: EditTarget;
+};
+
+/**
+ * A saved bill open for editing: its number and date, and what its customer owed walking in --
+ * the figure the screen works the advance and the balance from, not what they owe now (which
+ * already has this bill in it).
+ */
+export type EditTarget = {
+  no: number;
+  at: string;
+  customerId?: string;
+  previousBalance: number;
+  previousBalanceAt: string | null;
 };
 
 /**
@@ -102,6 +117,7 @@ export function reviveDraft(raw: Draft): Draft {
     givenAt: raw.givenAt && typeof raw.givenAt === 'object' ? raw.givenAt : {},
     kind: raw.kind === 'quotation' ? 'quotation' : undefined,
     fromQuotation: typeof raw.fromQuotation === 'number' && raw.fromQuotation > 0 ? raw.fromQuotation : undefined,
+    editsBill: raw.editsBill && typeof raw.editsBill.no === 'number' && raw.editsBill.no > 0 ? raw.editsBill : undefined,
   };
 }
 

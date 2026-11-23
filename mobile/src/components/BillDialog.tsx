@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Switch, Text, View } from 'react-native';
-import { buildReceipt, historyViewSettings, hiddenLinesText, type Bill } from '@shridhar/shared';
+import { buildReceipt, stamp, historyViewSettings, hiddenLinesText, type Bill } from '@shridhar/shared';
 import { Dialog } from './Dialog';
 import { ReceiptView } from './ReceiptView';
 import { Button, ErrorText, Notice } from './ui';
@@ -19,10 +19,12 @@ import { C } from '../theme';
  * footer becomes the question. Nothing in this app nests a Modal inside a Modal.
  */
 export function BillDialog({
-  bill: listed, onClose, onCancelled, onDeleted,
+  bill: listed, onClose, onCancelled, onDeleted, onOpenBill,
 }: {
   bill: Bill | null;
   onClose: () => void;
+  /** Takes the app to the Bill screen, where "Edit bill" opens the bill in a tab. */
+  onOpenBill?: () => void;
   /** Called with the cancelled bill so the list behind can be brought up to date. */
   onCancelled?: (bill: Bill) => void;
   /** Called with the bill that has been removed, so the list behind can drop it. */
@@ -35,6 +37,16 @@ export function BillDialog({
   /** Which question the footer is asking, if any: cancelling it, or removing it for good. */
   const [asking, setAsking] = useState<'cancel' | 'delete' | null>(null);
   const [busy, setBusy] = useState(false);
+  /** "Edit bill": the saved bill in a tab of its own on the Bill screen; Save updates it. */
+  const startEdit = async () => {
+    if (!bill) return;
+    if (await shop.editBill(bill)) {
+      onClose();
+      onOpenBill?.();
+    } else {
+      setError(t('hist.tooManyTabs'));
+    }
+  };
 
   /*
    * A bill from the list comes without its handwriting (`lite`). The receipt, a reprint and the
@@ -213,6 +225,13 @@ export function BillDialog({
             onPress={() => setAsking('delete')}
             style={{ flex: 1 }}
           />
+          <Button
+            label={'✎ ' + t('hist.edit')}
+            tone="plain"
+            onPress={() => void startEdit()}
+            disabled={loading}
+            style={{ flex: 1 }}
+          />
         </View>
       )}
       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -254,6 +273,7 @@ export function BillDialog({
 
       {/* Said before the receipt, not after it: this is the thing that changes what follows. */}
       {bill?.cancelled ? <Notice>{t('hist.cancelled')}</Notice> : null}
+      {bill?.editedAt ? <Text style={{ color: C.soft, fontSize: 13, marginBottom: 6 }}>{t('hist.edited')} · {stamp(bill.editedAt)}</Text> : null}
       {asking === 'cancel' ? <Notice>{t('hist.cancelNote')}</Notice> : null}
       {asking === 'delete' && bill ? (
         <Notice>

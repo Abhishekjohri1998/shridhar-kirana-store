@@ -318,6 +318,16 @@ function screens() {
   check('tablet: the quantity focus waits for the box', /kind === 'qty' \? qtys\.current\[target\]/.test(mobile));
   check('web: the quantity focus waits for the box', /wantQty\.current = id/.test(web) && /const field = qtys\.current\[id\]/.test(web));
   check('tablet: a hardware Enter is handled once, by the focused box', /hwEnter\.current\(\)/.test(mobile) && /firstSubmit\('name:'/.test(mobile));
+  {
+    const fs2 = require('node:fs');
+    const path2 = require('node:path');
+    for (const p of ['client/src/lib/useShop.tsx', 'mobile/src/lib/useShop.tsx']) {
+      const src = fs2.readFileSync(path2.join(__dirname, '..', p), 'utf8');
+      check(p + ': a quotation\'s ticks stay on the bill made from it', !src.includes('given: _g'));
+    }
+    check('web: Enter in a rate goes to the next line\'s item box', /stock-rate[\s\S]{0,1200}goToNextName\(index\)/.test(web));
+    check('tablet: Enter in a rate goes to the next line\'s item box', /const submitRate[\s\S]{0,300}goToNextName\(index\)/.test(mobile));
+  }
   // Name, quantity, rate (build 90) and price.
   check('tablet: the bill boxes claim Enter natively', (mobile.match(/setTakeEnter\(true\)/g) || []).length === 4
     && (mobile.match(/setTakeEnter\(false\)/g) || []).length >= 4);

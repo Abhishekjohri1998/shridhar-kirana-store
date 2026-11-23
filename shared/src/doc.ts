@@ -1,5 +1,5 @@
 import { namelessLines, printedLines } from './link';
-import { receiptStyleOf, type Bill, type BillLine, type Ink, type Quotation, type Settings, type HiddenReceipt, type ReceiptStyle } from './types';
+import { receiptLangOf, receiptStyleOf, type Bill, type BillLine, type Ink, type Quotation, type Settings, type HiddenReceipt, type ReceiptStyle } from './types';
 import { lineAmount, money, qtyText, rateText, round2, roundedRate } from './money';
 import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { inkMaxWidth, paperProfile } from './paper';
@@ -205,6 +205,16 @@ export function carriedBalance(showBalance: boolean, previousBalance?: number | 
 }
 
 /**
+ * How much of a customer's advance (a balance below zero: paid ahead) a bill of `total` uses:
+ * all of it, or the whole bill when the advance is bigger. Comes off TOTAL as "Advance -200", so
+ * "paid in full" is the rest. Not gated on the balance lines: the line explains itself.
+ */
+export function advanceFor(previousBalance: number | null | undefined, total: number): number {
+  if (previousBalance == null || !(previousBalance < 0) || !(total > 0)) return 0;
+  return round2(Math.min(-previousBalance, total));
+}
+
+/**
  * "1)110, 2)170, 3)550" broken into lines that fit `dots` of paper, never inside an entry. The
  * width is estimated as amountWidthEstimate does, a little generously, so the rasterisers (which
  * wrap a `center` row again at its spaces) never have to break a line this already broke.
@@ -310,7 +320,8 @@ export function buildReceipt(
    * through to the other when only one was filled in -- so a shop that has not typed a Kannada
    * name yet still gets its English one on the paper rather than a blank line.
    */
-  const lang = settings.language === 'kn' ? 'kn' : 'en';
+  // Its own switch (receiptKannada), so the app can be in English and the paper in Kannada.
+  const lang = receiptLangOf(settings);
   // A hidden line is still sold and still in the total; it is only left off the paper. Filtered
   // here, once, so all four renderers and the shared picture agree without knowing about it.
   // Descriptions hidden: each line keeps its number, quantity, unit, rate and amount only.
@@ -493,11 +504,14 @@ export function buildReceipt(
    * smaller than the lines above it, which reads as a fault.
    */
   const carried = carriedBalance(bill.showBalance, bill.previousBalance);
+  // Only a bill the server marked: older bills with an advance on file print as they always did.
+  const advance = round2(bill.advance ?? 0);
 
   if (compact) {
-    const entries = carried > 0
+    const withCarried = carried > 0
       ? [...compactEntries, (lines.length + 1) + ')' + money(carried)]
       : compactEntries;
+    const entries = advance > 0 ? [...withCarried, labels.advance + ' -' + money(advance)] : withCarried;
     for (const text of compactLines(entries, dots)) rows.push({ t: 'center', text, size: RASTER.itemSize });
   }
   else if (carried > 0) {
@@ -511,6 +525,9 @@ export function buildReceipt(
         : labels.oldBalance,
       amount: money(carried),
     });
+  }
+  if (!compact && advance > 0) {
+    rows.push({ t: 'item', no: '', name: labels.advance, amount: '-' + money(advance) });
   }
 
   rows.push({ t: 'sep' });
@@ -527,7 +544,7 @@ export function buildReceipt(
   }
   rows.push(
     // bill.total is the shop's own figure and is left alone; only what the paper says changes.
-    { t: 'kv', left: labels.total, right: money(round2(bill.total + carried)), size: 30, bold: true },
+    { t: 'kv', left: labels.total, right: money(round2(bill.total + carried - advance)), size: 30, bold: true },
   );
 
   // Paid and what is left, on one line: the second half of the shop's "shorter slip".

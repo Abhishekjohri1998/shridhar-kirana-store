@@ -87,8 +87,13 @@ export function HistoryPage() {
           <Empty icon={<HistoryIcon />}>{t('hist.noQuotations')}</Empty>
         ) : (
           <div className="list">
-            {quotations.map((q) => (
-              <button key={q.no} className="list-row" onClick={() => setOpenQuote(q)}>
+            {/* Open ones first; a quotation made into a bill (or cancelled) is closed, under its own heading. */}
+            {[...quotations.filter((q) => q.status === 'open'), ...quotations.filter((q) => q.status !== 'open')].map((q, i, all) => (
+              <div key={q.no} style={q.status !== 'open' ? { opacity: 0.65 } : undefined}>
+              {q.status !== 'open' && (i === 0 || all[i - 1]!.status === 'open') ? (
+                <div className="muted small town-head">{t('hist.closedQuotes')}</div>
+              ) : null}
+              <button className="list-row" onClick={() => setOpenQuote(q)}>
                 <span className="grow">
                   <span style={{ display: 'block', fontWeight: 700 }}>
                     {t('hist.quoteNo', { no: q.no })}{q.customer?.name ? ' · ' + q.customer.name : ''}
@@ -102,6 +107,7 @@ export function HistoryPage() {
                 </span>
                 <span style={{ fontWeight: 700 }}>{q.status === 'cancelled' ? '—' : money(q.total)}</span>
               </button>
+              </div>
             ))}
           </div>
         )

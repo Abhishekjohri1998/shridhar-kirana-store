@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FALLBACK_UNIT, bestMatch, lastPriceApplies, lineHasSomething, pickRate, pickUnitOf } from '@shridhar/shared';
+import { FALLBACK_UNIT, bestMatch, lastPriceApplies, lineHasSomething, pickRate, stockQueryOf, pickUnitOf } from '@shridhar/shared';
 import type { BillLine, StockItem, StockUnit } from '@shridhar/shared';
 import { api } from './api';
 import { useShop } from './useShop';
@@ -28,22 +28,34 @@ export function useStockSuggest() {
    */
   const [highlight, setHighlight] = useState(-1);
   const typedNow = useRef('');
-  typedNow.current = query?.q ?? '';
+  // The name part of what was typed: "2 kg sugar" is a quantity and "sugar" (stockQueryOf).
+  typedNow.current = stockQueryOf(query?.q ?? '').q;
+  /** A quantity typed in front of the name, per line, for the pick to use. */
+  const typedQty = useRef<Record<string, number>>({});
   useEffect(() => {
     const best = bestMatch(items, typedNow.current);
     setHighlight(best ? items.indexOf(best) : -1);
   }, [items]);
 
   useEffect(() => {
-    const q = query?.q.trim() ?? '';
+    const whole = query?.q.trim() ?? '';
+    const asked = stockQueryOf(whole);
+    const q = asked.q;
+    if (query) {
+      if (asked.qty) typedQty.current[query.key] = asked.qty;
+      else delete typedQty.current[query.key];
+    }
     if (!on || q.length < 2) {
       setItems([]);
       return;
     }
     let alive = true;
     const timer = setTimeout(() => {
+      const listOf = (r: { items?: StockItem[] }) => (Array.isArray(r.items) ? r.items : []);
       api.stockItems(q)
-        .then((r) => { if (alive) setItems(Array.isArray(r.items) ? r.items : []); })
+        // Nothing for the name alone: what was typed, whole, in case the number is the name.
+        .then(async (r) => (listOf(r).length || q === whole ? listOf(r) : listOf(await api.stockItems(whole))))
+        .then((list) => { if (alive) setItems(list); })
         .catch(() => { if (alive) setItems([]); });
     }, 250);
     return () => { alive = false; clearTimeout(timer); };
@@ -92,14 +104,19 @@ export function useStockSuggest() {
   const found = useRef<Record<string, StockItem>>({});
 
   const pick = (index: number, line: BillLine, item: StockItem, unit: StockUnit) => {
+    // "2 kg sugar" typed in the box: the pick goes on with that 2.
+    const typed = typedQty.current[line.itemId];
+    delete typedQty.current[line.itemId];
+    const qty = typed ?? (line.qty > 0 ? line.qty : 1);
     shop.pickStockItem(index, {
       nameEn: item.nameEn,
       nameKn: item.nameKn,
       unit: unit.code,
       stockItemId: item.id,
       // The slab the line's quantity is in (1 for a new line), not the unit's base price.
-      rate: pickRate(unit, line.qty > 0 ? line.qty : 1),
+      rate: pickRate(unit, qty),
     });
+    if (typed) shop.setLineQty(index, typed);
     handRate.current.delete(line.itemId);
     setUnits((m) => ({ ...m, [line.itemId]: Array.isArray(item.units) ? item.units : [] }));
     setBounds((b) => ({ ...b, [line.itemId]: { min: unit.min, max: unit.max } }));
@@ -111,7 +128,7 @@ export function useStockSuggest() {
     // straight away. A stock item is priced by stock alone: the range price wins over the price it
     // last went at (build 67), which only fills lines stock does not know.
     if (!on) return;
-    requote(line.itemId, item.id, unit.code, line.qty > 0 ? line.qty : 1, 0);
+    requote(line.itemId, item.id, unit.code, qty, 0);
   };
 
   /*

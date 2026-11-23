@@ -1025,6 +1025,75 @@ async function main() {
     eq('and the other names', JSON.stringify(renamedTown.body.aliases), JSON.stringify(['Bakery Ravi']));
     const fromList = (await call('/api/customers', { headers: auth })).body.find((x) => x.id === known.body.id);
     eq('the list carries both', JSON.stringify([fromList && fromList.town, fromList && fromList.aliases]), JSON.stringify(['Kamalapura', ['Bakery Ravi']]));
+    console.log('\nAPI: advance paid ahead, and editing a saved bill');
+    {
+      const json = (v) => JSON.stringify(v);
+      const ahead = await post('/api/customers', { name: 'Paid Ahead', phone: '9000000470' });
+      await post('/api/customers/' + ahead.body.id + '/payments', { amount: 200 });
+      const sold = await post('/api/bills', { lines: [{ itemId: 'a1', nameKn: 'Rice', nameEn: 'Rice', qty: 1, rate: 500 }], customerId: ahead.body.id });
+      eq('an advance comes off the next bill', sold.body.advance, 200);
+      eq('"paid in full" is the rest', sold.body.paid, 300);
+      eq('and nothing is left owing', sold.body.balance, 0);
+      const doc = shared.buildReceipt(sold.body, { ...shared.DEFAULT_SETTINGS, shopName: 'S' });
+      const advRow = doc.rows.find((r) => r.t === 'item' && r.name === 'Advance');
+      eq('the slip shows it', advRow && advRow.amount, '-200');
+      const total = doc.rows.find((r) => r.t === 'kv' && r.left === 'TOTAL');
+      eq('and TOTAL is what was left to pay', total && total.right, '300');
+
+      await post('/api/customers/' + ahead.body.id + '/payments', { amount: 200 });
+      const small = await post('/api/bills', { lines: [{ itemId: 'a2', nameKn: 'Salt', nameEn: 'Salt', qty: 1, rate: 150 }], customerId: ahead.body.id });
+      eq('an advance bigger than the bill: the whole bill comes off', json([small.body.advance, small.body.paid, small.body.balance]), json([150, 0, -50]));
+      const walkIn = await post('/api/bills', { lines: [{ itemId: 'a3', nameKn: 'Oil', nameEn: 'Oil', qty: 1, rate: 90 }] });
+      check('no customer, no advance', walkIn.body.advance == null);
+
+      // Editing.
+      const owes = await post('/api/customers', { name: 'Edit Me', phone: '9000000471' });
+      const other = await post('/api/customers', { name: 'Edit Other', phone: '9000000472' });
+      const first = await post('/api/bills', { lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 2, rate: 100 }], customerId: owes.body.id, paid: 50 });
+      eq('a bill on credit leaves them owing', first.body.balance, 150);
+      const put = (no, body) => call('/api/bills/' + no, { method: 'PUT', headers: auth, body: JSON.stringify(body) });
+      const edited = await put(first.body.no, {
+        lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 3, rate: 100, given: true }, { itemId: 'e2', nameKn: 'Ghee', nameEn: 'Ghee', qty: 1, rate: 60 }],
+        customerId: owes.body.id, paid: 100, note: 'fixed',
+      });
+      eq('an edit is saved', edited.status, 200);
+      eq('the same number', edited.body.no, first.body.no);
+      eq('and date', edited.body.at, first.body.at);
+      eq('the new total', edited.body.total, 360);
+      eq('the new payment', edited.body.paid, 100);
+      eq('the balance worked from what they owed before it', edited.body.balance, 260);
+      eq('counted as an edit', json([edited.body.rev, typeof edited.body.editedAt]), json([2, 'string']));
+      check('the tick and the note kept', edited.body.lines[0].given === true && edited.body.note === 'fixed');
+      const after = (await call('/api/customers/' + owes.body.id, { headers: auth })).body.customer;
+      eq('the customer follows the edit', json([after.totalBilled, after.totalPaid, after.billCount, after.balance]), json([360, 100, 1, 260]));
+
+      const moved = await put(first.body.no, { lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 1, rate: 100 }], customerId: other.body.id });
+      eq('moved to another customer', moved.body.customer && moved.body.customer.id, other.body.id);
+      eq('paid in full by default', json([moved.body.paid, moved.body.balance, moved.body.rev]), json([100, 0, 3]));
+      const left = (await call('/api/customers/' + owes.body.id, { headers: auth })).body.customer;
+      eq('the first customer loses it', json([left.totalBilled, left.totalPaid, left.billCount]), json([0, 0, 0]));
+      const got = (await call('/api/customers/' + other.body.id, { headers: auth })).body.customer;
+      eq('the second one has it', json([got.totalBilled, got.totalPaid, got.billCount]), json([100, 100, 1]));
+
+      const anon = await put(first.body.no, { lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 1, rate: 80 }] });
+      check('no customer at all', anon.status === 200 && !anon.body.customer && anon.body.total === 80);
+      const gone = (await call('/api/customers/' + other.body.id, { headers: auth })).body.customer;
+      eq('and the second one is back to nothing', json([gone.totalBilled, gone.billCount]), json([0, 0]));
+
+      const listed = (await call('/api/bills?lite=1&editedAfter=' + encodeURIComponent(first.body.at), { headers: auth })).body;
+      check('stock can ask for the bills edited since a time', listed.some((b) => b.no === first.body.no) && listed.every((b) => b.editedAt));
+      eq('a missing bill', (await put(99999, { lines: [{ itemId: 'x', nameKn: 'x', nameEn: 'x', qty: 1, rate: 1 }] })).status, 404);
+      await call('/api/bills/' + first.body.no + '/cancel', { method: 'POST', headers: auth });
+      eq('a cancelled bill cannot be edited', (await put(first.body.no, { lines: [{ itemId: 'x', nameKn: 'x', nameEn: 'x', qty: 1, rate: 1 }] })).status, 400);
+      eq('no lines is refused', (await put(sold.body.no, { lines: [] })).status, 400);
+
+      const kn = await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ receiptKannada: true }) });
+      eq('the receipt-in-Kannada switch is kept', kn.body.receiptKannada, true);
+      eq('and the app stays English', kn.body.language, 'en');
+      await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ receiptKannada: false }) });
+      void json;
+    }
+
     eq('too many characters in a town is refused',
       (await post('/api/customers', { name: 'Far', phone: '9000000462', town: 'x'.repeat(61) })).status, 400);
 
