@@ -25,6 +25,16 @@ export function pickUnitOf(item: Pick<StockItem, 'units' | 'sellUnit' | 'matched
 export const FALLBACK_UNIT = 'NOS';
 
 /**
+ * The unit a line prints its quantity with: its own (stock's, or one picked from the menu), else
+ * NOS when it counts more than one. A typed line with Qty 20 and a rate used to print just its name
+ * and the total -- "Rice Flakes 2kg 2200" -- with nothing saying it was twenty. One of one, with no
+ * unit, prints as it always did: the name and its price.
+ */
+export function printedUnit(line: { unit?: string; qty: number }): string {
+  return (line.unit ?? '').trim() || (line.qty !== 1 ? FALLBACK_UNIT : '');
+}
+
+/**
  * Which of stock's suggestions Enter takes: an exact name (in either language), else the first
  * name that starts with what was typed, else the first suggestion. Stock already ordered the
  * list; this only lifts the obvious one to the top. Undefined when there is nothing to take.

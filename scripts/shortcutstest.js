@@ -389,6 +389,20 @@ console.log('\nTyped quantity in front of an item (stockQueryOf)');
     { ...S.DEFAULT_SETTINGS, shopName: 'Shop', shopNameKn: 'ಅಂಗಡಿ', language: 'en', receiptKannada: true }, S.receiptLabelsFor('kn'));
   check('Kannada receipt from an English app: the Kannada shop name', doc.rows[0].text === 'ಅಂಗಡಿ');
   check('and the Kannada item name', doc.rows.some((r) => r.t === 'item' && r.name === 'ಅಕ್ಕಿ'));
+
+  // A typed line with a quantity prints it: "20 NOS Rice Flakes 2kg", not just the name and 2200.
+  const typed = S.buildReceipt({ no: 2, at: '2026-11-23T10:00:00.000Z', total: 2350, paid: 2350, balance: 0, showBalance: false, lines: [
+    { itemId: 'a', nameKn: 'Rice Flakes 2kg', nameEn: 'Rice Flakes 2kg', qty: 20, rate: 110 },
+    { itemId: 'b', nameKn: 'Matches', nameEn: 'Matches', qty: 1, rate: 50 },
+    { itemId: 'c', nameKn: 'Sona Masuri', nameEn: 'Sona Masuri', qty: 20, rate: 1850, unit: 'Pkt' },
+    { itemId: 'd', nameKn: 'Dal', nameEn: 'Dal', qty: 2.5, rate: 0 },
+  ] }, { ...S.DEFAULT_SETTINGS, shopName: 'Shop' });
+  const names = typed.rows.filter((r) => r.t === 'item' && /\d/.test(r.no) && r.no !== 'No.').map((r) => r.name);
+  eq('a typed line with a quantity prints it', names[0], '20 NOS Rice Flakes 2kg');
+  eq('one of one, no unit: just the name', names[1], 'Matches');
+  eq('a unit of its own is kept', names[2], '20 Pkt Sona Masuri');
+  eq('a part quantity too', names[3], '2.5 NOS Dal');
+  eq('the WhatsApp text says the same', S.billAsText({ ...{ no: 2, at: '2026-11-23T10:00:00.000Z', total: 2200, paid: 2200, balance: 0, showBalance: false }, lines: [{ nameKn: 'Rice Flakes 2kg', nameEn: 'Rice Flakes 2kg', qty: 20, rate: 110 }] }, 'Shop', { bill: 'Bill #', total: 'TOTAL', paid: 'Paid', balance: 'Balance' }).includes('20 NOS Rice Flakes 2kg = '), true);
 }
 
 console.log('');

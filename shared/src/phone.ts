@@ -1,4 +1,5 @@
 import { receiptLayout } from './doc';
+import { printedUnit } from './stock';
 import type { Ink } from './types';
 /**
  * One canonical form for a phone number, used by the browser and the server alike.
@@ -85,11 +86,11 @@ export function billAsText(
     const name = (l.nameKn || l.nameEn || '—').trim();
     if (bill.showRate !== true) {
       // As on the paper: the quantity and unit only where the slip prints them, before the name.
-      const unit = (l.unit ?? '').trim();
+      const unit = printedUnit(l);
       out.push((unit ? l.qty + ' ' + unit + ' ' : '') + name + ' = ' + rupees(l.qty * l.rate));
       return;
     }
-    out.push(name + ' ' + l.qty + (l.unit ? ' ' + l.unit : '') + ' × ' + rupees(l.rate) + ' = ' + rupees(l.qty * l.rate));
+    out.push(name + ' ' + l.qty + (printedUnit(l) ? ' ' + printedUnit(l) : '') + ' × ' + rupees(l.rate) + ' = ' + rupees(l.qty * l.rate));
   });
   out.push('', labels.total + ': ' + rupees(bill.total));
   if (bill.showBalance) {

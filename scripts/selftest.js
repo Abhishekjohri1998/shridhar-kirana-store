@@ -229,7 +229,8 @@ async function main() {
     receipt.rows.indexOf(headRow) < receipt.rows.findIndex((r) => r.t === 'ink' || (r.t === 'item' && r !== headRow)));
   const itemRows = receipt.rows.filter((r) => r.t === 'item').slice(1);
   eq('one row per line', itemRows.length, 4);
-  eq('first row prints the Kannada name', itemRows[0].name, 'ಗಾಣದ ಎಣ್ಣೆ');
+  // Five of them, typed with no unit: the quantity prints with NOS (printedUnit, build 92).
+  eq('first row prints the quantity and the Kannada name', itemRows[0].name, '5 NOS ಗಾಣದ ಎಣ್ಣೆ');
   eq('first row amount is the line total', itemRows[0].amount, '550');
   // The left column is the line's place on the slip, not its quantity: quantity is part of what
   // the shopkeeper writes by hand, so a column of ones told nobody anything.

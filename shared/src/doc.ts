@@ -5,6 +5,7 @@ import { INK_BLEED, INK_GUTTER, INK_STROKE_DOTS, inkBounds, inkRowFit, inkSlipSc
 import { inkMaxWidth, paperProfile } from './paper';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 import { lineName, pickLang } from './i18n';
+import { printedUnit } from './stock';
 
 /** Kept for the 58mm default; the live width now comes from the shop's paper setting. */
 export const PAPER_WIDTH = 384;
@@ -428,7 +429,8 @@ export function buildReceipt(
      * with it -- "2 pack Parle-G" -- the way the shop writes "2 kg rice" by hand. Composed into
      * the name like the given tick, so all four renderers draw it without knowing it is there.
      */
-    const unit = (line.unit ?? '').trim();
+    // Typed with a quantity but no unit: NOS, as the screen shows it (printedUnit).
+    const unit = printedUnit(line);
     const nameOf = (text: string) =>
       unit && text.trim() ? qtyText(line.qty) + ' ' + unit + ' ' + text : text;
     const typedAll = nameOf(line.stockItemId ? lineName(line, lang) : line.nameKn || line.nameEn);
