@@ -75,6 +75,12 @@ grep -q MYAPP_RELEASE_STORE_FILE android/gradle.properties 2>/dev/null || {
   exit 1
 }
 
+# The JS bundle is always made afresh. Gradle only watches this folder, so a change made only in
+# ../shared (APK 92's receipt fix) left the old bundle "up to date" and the APK shipped without it.
+rm -rf android/app/build/generated/assets/createBundleReleaseJsAndAssets \
+  android/app/build/generated/res/createBundleReleaseJsAndAssets \
+  android/app/build/intermediates/assets/release/mergeReleaseAssets
+
 cd android
 ./gradlew assembleRelease --no-daemon
 
