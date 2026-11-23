@@ -68,9 +68,10 @@ console.log('\nQuantity and rate columns');
   check('counted in a unit: "2 kg"', all.includes('2 kg'));
   check('its rate', all.includes('44'));
   check('and its amount', all.includes('88'));
-  check('more than one, no unit: "3" at 25', all.includes('3') && all.includes('25') && all.includes('75'));
+  check('more than one, no unit: "3 NOS" at 25, as the paper says it', all.includes('3 NOS') && all.includes('25') && all.includes('75'));
   const row = pages[0].ops.filter((o) => o.t === 'text' && Math.abs(o.y - pages[0].ops.find((p) => p.t === 'text' && p.text === 'Matches').y) < 1);
   eq('a plain item and price: no quantity or rate, just the amount', row.map((o) => o.text).sort(), ['3', '5', 'Matches'].sort());
+  check('a unit of its own is kept', all.includes('2 kg'));
 }
 
 console.log('\nHandwriting');

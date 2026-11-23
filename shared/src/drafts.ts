@@ -67,6 +67,8 @@ export type EditTarget = {
   customerId?: string;
   previousBalance: number;
   previousBalanceAt: string | null;
+  /** What the date box says, when it has been typed in (editedBillDate reads it). */
+  dateText?: string;
 };
 
 /**

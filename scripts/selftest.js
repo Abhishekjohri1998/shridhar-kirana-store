@@ -1065,12 +1065,26 @@ async function main() {
       eq('the balance worked from what they owed before it', edited.body.balance, 260);
       eq('counted as an edit', json([edited.body.rev, typeof edited.body.editedAt]), json([2, 'string']));
       check('the tick and the note kept', edited.body.lines[0].given === true && edited.body.note === 'fixed');
+      // A new date: written on the wrong day, or entered late.
+      const day = new Date(Date.now() - 3 * 86400000).toISOString();
+      const redated = await put(first.body.no, {
+        lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 3, rate: 100, given: true }, { itemId: 'e2', nameKn: 'Ghee', nameEn: 'Ghee', qty: 1, rate: 60 }],
+        customerId: owes.body.id, paid: 100, note: 'fixed', at: day,
+      });
+      eq('the date can be changed', redated.body.at, day);
+      eq('and the money stays as it was', json([redated.body.total, redated.body.balance]), json([360, 260]));
+      eq('a date later than now is refused', (await put(first.body.no, {
+        lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 1, rate: 100 }], customerId: owes.body.id, at: new Date(Date.now() + 86400000).toISOString(),
+      })).status, 400);
+      eq('so is a date that is not one', (await put(first.body.no, {
+        lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 1, rate: 100 }], customerId: owes.body.id, at: 'yesterday',
+      })).status, 400);
       const after = (await call('/api/customers/' + owes.body.id, { headers: auth })).body.customer;
       eq('the customer follows the edit', json([after.totalBilled, after.totalPaid, after.billCount, after.balance]), json([360, 100, 1, 260]));
 
       const moved = await put(first.body.no, { lines: [{ itemId: 'e1', nameKn: 'Dal', nameEn: 'Dal', qty: 1, rate: 100 }], customerId: other.body.id });
       eq('moved to another customer', moved.body.customer && moved.body.customer.id, other.body.id);
-      eq('paid in full by default', json([moved.body.paid, moved.body.balance, moved.body.rev]), json([100, 0, 3]));
+      eq('paid in full by default', json([moved.body.paid, moved.body.balance, moved.body.rev]), json([100, 0, 4]));
       const left = (await call('/api/customers/' + owes.body.id, { headers: auth })).body.customer;
       eq('the first customer loses it', json([left.totalBilled, left.totalPaid, left.billCount]), json([0, 0, 0]));
       const got = (await call('/api/customers/' + other.body.id, { headers: auth })).body.customer;

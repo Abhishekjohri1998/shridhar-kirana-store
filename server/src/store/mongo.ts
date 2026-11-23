@@ -558,7 +558,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
       return bill;
     },
 
-    async editBill(no, { lines, customerId, paid, showBalance, hideNames, note, roundTo }) {
+    async editBill(no, { lines, customerId, paid, showBalance, hideNames, note, roundTo, at }) {
       const doc = await Bills.findOne({ no }).lean();
       if (!doc) return 'missing';
       const bill = strip(doc as unknown as Bill);
@@ -599,6 +599,7 @@ export async function createMongoRepo(uri: string): Promise<Repo> {
         roundTo: roundTo ?? 0,
         rev: (bill.rev ?? 1) + 1,
         editedAt: new Date().toISOString(),
+        ...(at ? { at } : {}),
         ...(fresh ? { customer: { id: fresh.id, name: fresh.name, nameKn: fresh.nameKn ?? '', phone: fresh.phone } } : {}),
         ...(hideNames ? { hideNames: true } : {}),
         ...(roundOff !== 0 ? { roundOff } : {}),

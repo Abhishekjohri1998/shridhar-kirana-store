@@ -402,6 +402,15 @@ console.log('\nTyped quantity in front of an item (stockQueryOf)');
   eq('one of one, no unit: just the name', names[1], 'Matches');
   eq('a unit of its own is kept', names[2], '20 Pkt Sona Masuri');
   eq('a part quantity too', names[3], '2.5 NOS Dal');
+  // An edited bill's date box.
+  const orig = new Date(2026, 10, 21, 16, 30).toISOString();
+  eq('the box shows day/month/year and time', S.dayInput(new Date(orig)), '21/11/2026 16:30');
+  eq('unchanged: no new date', S.editedBillDate(orig, '21/11/2026 16:30'), { ok: true });
+  eq('a new day keeps the time when none is written', S.editedBillDate(orig, '20/11/2026', Date.parse('2026-11-23')).at, new Date(2026, 10, 20, 16, 30).toISOString());
+  eq('two-figure years and dashes', S.parseDayInput('19-11-26 09:05'), new Date(2026, 10, 19, 9, 5).toISOString());
+  eq('a day that does not exist', S.parseDayInput('31/11/2026'), null);
+  eq('later than now is refused', S.editedBillDate(orig, '25/11/2026', Date.parse('2026-11-23')).ok, false);
+  eq('so is nonsense', S.editedBillDate(orig, 'yesterday').ok, false);
   eq('the WhatsApp text says the same', S.billAsText({ ...{ no: 2, at: '2026-11-23T10:00:00.000Z', total: 2200, paid: 2200, balance: 0, showBalance: false }, lines: [{ nameKn: 'Rice Flakes 2kg', nameEn: 'Rice Flakes 2kg', qty: 20, rate: 110 }] }, 'Shop', { bill: 'Bill #', total: 'TOTAL', paid: 'Paid', balance: 'Balance' }).includes('20 NOS Rice Flakes 2kg = '), true);
 }
 

@@ -528,6 +528,8 @@ api.put('/bills/:no', handler(async (req, res) => {
       showBalance: z.boolean().optional(),
       hideNames: z.boolean().optional(),
       note: z.string().trim().max(200).optional(),
+      // A new date for the bill: written on the wrong day, or entered late.
+      at: z.string().datetime({ offset: true }).optional(),
     })
     .parse(req.body);
   if (body.customerId && !(await getRepo().getCustomer(body.customerId))) {
@@ -536,8 +538,12 @@ api.put('/bills/:no', handler(async (req, res) => {
   if (body.showBalance && !body.customerId) {
     throw new HttpError(400, 'A balance can only be printed for a named customer');
   }
+  if (body.at && (Date.parse(body.at) > Date.now() + 5 * 60_000 || Date.parse(body.at) < Date.parse('2020-01-01'))) {
+    throw new HttpError(400, 'A bill cannot be dated later than now');
+  }
   const roundTo = await ensureRoundTo();
   const outcome = await getRepo().editBill(no, {
+    ...(body.at ? { at: new Date(body.at).toISOString() } : {}),
     lines: savedLines(body.lines, roundTo),
     ...(body.customerId ? { customerId: body.customerId } : {}),
     ...(body.paid == null ? {} : { paid: body.paid }),

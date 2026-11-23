@@ -49,7 +49,10 @@ export type BillListOptions = {
 };
 
 /** What an edit of a saved bill brings: everything a new bill does, bar the device's ids. */
-export type BillEdit = Omit<NewBill, 'draftId' | 'clientId'>;
+export type BillEdit = Omit<NewBill, 'draftId' | 'clientId'> & {
+  /** A new date for the bill (ISO); absent keeps the one it has. */
+  at?: string;
+};
 
 /** A save that carries a clientId already on file: the bill exists, and is not made again. */
 export class DuplicateClientId extends Error {

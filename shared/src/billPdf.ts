@@ -5,6 +5,7 @@ import { inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 import { lineName, pickLang } from './i18n';
 import { carriedBalance, dateStamp, inkStrips, stamp } from './doc';
+import { printedUnit } from './stock';
 
 /**
  * A bill as an A4 PDF, for sharing.
@@ -125,7 +126,8 @@ function tableRows(bill: Bill, lang: 'en' | 'kn', labels: ReceiptLabels): TableR
     const both = stripsAll.length > 0 && typedAll.trim() !== '';
     const strips = both && line.lastMode === 'text' ? [] : stripsAll;
     const typed = both && line.lastMode === 'ink' ? '' : typedAll;
-    const unit = (line.unit ?? '').trim();
+    // As on the paper: a typed quantity with no unit of its own says NOS (printedUnit).
+    const unit = printedUnit(line);
     // A plain "item, price" line has no quantity or rate worth a column: they would only say
     // 1 and the price again. Anything counted -- a unit, or more than one -- shows both.
     const counted = unit !== '' || line.qty !== 1;

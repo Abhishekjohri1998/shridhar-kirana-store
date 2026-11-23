@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import {
   FALLBACK_UNIT, lineHasSomething, nextTypingLine, roundedLineAmount, roundLines, lineName,
-  MAX_PARKED, buildReceipt, carriedBalance, advanceFor, checkCustomer, customerName, dateStamp, draftTotal,
+  MAX_PARKED, buildReceipt, carriedBalance, advanceFor, dayInput, editedBillDate, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
@@ -676,7 +676,7 @@ export function BillScreen() {
   const draft = (): Bill => ({
     // Editing: the bill's own number and date, as the paper will keep them.
     no: shop.editing ? shop.editing.no : (shop.bills[0]?.no ?? 0) + 1,
-    at: shop.editing ? shop.editing.at : new Date().toISOString(),
+    at: shop.editing ? (editedBillDate(shop.editing.at, shop.editing.dateText).at ?? shop.editing.at) : new Date().toISOString(),
     ...(previewCustomer() ? { customer: previewCustomer() } : {}),
     // Each line on the rounding step, as the server will save it.
     lines: roundLines(written, shop.settings.roundTo ?? 0),
@@ -1543,7 +1543,25 @@ export function BillScreen() {
           <Text style={styles.switchLabel}>{'📝 ' + t('bill.quotation')}</Text>
         </View>
         {shop.quotationMode ? <Text style={styles.payLabel}>{t('bill.quotationOn')}</Text> : null}
-        {shop.editing ? <Text style={styles.payLabel}>{t('bill.editing', { no: shop.editing.no })}</Text> : null}
+        {shop.editing ? (
+          <View style={{ marginBottom: 8 }}>
+            <Text style={styles.payLabel}>{t('bill.editing', { no: shop.editing.no })}</Text>
+            {/* The bill's date, for one written on the wrong day or entered late. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <Text style={[styles.payLabel, { fontWeight: '700' }]}>{t('bill.editDate')}</Text>
+              <TextInput
+                style={[styles.slipPrice, { flex: 1, maxWidth: 220, textAlign: 'left' }]}
+                value={shop.editing.dateText ?? dayInput(new Date(shop.editing.at))}
+                placeholder="21/11/2026 16:30"
+                placeholderTextColor={C.faint}
+                onChangeText={(text) => shop.setEditDate(text)}
+              />
+            </View>
+            {!editedBillDate(shop.editing.at, shop.editing.dateText).ok ? (
+              <Text style={[styles.payLabel, { color: C.danger }]}>{t('bill.editDateBad')}</Text>
+            ) : null}
+          </View>
+        ) : null}
         {shop.fromQuotation != null && !shop.quotationMode ? (
           <Text style={styles.payLabel}>{t('bill.fromQuotation', { no: shop.fromQuotation })}</Text>
         ) : null}

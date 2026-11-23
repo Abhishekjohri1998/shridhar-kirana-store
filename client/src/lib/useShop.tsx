@@ -3,7 +3,7 @@ import {
   tokenState,
   lineHasSomething,
   DEFAULT_SETTINGS, MAX_PARKED, afterClosing, billTotal, closeDraft, emptyDraft, isDraftEmpty, makeT,
-  nextLineId, receiptLabelsFor, receiptLangOf, type EditTarget, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
+  nextLineId, receiptLabelsFor, receiptLangOf, editedBillDate, type EditTarget, reviveDraft, round2, rateForTotal, draftForStock, mergeStockTicks,
   LINK_RETRY_MS, createLinkWatch, retryDelay, msUntilMidnight, SCREEN_REFRESH_MS, type LoadState, roundLines, shouldAutoHide, visibleInactive, dismissInactive,
   type Bill, type BillLine, type Customer, type Draft, type Ink, type Item, type Lang,
   type ReceiptLabels, type Settings, type T, type TodaySummary, type Quotation, quotationAsBill,
@@ -212,6 +212,8 @@ type Shop = {
    * Save then updates in place. False when MAX_PARKED tabs are already open.
    */
   editBill: (bill: Bill) => Promise<boolean>;
+  /** The date box of a bill being edited, as typed. */
+  setEditDate: (text: string) => void;
   /**
    * "Make bill": a new tab holding a quotation's lines, customer and note, which saves as a real
    * bill and marks the quotation billed. False when MAX_PARKED tabs are already open.
@@ -732,6 +734,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     return true;
   }, [parked.list]);
 
+  const setEditDate = useCallback((text: string) => {
+    patchActive((d) => (d.editsBill ? { ...d, editsBill: { ...d.editsBill, dateText: text } } : d));
+  }, [patchActive]);
+
   const billForCustomer = useCallback(async (c: Customer): Promise<boolean> => {
     const reuse = isDraftEmpty(active) && active.kind !== 'quotation' && active.fromQuotation == null;
     if (!reuse && parked.list.length >= MAX_PARKED) return false;
@@ -1039,7 +1045,11 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       }
       if (active.editsBill) {
         // A saved bill edited: the same number, the figures redone on the server.
+        // A date typed in the box: refused here if it is not one, or later than now.
+        const when = editedBillDate(active.editsBill.at, active.editsBill.dateText);
+        if (!when.ok) throw new Error(t('bill.editDateBad'));
         const edited = await api.updateBill(active.editsBill.no, {
+          ...(when.at ? { at: when.at } : {}),
           lines,
           ...(billTo ? { customerId: billTo.id } : {}),
           ...(options.paid == null ? {} : { paid: options.paid }),
@@ -1162,7 +1172,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       drafts: parked.list, activeDraftId: parked.activeId, newBill, switchBill, closeBill,
-      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer, editing, editBill,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer, editing, editBill, setEditDate,
       customerBalanceAt, setCustomer, saveCustomer, setPaidInput, setPrintBalance, setNote,
       customerDraft, setCustomerDraft,
       saveSettings, forgetEverything, dataVersion,
@@ -1175,7 +1185,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setLineName, setLineGiven, setLineHidden, addLineStrip, removeLineStrip, setLineMoreInk, setAllGiven,
       stockOn, pickStockItem,
       parked, newBill, switchBill, closeBill,
-      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer, editing, editBill,
+      quotationMode, setQuotationMode, fromQuotation, billFromQuotation, billForCustomer, editing, editBill, setEditDate,
       customerBalanceAt, setCustomer, saveCustomer, setPrintBalance, setNote, customerDraft,
       saveSettings, forgetEverything, dataVersion,
     ],

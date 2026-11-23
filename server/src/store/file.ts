@@ -193,7 +193,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
       });
     },
 
-    editBill(no, { lines, customerId, paid, showBalance, hideNames, note, roundTo }) {
+    editBill(no, { lines, customerId, paid, showBalance, hideNames, note, roundTo, at }) {
       return serial(async () => {
         const bill = db.bills.find((b) => b.no === no);
         if (!bill) return 'missing';
@@ -245,6 +245,7 @@ export async function createFileRepo(dir: string): Promise<Repo> {
         if (roundOff !== 0) bill.roundOff = roundOff; else delete bill.roundOff;
         if (advance > 0) bill.advance = advance; else delete bill.advance;
         bill.roundTo = roundTo ?? 0;
+        if (at) bill.at = at;
         bill.rev = (bill.rev ?? 1) + 1;
         bill.editedAt = new Date().toISOString();
         await flush();

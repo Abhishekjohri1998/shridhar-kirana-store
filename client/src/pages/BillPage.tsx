@@ -17,7 +17,7 @@ import {
   roundedLineAmount, roundLines,
   lineName,
   slipTailPadding,
-  carriedBalance, advanceFor,
+  carriedBalance, advanceFor, dayInput, editedBillDate,
   dateStamp,
   type Bill,
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
@@ -499,7 +499,7 @@ export function BillPage() {
   const draft = (): Bill => ({
     // Editing: the bill's own number and date, as the paper will keep them.
     no: shop.editing ? shop.editing.no : (shop.bills[0]?.no ?? 0) + 1,
-    at: shop.editing ? shop.editing.at : new Date().toISOString(),
+    at: shop.editing ? (editedBillDate(shop.editing.at, shop.editing.dateText).at ?? shop.editing.at) : new Date().toISOString(),
     ...(previewCustomer() ? { customer: previewCustomer() } : {}),
     // Each line on the rounding step, as the server will save it.
     lines: roundLines(written, shop.settings.roundTo ?? 0),
@@ -1292,7 +1292,23 @@ export function BillPage() {
 
         {shop.quotationMode ? <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.quotationOn')}</p> : null}
         {shop.editing ? (
-          <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.editing', { no: shop.editing.no })}</p>
+          <div className="notice small" style={{ margin: '10px 0 0' }}>
+            {t('bill.editing', { no: shop.editing.no })}
+            {/* The bill's date, for one written on the wrong day or entered late. */}
+            <label className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center' }}>
+              <span style={{ fontWeight: 700 }}>{t('bill.editDate')}</span>
+              <input
+                className="input"
+                style={{ maxWidth: 210 }}
+                value={shop.editing.dateText ?? dayInput(new Date(shop.editing.at))}
+                placeholder="21/11/2026 16:30"
+                onChange={(e) => shop.setEditDate(e.target.value)}
+              />
+            </label>
+            {!editedBillDate(shop.editing.at, shop.editing.dateText).ok ? (
+              <span className="error small" style={{ display: 'block', marginTop: 4 }}>{t('bill.editDateBad')}</span>
+            ) : null}
+          </div>
         ) : null}
         {shop.fromQuotation != null && !shop.quotationMode ? (
           <p className="notice small" style={{ margin: '10px 0 0' }}>{t('bill.fromQuotation', { no: shop.fromQuotation })}</p>
