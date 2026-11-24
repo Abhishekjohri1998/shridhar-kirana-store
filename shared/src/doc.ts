@@ -168,6 +168,18 @@ export type Row =
 
 export type ReceiptDoc = { width: number; rows: Row[] };
 
+/** The shop's address for the paper, in its language (falling back to the other), line by line. */
+export function shopAddressLines(settings: Pick<Settings, 'shopAddress' | 'shopAddressKn'>, lang: 'en' | 'kn'): string[] {
+  return pickLang(settings.shopAddress ?? '', settings.shopAddressKn ?? '', lang)
+    .split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 3);
+}
+
+/** "Phone: 98860 12345" for under the address, or '' when the shop has entered none. */
+export function shopPhoneLine(settings: Pick<Settings, 'shopPhone'>, labels: Pick<ReceiptLabels, 'phone'>): string {
+  const phone = (settings.shopPhone ?? '').replace(/\s+/g, ' ').trim();
+  return phone ? labels.phone + ': ' + phone : '';
+}
+
 /** "03/09/26" -- day-first, and short enough to sit beside a label inside the item column. */
 export function dateStamp(iso: string): string {
   const d = new Date(iso);
@@ -332,6 +344,11 @@ export function buildReceipt(
   const rows: Row[] = [
     { t: 'center', text: shopName, size: 30, bold: true },
   ];
+  // The address under the name, each line it was written as; the printers wrap a long one.
+  for (const line of shopAddressLines(settings, lang)) rows.push({ t: 'center', text: line, size: 20 });
+  // And the shop's phone, so a customer can ring with the slip in hand.
+  const phone = shopPhoneLine(settings, labels);
+  if (phone) rows.push({ t: 'center', text: phone, size: 20 });
 
   // Under the shop name, where a customer and an inspector both look for it. Only when the shop
   // has entered one -- a slip for a shop with no GST number should not carry an empty label.

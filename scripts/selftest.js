@@ -1102,6 +1102,12 @@ async function main() {
       eq('a cancelled bill cannot be edited', (await put(first.body.no, { lines: [{ itemId: 'x', nameKn: 'x', nameEn: 'x', qty: 1, rate: 1 }] })).status, 400);
       eq('no lines is refused', (await put(sold.body.no, { lines: [] })).status, 400);
 
+      const addr = await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ shopAddress: '  Main Road, Hosapete 583201 ', shopAddressKn: 'ಮುಖ್ಯ ರಸ್ತೆ, ಹೊಸಪೇಟೆ' }) });
+      eq('the shop address is kept, trimmed', json([addr.body.shopAddress, addr.body.shopAddressKn]), json(['Main Road, Hosapete 583201', 'ಮುಖ್ಯ ರಸ್ತೆ, ಹೊಸಪೇಟೆ']));
+      eq('a very long one is refused', (await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ shopAddress: 'x'.repeat(201) }) })).status, 400);
+      const ph = await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ shopPhone: ' 98860 12345, 08394-226655 ' }) });
+      eq('the shop phone is kept, trimmed', ph.body.shopPhone, '98860 12345, 08394-226655');
+      eq('letters in it are refused', (await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ shopPhone: 'call me' }) })).status, 400);
       const kn = await call('/api/settings', { method: 'PUT', headers: auth, body: JSON.stringify({ receiptKannada: true }) });
       eq('the receipt-in-Kannada switch is kept', kn.body.receiptKannada, true);
       eq('and the app stays English', kn.body.language, 'en');

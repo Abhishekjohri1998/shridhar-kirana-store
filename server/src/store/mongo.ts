@@ -215,6 +215,10 @@ const settingsSchema = new Schema<SettingsDoc>(
     // what made every print return 500 once, and schematest exists because of it.
     gstin: { type: String, required: false, default: '' },
     shopNameKn: { type: String, required: false, default: '' },
+    // The address under the shop name, in each language. Optional, no `required` beside a default.
+    shopAddress: { type: String, required: false, default: '' },
+    shopAddressKn: { type: String, required: false, default: '' },
+    shopPhone: { type: String, required: false, default: '' },
     footerKn: { type: String, required: false, default: '' },
     showRate: { type: Boolean, required: true },
     showGstin: { type: Boolean, required: false, default: true },

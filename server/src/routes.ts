@@ -96,6 +96,10 @@ const settingsBody = z.object({
   // is the shop's business, and a settings screen that refuses to save is not a validator.
   gstin: z.string().trim().max(24).optional(),
   shopNameKn: z.string().trim().max(80).optional(),
+  shopAddress: z.string().trim().max(200).optional(),
+  shopAddressKn: z.string().trim().max(200).optional(),
+  // Digits, spaces, + and - and commas: "98860 12345, 08394-226655".
+  shopPhone: z.string().trim().max(40).regex(/^[0-9+\-\s,/()]*$/, 'Only digits, spaces, + - and commas in the phone number').optional(),
   footerKn: z.string().trim().max(120).optional(),
   showRate: z.boolean().optional(),
   receiptStyle: z.enum(['normal', 'compact']).optional(),

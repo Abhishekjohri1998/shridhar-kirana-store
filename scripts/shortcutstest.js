@@ -402,6 +402,26 @@ console.log('\nTyped quantity in front of an item (stockQueryOf)');
   eq('one of one, no unit: just the name', names[1], 'Matches');
   eq('a unit of its own is kept', names[2], '20 Pkt Sona Masuri');
   eq('a part quantity too', names[3], '2.5 NOS Dal');
+  // The shop's address, under its name.
+  const oneLine = { no: 3, at: '2026-11-24T10:00:00.000Z', total: 50, paid: 50, balance: 0, showBalance: false, lines: [{ itemId: 'a', nameKn: 'Tea', nameEn: 'Tea', qty: 1, rate: 50 }] };
+  const withAddr = S.buildReceipt(oneLine, { ...S.DEFAULT_SETTINGS, shopName: 'Shridhar Kirani', shopAddress: 'Main Road, Hosapete 583201', gstin: '29ABCDE1234F1Z5' });
+  eq('the address is the line under the shop name', [withAddr.rows[0].text, withAddr.rows[1].text], ['Shridhar Kirani', 'Main Road, Hosapete 583201']);
+  check('above the GSTIN', withAddr.rows[2].text.startsWith('GSTIN'));
+  const noAddr = S.buildReceipt(oneLine, { ...S.DEFAULT_SETTINGS, shopName: 'Shridhar Kirani', gstin: '29ABCDE1234F1Z5' });
+  check('no address: nothing printed for it', noAddr.rows[1].text.startsWith('GSTIN'));
+  eq('the Kannada one on a Kannada receipt', S.shopAddressLines({ shopAddress: 'Main Road', shopAddressKn: 'ಮುಖ್ಯ ರಸ್ತೆ' }, 'kn'), ['ಮುಖ್ಯ ರಸ್ತೆ']);
+  eq('the English one when there is no Kannada', S.shopAddressLines({ shopAddress: 'Main Road' }, 'kn'), ['Main Road']);
+  eq('written on two lines, printed on two', S.shopAddressLines({ shopAddress: 'Main Road\nPh 9000000000' }, 'en'), ['Main Road', 'Ph 9000000000']);
+  const pdfText = S.billPdfPages(oneLine, { ...S.DEFAULT_SETTINGS, shopName: 'Shridhar Kirani', shopAddress: 'Main Road, Hosapete 583201', shopPhone: '98860 12345' })[0].ops.filter((o) => o.t === 'text').map((o) => o.text);
+  check('and on the PDF, under the name', pdfText[0] === 'Shridhar Kirani' && pdfText[1] === 'Main Road, Hosapete 583201', JSON.stringify(pdfText.slice(0, 3)));
+  eq('the shop phone on the PDF, under the address', pdfText[2], 'Phone: 98860 12345');
+  // The shop's phone, under the address.
+  const withPhone = S.buildReceipt(oneLine, { ...S.DEFAULT_SETTINGS, shopName: 'Shridhar Kirani', shopAddress: 'Main Road', shopPhone: '98860 12345, 08394-226655' });
+  eq('the phone prints under the address', withPhone.rows[2].text, 'Phone: 98860 12345, 08394-226655');
+  const knPhone = S.buildReceipt(oneLine, { ...S.DEFAULT_SETTINGS, shopName: 'Shop', shopPhone: '98860 12345', language: 'kn' }, S.receiptLabelsFor('kn'));
+  eq('with the Kannada label on a Kannada receipt', knPhone.rows[1].text, 'ಫೋನ್: 98860 12345');
+  check('no phone: nothing printed for it', !noAddr.rows.some((r) => String(r.text || '').startsWith('Phone')));
+
   // An edited bill's date box.
   const orig = new Date(2026, 10, 21, 16, 30).toISOString();
   eq('the box shows day/month/year and time', S.dayInput(new Date(orig)), '21/11/2026 16:30');

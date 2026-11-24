@@ -50,6 +50,9 @@ export function SettingsPage() {
   const [footer, setFooter] = useState(shop.settings.footer);
   const [gstin, setGstin] = useState(shop.settings.gstin ?? '');
   const [shopNameKn, setShopNameKn] = useState(shop.settings.shopNameKn ?? '');
+  const [shopAddress, setShopAddress] = useState(shop.settings.shopAddress ?? '');
+  const [shopAddressKn, setShopAddressKn] = useState(shop.settings.shopAddressKn ?? '');
+  const [shopPhone, setShopPhone] = useState(shop.settings.shopPhone ?? '');
   const [footerKn, setFooterKn] = useState(shop.settings.footerKn ?? '');
   const [inactiveDays, setInactiveDays] = useState(String(shop.settings.inactiveAfterDays));
   const [error, setError] = useState<string | null>(null);
@@ -63,11 +66,14 @@ export function SettingsPage() {
     setFooter(shop.settings.footer);
     setGstin(shop.settings.gstin ?? '');
     setShopNameKn(shop.settings.shopNameKn ?? '');
+    setShopAddress(shop.settings.shopAddress ?? '');
+    setShopAddressKn(shop.settings.shopAddressKn ?? '');
+    setShopPhone(shop.settings.shopPhone ?? '');
     setFooterKn(shop.settings.footerKn ?? '');
     setInactiveDays(String(shop.settings.inactiveAfterDays));
   }, [
     shop.settings.shopName, shop.settings.footer, shop.settings.gstin,
-    shop.settings.shopNameKn, shop.settings.footerKn, shop.settings.inactiveAfterDays,
+    shop.settings.shopNameKn, shop.settings.footerKn, shop.settings.shopAddress, shop.settings.shopAddressKn, shop.settings.shopPhone, shop.settings.inactiveAfterDays,
   ]);
 
   const save = async (patch: Parameters<typeof shop.saveSettings>[0], labelKey: Parameters<typeof t>[0]) => {
@@ -136,6 +142,12 @@ export function SettingsPage() {
     if (value !== (shop.settings.shopNameKn ?? '')) {
       void save({ shopNameKn: value }, 'set.savedShopName');
     }
+  };
+
+  /** The address under the shop name, in either language; empty prints none. */
+  const commitAddress = (key: 'shopAddress' | 'shopAddressKn' | 'shopPhone', next: string) => {
+    const value = next.trim();
+    if (value !== (shop.settings[key] ?? '')) void save({ [key]: value }, key === 'shopPhone' ? 'set.savedShopPhone' : 'set.savedShopAddress');
   };
 
   const commitFooterKn = (next: string) => {
@@ -356,6 +368,56 @@ export function SettingsPage() {
             }}
             onBlur={() => commitFooterKn(footerKn)}
           />
+        </div>
+
+        {/* The address under the shop name, on the slip and the PDF. */}
+        <div className="field">
+          <label htmlFor="s-address">{t('set.shopAddress')}</label>
+          <input
+            id="s-address"
+            className="input"
+            value={shopAddress}
+            maxLength={200}
+            onChange={(e) => {
+              const next = e.target.value;
+              setShopAddress(next);
+              afterTyping(() => commitAddress('shopAddress', next));
+            }}
+            onBlur={() => commitAddress('shopAddress', shopAddress)}
+          />
+          <span className="muted small">{t('set.shopAddressHint')}</span>
+        </div>
+        <div className="field">
+          <label htmlFor="s-address-kn">{t('set.shopAddressKn')}</label>
+          <input
+            id="s-address-kn"
+            className="input"
+            value={shopAddressKn}
+            maxLength={200}
+            onChange={(e) => {
+              const next = e.target.value;
+              setShopAddressKn(next);
+              afterTyping(() => commitAddress('shopAddressKn', next));
+            }}
+            onBlur={() => commitAddress('shopAddressKn', shopAddressKn)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="s-phone">{t('set.shopPhone')}</label>
+          <input
+            id="s-phone"
+            className="input"
+            inputMode="tel"
+            value={shopPhone}
+            maxLength={40}
+            onChange={(e) => {
+              const next = e.target.value;
+              setShopPhone(next);
+              afterTyping(() => commitAddress('shopPhone', next));
+            }}
+            onBlur={() => commitAddress('shopPhone', shopPhone)}
+          />
+          <span className="muted small">{t('set.shopPhoneHint')}</span>
         </div>
 
         {/* Not a ScriptField: a GST number is fifteen Latin characters by definition. */}

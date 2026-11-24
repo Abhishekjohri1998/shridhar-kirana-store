@@ -303,6 +303,14 @@ export type Settings = {
   showGstin: boolean;
   /** The shop name and the footer line in Kannada, shown and printed when the shop is Kannada. */
   shopNameKn: string;
+  /**
+   * The shop's address (and anything else for under the name: a phone number, a landmark), in
+   * English and in Kannada, printed under the shop name when filled in. Absent on older settings.
+   */
+  shopAddress?: string;
+  shopAddressKn?: string;
+  /** The shop's phone number(s), printed under the address as "Phone: ...". Absent on older settings. */
+  shopPhone?: string;
   footerKn: string;
   /** Print the per-unit rate under each item name. The shop's paper slip does not, so this is off by default. */
   showRate: boolean;

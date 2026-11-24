@@ -76,6 +76,9 @@ export function SettingsScreen() {
   const [footer, setFooter] = useState(shop.settings.footer);
   const [gstin, setGstin] = useState(shop.settings.gstin ?? '');
   const [shopNameKn, setShopNameKn] = useState(shop.settings.shopNameKn ?? '');
+  const [shopAddress, setShopAddress] = useState(shop.settings.shopAddress ?? '');
+  const [shopAddressKn, setShopAddressKn] = useState(shop.settings.shopAddressKn ?? '');
+  const [shopPhone, setShopPhone] = useState(shop.settings.shopPhone ?? '');
   const [footerKn, setFooterKn] = useState(shop.settings.footerKn ?? '');
   const [quiet, setQuiet] = useState(String(shop.settings.inactiveAfterDays));
   const [error, setError] = useState<string | null>(null);
@@ -106,11 +109,14 @@ export function SettingsScreen() {
     setFooter(shop.settings.footer);
     setGstin(shop.settings.gstin ?? '');
     setShopNameKn(shop.settings.shopNameKn ?? '');
+    setShopAddress(shop.settings.shopAddress ?? '');
+    setShopAddressKn(shop.settings.shopAddressKn ?? '');
+    setShopPhone(shop.settings.shopPhone ?? '');
     setFooterKn(shop.settings.footerKn ?? '');
     setQuiet(String(shop.settings.inactiveAfterDays));
   }, [
     shop.settings.shopName, shop.settings.footer, shop.settings.gstin,
-    shop.settings.shopNameKn, shop.settings.footerKn, shop.settings.inactiveAfterDays,
+    shop.settings.shopNameKn, shop.settings.footerKn, shop.settings.shopAddress, shop.settings.shopAddressKn, shop.settings.shopPhone, shop.settings.inactiveAfterDays,
   ]);
 
   const save = async (patch: Parameters<typeof shop.saveSettings>[0], labelKey: MsgKey) => {
@@ -194,6 +200,12 @@ export function SettingsScreen() {
     if (value !== (shop.settings.shopNameKn ?? '')) {
       void save({ shopNameKn: value }, 'set.savedShopName');
     }
+  };
+
+  /** The address under the shop name, in either language; empty prints none. */
+  const commitAddress = (key: 'shopAddress' | 'shopAddressKn' | 'shopPhone', next: string) => {
+    const value = next.trim();
+    if (value !== (shop.settings[key] ?? '')) void save({ [key]: value }, key === 'shopPhone' ? 'set.savedShopPhone' : 'set.savedShopAddress');
   };
 
   const commitFooterKn = (next: string) => {
@@ -412,6 +424,38 @@ export function SettingsScreen() {
             afterTyping(() => commitFooterKn(next));
           }}
           onBlur={() => commitFooterKn(footerKn)}
+        />
+
+        {/* The address under the shop name, on the slip and the PDF. */}
+        <Field
+          label={t('set.shopAddress')}
+          value={shopAddress}
+          hint={t('set.shopAddressHint')}
+          onChangeText={(next) => {
+            setShopAddress(next);
+            afterTyping(() => commitAddress('shopAddress', next));
+          }}
+          onBlur={() => commitAddress('shopAddress', shopAddress)}
+        />
+        <Field
+          label={t('set.shopAddressKn')}
+          value={shopAddressKn}
+          onChangeText={(next) => {
+            setShopAddressKn(next);
+            afterTyping(() => commitAddress('shopAddressKn', next));
+          }}
+          onBlur={() => commitAddress('shopAddressKn', shopAddressKn)}
+        />
+        <Field
+          label={t('set.shopPhone')}
+          value={shopPhone}
+          hint={t('set.shopPhoneHint')}
+          keyboardType="phone-pad"
+          onChangeText={(next) => {
+            setShopPhone(next);
+            afterTyping(() => commitAddress('shopPhone', next));
+          }}
+          onBlur={() => commitAddress('shopPhone', shopPhone)}
         />
 
         {/* Not a ScriptField: a GST number is fifteen Latin characters by definition. */}

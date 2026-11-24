@@ -4,7 +4,7 @@ import { lineAmount, money, qtyText, rateText, round2 } from './money';
 import { inkBounds, inkRowFit, inkSlipScale } from './ink';
 import { EN_RECEIPT_LABELS, type ReceiptLabels } from './receiptLabels';
 import { lineName, pickLang } from './i18n';
-import { carriedBalance, dateStamp, inkStrips, stamp } from './doc';
+import { carriedBalance, dateStamp, inkStrips, shopAddressLines, shopPhoneLine, stamp } from './doc';
 import { printedUnit } from './stock';
 
 /**
@@ -206,6 +206,15 @@ export function billPdfPages(bill: Bill, settings: Settings, labels: ReceiptLabe
   // ---------------------------------------------------------------- first page heading
   text(PDF_PAGE_W / 2, y + 20, shopName, 20, { bold: true, align: 'center', maxW: RIGHT - M });
   y += 28;
+  for (const line of shopAddressLines(settings, lang).flatMap((l) => pdfWrap(l, 10, RIGHT - M - 40, 2))) {
+    text(PDF_PAGE_W / 2, y + 10, line, 10, { align: 'center', color: GREY });
+    y += 14;
+  }
+  const shopPhone = shopPhoneLine(settings, labels);
+  if (shopPhone) {
+    text(PDF_PAGE_W / 2, y + 10, shopPhone, 10, { align: 'center', color: GREY });
+    y += 14;
+  }
   if (settings.gstin && settings.gstin.trim() && settings.showGstin !== false) {
     text(PDF_PAGE_W / 2, y + 10, labels.gstin + ' ' + settings.gstin.trim(), 10, { align: 'center', color: GREY });
     y += 15;
