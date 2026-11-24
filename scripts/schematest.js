@@ -254,6 +254,39 @@ function billDoc(lines) {
   check('an older customer with no list is valid', !oldRow.validateSync());
   check('and gains no empty list it never had', oldRow.toObject().phones === undefined);
 
+  // A customer with a name and no phone, and one with only a Kannada name: the counter adds both.
+  const noPhone = new Customer({
+    id: 'c_mass', name: 'MASS', phone: '',
+    since: new Date().toISOString(), totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+  });
+  const noPhoneErr = noPhone.validateSync();
+  check('a customer with no phone is valid', !noPhoneErr, noPhoneErr && Object.keys(noPhoneErr.errors).join(', '));
+  const knOnly = new Customer({
+    id: 'c_kn', name: '', nameKn: 'ರವಿ', phone: '',
+    since: new Date().toISOString(), totalBilled: 0, totalPaid: 0, billCount: 0, lastVisit: null,
+  });
+  check('a customer with only a Kannada name is valid', !knOnly.validateSync());
+  const billNoPhone = new Bill({
+    no: 99, at: new Date().toISOString(), total: 10, paid: 10, balance: 0,
+    customer: { id: 'c_mass', name: 'MASS', nameKn: '', phone: '' },
+    lines: [{ itemId: 'a', nameKn: 'Tea', nameEn: 'Tea', qty: 1, rate: 10 }],
+  });
+  const billErr = billNoPhone.validateSync();
+  check('a bill for a customer with no phone is valid', !billErr, billErr && Object.keys(billErr.errors).join(', '));
+
+  // The rule, over every model: no text field both required and given a default. Mongoose reads
+  // '' as missing on a required string, so the default itself fails validation.
+  for (const [name, model] of Object.entries(registered)) {
+    const bad = [];
+    model.schema.eachPath((p, type) => {
+      if (type.instance === 'String' && type.isRequired && type.defaultValue === '') bad.push(p);
+      if (type.schema) type.schema.eachPath((q, t) => {
+        if (t.instance === 'String' && t.isRequired && t.defaultValue === '') bad.push(p + '.' + q);
+      });
+    });
+    check(name + ': no text field is required and given an empty default', bad.length === 0, bad.join(', '));
+  }
+
   const Payment = registered.Payment;
   check('the payment model is registered', Boolean(Payment));
   if (Payment) {

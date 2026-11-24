@@ -72,11 +72,12 @@ const lineSchema = new Schema<BillLine>(
 const billCustomerSchema = new Schema(
   {
     id: { type: String, required: true },
-    name: { type: String, required: true, default: '' },
     // Optional with a plain default -- never `required: true` beside one, the pairing that made
-    // every print return 500 once.
+    // every print return 500 once. Mongoose takes '' for "missing" on a required string, so a
+    // customer with no phone (or only a Kannada name) could not be billed.
+    name: { type: String, required: false, default: '' },
     nameKn: { type: String, required: false, default: '' },
-    phone: { type: String, required: true, default: '' },
+    phone: { type: String, required: false, default: '' },
   },
   { _id: false, versionKey: false },
 );
@@ -162,10 +163,11 @@ function isDuplicateKey(err: unknown): boolean {
 const customerSchema = new Schema<CustomerDoc>(
   {
     id: { type: String, required: true, unique: true, index: true },
-    name: { type: String, required: true, default: '' },
-    // Optional with a plain default -- see the note on the bill's copy above.
+    // All three optional with a plain default -- see the note on the bill's copy above. A
+    // required phone refused every customer saved without one ("Path `phone` is required").
+    name: { type: String, required: false, default: '' },
     nameKn: { type: String, required: false, default: '' },
-    phone: { type: String, required: true, default: '' },
+    phone: { type: String, required: false, default: '' },
     // Optional, no `required` beside a default. Absent on older rows, read as [phone].
     phones: { type: [String], required: false, default: undefined },
     whatsapp: { type: String, required: false, default: '' },
