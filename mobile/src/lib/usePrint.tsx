@@ -10,6 +10,7 @@ import { base64ToBytes, bytesToBase64 } from './base64';
 import { shareFileToWhatsApp, shareToWhatsApp, whatsAppTakesPdf } from './native';
 import { RasterBridge, type RasterHandle } from '../print/RasterBridge';
 import { rasterToEscPos } from '../print/escpos';
+import { labelBytes, type BarcodeLabel } from '../print/labels';
 import {
   PrinterError, connectPrinter, isPrintingAvailable, listPairedPrinters, loadSavedPrinter, printBytes, printerStatus,
   saveSelectedPrinter, type PairedPrinter,
@@ -38,6 +39,8 @@ type PrintApi = {
   printerState: PrinterState;
   /** The chip's tap: connect now (or check again). */
   connectNow: () => Promise<void>;
+  /** Barcode labels from the Stock tab, on the receipt printer. */
+  printLabels: (labels: BarcodeLabel[], copies: number) => Promise<void>;
 };
 
 const Ctx = createContext<PrintApi | null>(null);
@@ -114,6 +117,19 @@ export function PrintProvider({ children }: { children: ReactNode }) {
    * WebView, a picture per page. Replaces the slip picture, which a forty-line bill turned into
    * a strip too thin to read.
    */
+  const printLabels = useCallback(async (labels: BarcodeLabel[], copies: number) => {
+    if (!printer) throw new PrinterError(shop.t('set.printerNone'));
+    if (busy) throw new PrinterError(shop.t('bill.printing'));
+    setBusy(true);
+    try {
+      const speed = printSpeedOf(shop.settings);
+      await printBytes(printer.address, labelBytes(labels, copies, speed), speed);
+      setPrinterState('connected');
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, printer, shop]);
+
   const writePdf = useCallback(async (bill: Bill, settings: Settings): Promise<string> => {
     const handle = raster.current;
     if (!handle) throw new PrinterError('The receipt renderer is not ready yet. Try once more.');
@@ -217,8 +233,9 @@ export function PrintProvider({ children }: { children: ReactNode }) {
       whatsappBill,
       printerState,
       connectNow,
+      printLabels,
     }),
-    [busy, printer, choosePrinter, printBill, shareBill, whatsappBill, printerState, connectNow],
+    [busy, printer, choosePrinter, printBill, shareBill, whatsappBill, printerState, connectNow, printLabels],
   );
 
   return (

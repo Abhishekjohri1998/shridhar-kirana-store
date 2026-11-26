@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import {
   FALLBACK_UNIT, lineHasSomething, nextTypingLine, roundedLineAmount, roundLines, lineName,
-  MAX_PARKED, buildReceipt, carriedBalance, advanceFor, dayInput, editedBillDate, checkCustomer, customerName, dateStamp, draftTotal,
+  MAX_PARKED, buildReceipt, carriedBalance, advanceFor, dayInput, editedBillDate, lineIsWriting, readLineMode, LINE_MODE_KEY, type LineMode, checkCustomer, customerName, dateStamp, draftTotal,
   isDraftEmpty, money, pageFlip, parsePaid, parsePrice, round2, slipTailPadding,
   type Bill, type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
   SHORTCUTS, adjacentBill, customerFieldFor, moveInColumn, shortcutFor, shortcutLine, nameShortcutLine,
@@ -17,6 +17,7 @@ import { ScrollPad } from '../components/ScrollPad';
 import { InkPad, type InkPadHandle } from '../components/InkPad';
 import { ReceiptView } from '../components/ReceiptView';
 import { Button, ErrorText } from '../components/ui';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePrint } from '../lib/usePrint';
 import { useShop } from '../lib/useShop';
 import { useStockSuggest } from '../lib/useStockSuggest';
@@ -305,6 +306,15 @@ export function BillScreen() {
    * strokes opens as writing without needing an entry here.
    */
   const [writing, setWriting] = useState<Record<string, boolean>>({});
+  /** How new lines start on this tablet: writing or typing (the switch beside the printer). */
+  const [newLines, setNewLinesState] = useState<LineMode>('ink');
+  useEffect(() => {
+    void AsyncStorage.getItem(LINE_MODE_KEY).then((v) => setNewLinesState(readLineMode(v))).catch(() => undefined);
+  }, []);
+  const setNewLines = (mode: LineMode) => {
+    setNewLinesState(mode);
+    void AsyncStorage.setItem(LINE_MODE_KEY, mode).catch(() => undefined);
+  };
   /** The line whose pen is rubbing out rather than writing, if any. */
   const [erasing, setErasing] = useState<string | null>(null);
 
@@ -821,7 +831,7 @@ export function BillScreen() {
    */
   const customerFocus: CustomerFocus = useRef<CustomerFocus['current']>(null);
   const [keysOpen, setKeysOpen] = useState(false);
-  const isTyping = (line: BillLine) => !(writing[line.itemId] ?? line.lastMode !== 'text');
+  const isTyping = (line: BillLine) => !lineIsWriting(line, writing[line.itemId], newLines);
   /** The line box with the cursor in it, and which column it is. */
   const cursorAt = (): { index: number; column: LineColumn } | null => {
     const cols: [LineColumn, Record<string, TextInput | null>][] = [
@@ -971,6 +981,20 @@ export function BillScreen() {
         >
           <Text style={styles.tabNewText}>⌨</Text>
         </Pressable>
+        {/* How new lines start on this tablet: writing or typing. Kept on the device. */}
+        <View style={styles.modeSwitch} accessibilityRole="radiogroup" accessibilityLabel={t('bill.newLines')}>
+          {(['ink', 'text'] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setNewLines(m)}
+              style={[styles.modeOpt, newLines === m && styles.modeOptOn]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: newLines === m }}
+            >
+              <Text style={[styles.tabNewText, newLines === m && styles.modeOptTextOn]}>{m === 'ink' ? t('bill.modeWrite') : t('bill.modeType')}</Text>
+            </Pressable>
+          ))}
+        </View>
         {/* Is the printer there? Green connected, red not; a tap connects. */}
         {printer.available ? (
           <Pressable
@@ -1104,7 +1128,7 @@ export function BillScreen() {
              */
             // A line last typed reopens typed: after the app was closed it came back as an empty
             // writing strip, the typed name hidden behind it.
-            const isWriting = writing[line.itemId] ?? line.lastMode !== 'text';
+            const isWriting = lineIsWriting(line, writing[line.itemId], newLines);
             return (
               <View
                 style={[styles.slipLine, compact && styles.slipLineCompact]}
@@ -1904,6 +1928,10 @@ const styles = StyleSheet.create({
   stockQty: { width: 64, minHeight: 40, paddingVertical: 6, marginLeft: 6 },
   stockRate: { width: 84 },
   printerChip: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 320 },
+  modeSwitch: { flexDirection: 'row', borderWidth: 1, borderColor: C.line, borderRadius: 999, overflow: 'hidden', alignSelf: 'center', marginLeft: 6 },
+  modeOpt: { paddingHorizontal: 10, paddingVertical: 6 },
+  modeOptOn: { backgroundColor: C.accent },
+  modeOptTextOn: { color: C.accentInk, fontWeight: '700' },
   printerDot: { width: 10, height: 10, borderRadius: 5 },
   stockUnit: { fontSize: 13, color: C.soft, marginLeft: 6, minWidth: 28 },
   stockList: {

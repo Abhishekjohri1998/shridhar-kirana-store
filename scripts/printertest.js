@@ -247,6 +247,7 @@ execFileSync(process.execPath, [
   'mobile/src/print/rasterHtml.ts',
   'mobile/src/print/escpos.ts',
   'mobile/src/print/bluetooth.ts',
+  'mobile/src/print/labels.ts',
   '--outDir', BUILD, '--module', 'commonjs', '--target', 'es2019',
   '--strict', '--skipLibCheck', '--jsx', 'react-jsx',
   '--lib', 'es2019,dom', '--types', 'node',
@@ -276,6 +277,7 @@ const { rasterToEscPos: webEscPos } = require(path.join(BUILD, 'client', 'src', 
 const { RASTER_SCRIPT } = require(path.join(BUILD, 'mobile', 'src', 'print', 'rasterHtml.js'));
 const { rasterToEscPos: phoneEscPos } = require(path.join(BUILD, 'mobile', 'src', 'print', 'escpos.js'));
 const bt = require(path.join(BUILD, 'mobile', 'src', 'print', 'bluetooth.js'));
+const labels = require(path.join(BUILD, 'mobile', 'src', 'print', 'labels.js'));
 
 /** Rasterise one document with the script the phone injects into its hidden WebView. */
 function phoneRasterize(doc) {
@@ -1013,7 +1015,48 @@ async function transportChecks() {
   }
 }
 
+/* ------------------------------------------------------------------
+ * Barcode labels from the Stock tab (mobile/src/print/labels.ts).
+ * ------------------------------------------------------------------ */
+function labelChecks() {
+  console.log('\nBarcode labels');
+  // The Bingo packet's EAN-13 as stock sends it: 95 modules.
+  const modules = '101' + '0001011' + '0100111' + '0001011' + '0100111' + '0001001' + '0011001' + '01010'
+    + '1110010' + '1110010' + '1000100' + '1001000' + '1110010' + '1011100' + '101';
+  check('a 95-module pattern', modules.length === 95);
+  const ok = labels.checkLabel({ code: '8909081007804', modules, title: 'Bingo Mad Angles', price: 'Rs 5 / pkt' });
+  check('a label from stock is accepted', ok && ok.code === '8909081007804' && ok.title === 'Bingo Mad Angles');
+  check('bars that are not bars are refused', labels.checkLabel({ code: '8909081007804', modules: '10x1', title: '' }) === null);
+  check('a code with odd characters is refused', labels.checkLabel({ code: '89<script>', modules, title: '' }) === null);
+  const r = labels.barsRaster(modules);
+  check('the bars are the paper\'s width', r.width === 384 && r.bits.length === 48 * r.height);
+  // Every row is the same: count black dots in the first row, and the runs match the modules.
+  let row = '';
+  for (let x = 0; x < 384; x++) row += (r.bits[x >> 3] & (0x80 >> (x & 7))) ? '1' : '0';
+  const first = row.indexOf('1');
+  const module = 3;
+  let back = '';
+  for (let i = 0; i < 95; i++) back += row[first + i * module];
+  check('the drawn bars read back as the modules, 3 dots each', back === modules, back);
+  check('centred, with white either side', first > 30 && row.lastIndexOf('1') < 384 - 30);
+  check('every row of the picture is the same', [10, 40, r.height - 1].every((y) => {
+    for (let b = 0; b < 48; b++) if (r.bits[y * 48 + b] !== r.bits[b]) return false;
+    return true;
+  }));
+  const bytes = labels.labelBytes([ok], 2, 'fast');
+  const text = Buffer.from(bytes).toString('latin1');
+  check('starts by resetting the printer', bytes[0] === 0x1b && bytes[1] === 0x40);
+  check('the name and price print as text', text.includes('Bingo Mad Angles') && text.includes('Rs 5 / pkt'));
+  check('two copies: the code twice', text.split('8909081007804').length - 1 === 2);
+  check('the picture goes as a raster (GS v 0)', text.includes('\x1dv0'));
+  const kn = labels.labelBytes([{ ...ok, title: 'ಸಕ್ಕರೆ Sugar', price: '₹58 / Kg' }], 1, 'fast');
+  const knText = Buffer.from(kn).toString('latin1');
+  check('no Kannada bytes reach the printer\'s text', knText.includes(' Sugar') && !/[\u0c80-\u0cff]/.test(knText));
+  check('₹ prints as Rs', knText.includes('Rs 58 / Kg'));
+}
+
 transportChecks()
+  .then(() => labelChecks())
   .then(() => {
     Module._load = realLoad;
     fs.rmSync(BUILD, { recursive: true, force: true });

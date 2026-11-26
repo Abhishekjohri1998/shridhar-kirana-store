@@ -17,7 +17,7 @@ import {
   roundedLineAmount, roundLines,
   lineName,
   slipTailPadding,
-  carriedBalance, advanceFor, dayInput, editedBillDate,
+  carriedBalance, advanceFor, dayInput, editedBillDate, lineIsWriting, readLineMode, LINE_MODE_KEY, type LineMode,
   dateStamp,
   type Bill,
   type Customer, inkStripAspect, INK_MARK_W, INK_ROW_HEIGHT, paperProfile, lineHasInk,
@@ -232,6 +232,14 @@ export function BillPage() {
   const [tail, setTail] = useState(0);
   /** Which lines are being written rather than typed, by line id. See the mobile copy. */
   const [writing, setWriting] = useState<Record<string, boolean>>({});
+  /** How new lines start on this computer: writing or typing (the switch beside the printer). */
+  const [newLines, setNewLinesState] = useState<LineMode>(() => {
+    try { return readLineMode(localStorage.getItem(LINE_MODE_KEY)); } catch { return 'ink'; }
+  });
+  const setNewLines = (mode: LineMode) => {
+    setNewLinesState(mode);
+    try { localStorage.setItem(LINE_MODE_KEY, mode); } catch { /* kept for this visit only */ }
+  };
   /** The line whose pen is rubbing out rather than writing, if any. */
   const [erasing, setErasing] = useState<string | null>(null);
 
@@ -629,7 +637,7 @@ export function BillPage() {
    * F1 is the tablet's Billing/Stock switch: the web app has no stock screen, so it does nothing
    * here beyond keeping the browser's help page shut.
    */
-  const isTyping = (line: BillLine) => !(writing[line.itemId] ?? line.lastMode !== 'text');
+  const isTyping = (line: BillLine) => !lineIsWriting(line, writing[line.itemId], newLines);
   const cursorAt = (): { index: number; column: LineColumn } | null => {
     const el = document.activeElement;
     if (!el) return null;
@@ -799,6 +807,11 @@ export function BillPage() {
         >
           ⌨
         </button>
+        {/* How new lines start on this computer: writing or typing. Kept on the device. */}
+        <span className="mode-switch" role="group" aria-label={t('bill.newLines')} title={t('bill.newLines')}>
+          <button type="button" className={newLines === 'ink' ? 'on' : ''} aria-pressed={newLines === 'ink'} onClick={() => setNewLines('ink')}>{t('bill.modeWrite')}</button>
+          <button type="button" className={newLines === 'text' ? 'on' : ''} aria-pressed={newLines === 'text'} onClick={() => setNewLines('text')}>{t('bill.modeType')}</button>
+        </span>
         {/* Is the printer there? The computer's own printer always is; a Bluetooth or USB one shows
             green when connected, red when not, and a click connects it. */}
         {(() => {
@@ -883,7 +896,7 @@ export function BillPage() {
             {shop.cart.map((line, index) => {
               const blank = !lineHasSomething(line);
               // Written by default, typed when asked for -- see the mobile copy.
-              const isWriting = writing[line.itemId] ?? line.lastMode !== 'text';
+              const isWriting = lineIsWriting(line, writing[line.itemId], newLines);
               return (
                 <li
                   className={line.hidden ? 'slip-line slip-hidden' : 'slip-line'}

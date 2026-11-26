@@ -10,6 +10,8 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { markStockSignOut, stockSignOutPending } from '../lib/api';
 import { refreshHandwriting } from '../lib/native';
 import { useShop } from '../lib/useShop';
+import { usePrint } from '../lib/usePrint';
+import { checkLabel, type BarcodeLabel } from '../print/labels';
 import { onOpenStock, takePendingStockPath } from '../lib/stockNav';
 import {
   HEALTH_PROBE_EVERY_MS, HEALTH_PROBE_TIMEOUT_MS, healthUrl, reconnectDelayMs, reloadTarget, stockFirstLoad,
@@ -223,6 +225,7 @@ const SPINNER_MAX_MS = 10000;
  */
 export function StockScreen({ active = true, onOpenSettings }: { active?: boolean; onOpenSettings?: () => void }) {
   const shop = useShop();
+  const printer = usePrint();
   const t = shop.t;
   const web = useRef<WebView>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -385,7 +388,7 @@ export function StockScreen({ active = true, onOpenSettings }: { active?: boolea
   }, [active, canBack]);
 
   const onMessage = useCallback(async (e: WebViewMessageEvent) => {
-    let msg: { type?: string; name?: string; mime?: string; data?: string; token?: string };
+    let msg: { type?: string; name?: string; mime?: string; data?: string; token?: string; labels?: unknown[]; copies?: number };
     try { msg = JSON.parse(e.nativeEvent.data); } catch { return; }
     // Only the stock site may speak to the app (see originOf).
     const stockOrigin = originOf(urlRef.current ?? '');
@@ -415,6 +418,25 @@ export function StockScreen({ active = true, onOpenSettings }: { active?: boolea
       onOpenSettings?.();
       return;
     }
+    if (msg.type === 'print-labels') {
+      // Barcode labels from the item page, on the shop's receipt printer. The page waits for the
+      // answer; an app without this never answers, and the page says to update it.
+      const labels = (Array.isArray(msg.labels) ? msg.labels : []).slice(0, 20).map(checkLabel).filter((l): l is BarcodeLabel => l != null);
+      let answer: { ok: boolean; error?: string };
+      if (!labels.length) answer = { ok: false, error: 'Nothing to print' };
+      else {
+        try {
+          await printer.printLabels(labels, Number(msg.copies) || 1);
+          answer = { ok: true };
+        } catch (err) {
+          answer = { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      }
+      web.current?.injectJavaScript(
+        `window.dispatchEvent(new CustomEvent('labels-printed',{detail:${JSON.stringify(answer)}}));true;`,
+      );
+      return;
+    }
     if (msg.type === 'need-location') {
       // The stock site asks before "Start delivery". Android's location permission is asked
       // here once; the WebView then answers navigator.geolocation (geolocationEnabled below).
@@ -439,7 +461,7 @@ export function StockScreen({ active = true, onOpenSettings }: { active?: boolea
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(file, { mimeType: msg.mime, dialogTitle: safe });
     }
-  }, [shop.keepStockToken, shop.renewStockToken, shop.signOut, onOpenSettings]);
+  }, [shop.keepStockToken, shop.renewStockToken, shop.signOut, onOpenSettings, printer]);
 
   /* Settings asks for a stock page (places, people, ...): go there once the window has loaded. */
   const loadedOnce = useRef(false);

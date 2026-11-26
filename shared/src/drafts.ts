@@ -222,6 +222,29 @@ export function mergeStockTicks(d: Draft, ticks: StockTicks): Draft {
  * shopkeeper could cancel a hand-written line but not a typed one.
  */
 /** Whether anything is written by hand on a line, on its first strip or an added one. */
+/** How a line on the bill is written: with the pen, or typed. */
+export type LineMode = 'ink' | 'text';
+/** Where the device keeps the shopkeeper's choice for new lines (Bill screen, beside the printer). */
+export const LINE_MODE_KEY = 'shridhar.lineMode';
+
+/**
+ * Whether a line shows its writing strip (else its typing boxes): the shopkeeper's switch for this
+ * line if they used it, else the way it was last written, else what is on it, else the device's
+ * choice for new lines -- writing, unless it has been set to typing.
+ */
+export function lineIsWriting(line: BillLine, chosen: boolean | undefined, newLines: LineMode): boolean {
+  if (chosen != null) return chosen;
+  if (line.lastMode) return line.lastMode !== 'text';
+  if (lineHasInk(line)) return true;
+  if (line.nameKn.trim() || line.nameEn.trim()) return false;
+  return newLines !== 'text';
+}
+
+/** A stored choice read back: typing only when it says so. */
+export function readLineMode(raw: unknown): LineMode {
+  return raw === 'text' ? 'text' : 'ink';
+}
+
 export function lineHasInk(l: BillLine): boolean {
   return (l.ink != null && l.ink.strokes.length > 0) || (l.moreInk ?? []).some((i) => i.strokes.length > 0);
 }

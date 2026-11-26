@@ -422,6 +422,16 @@ console.log('\nTyped quantity in front of an item (stockQueryOf)');
   eq('with the Kannada label on a Kannada receipt', knPhone.rows[1].text, 'ಫೋನ್: 98860 12345');
   check('no phone: nothing printed for it', !noAddr.rows.some((r) => String(r.text || '').startsWith('Phone')));
 
+  // Writing or typing, for a line nobody has switched yet.
+  const blank = { itemId: 'x', nameKn: '', nameEn: '', qty: 1, rate: 0 };
+  eq('a blank line follows the device: writing', S.lineIsWriting(blank, undefined, 'ink'), true);
+  eq('a blank line follows the device: typing', S.lineIsWriting(blank, undefined, 'text'), false);
+  eq('a line switched by hand stays as switched', [S.lineIsWriting(blank, true, 'text'), S.lineIsWriting(blank, false, 'ink')], [true, false]);
+  eq('a typed line stays typed when the device writes', S.lineIsWriting({ ...blank, nameKn: 'Sugar', lastMode: 'text' }, undefined, 'ink'), false);
+  eq('a written line stays written when the device types', S.lineIsWriting({ ...blank, ink: { w: 100, h: 40, strokes: [[1, 2, 3, 4]] } }, undefined, 'text'), true);
+  eq('a typed name with no mode recorded shows typed', S.lineIsWriting({ ...blank, nameKn: 'Sugar' }, undefined, 'ink'), false);
+  eq('a stored choice: only "text" means typing', [S.readLineMode('text'), S.readLineMode('ink'), S.readLineMode(null), S.readLineMode('x')], ['text', 'ink', 'ink', 'ink']);
+
   // An edited bill's date box.
   const orig = new Date(2026, 10, 21, 16, 30).toISOString();
   eq('the box shows day/month/year and time', S.dayInput(new Date(orig)), '21/11/2026 16:30');
