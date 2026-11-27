@@ -4,28 +4,50 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { C, R } from '../theme';
 
 /**
- * A strip down the side of the bill to scroll it with the pen or a finger.
+ * A strip beside the bill that scrolls it: the list itself never scrolls by dragging, because
+ * every row is a writing strip and the scroll took the pen's drag before anything could stop it.
  *
- * Every line of the slip is a writing strip, so dragging on a line writes on it: with a stylus
- * there was nowhere to put the pen to move the list. This strip sits outside the lines, never
- * writes, and moves the list exactly as far as the pen moves, the way dragging a sheet of paper
- * would. The shop drew one on each side of the bill.
+ * Faster and smoother than a plain one-for-one drag (build 96), at the shop's asking: the bill
+ * moves SPEED times as far as the finger, at most once per frame (the drags arrive faster than the
+ * screen draws, and each extra scroll was work for nothing), and a flick carries on gliding.
  */
-export function ScrollPad({ scrollTo, offset, max }: { scrollTo: (y: number) => void; offset: () => number; max: () => number }) {
+const SPEED = 2.5;
+/** How far a flick carries the bill on, per unit of speed: px/s -> px. */
+const FLING = 0.35;
+
+export function ScrollPad({ scrollTo, offset, max }: { scrollTo: (y: number, animated?: boolean) => void; offset: () => number; max: () => number }) {
   const start = useRef(0);
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .minDistance(0)
-        .shouldCancelWhenOutside(false)
-        .onBegin(() => {
-          start.current = offset();
-        })
-        .onUpdate((e) => {
-          scrollTo(Math.max(0, Math.min(max(), start.current - e.translationY)));
-        }),
-    [scrollTo, offset, max],
-  );
+  const last = useRef(0);
+  const frame = useRef<number | null>(null);
+  const gesture = useMemo(() => {
+    const clamp = (y: number) => Math.max(0, Math.min(max(), y));
+    // The newest position, drawn on the next frame; anything in between is skipped.
+    const go = (y: number) => {
+      last.current = y;
+      if (frame.current != null) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = null;
+        scrollTo(last.current, false);
+      });
+    };
+    return Gesture.Pan()
+      .minDistance(0)
+      .shouldCancelWhenOutside(false)
+      .runOnJS(true)
+      .onBegin(() => {
+        start.current = offset();
+        last.current = start.current;
+      })
+      .onUpdate((e) => {
+        go(clamp(start.current - e.translationY * SPEED));
+      })
+      .onEnd((e) => {
+        // A flick: on in the same direction, the native scroll easing it to a stop.
+        if (Math.abs(e.velocityY) < 400) return;
+        if (frame.current != null) { cancelAnimationFrame(frame.current); frame.current = null; }
+        scrollTo(clamp(last.current - e.velocityY * FLING * SPEED * 0.5), true);
+      });
+  }, [scrollTo, offset, max]);
   return (
     <GestureDetector gesture={gesture}>
       <View style={styles.pad} accessibilityLabel="Scroll the bill" accessible>

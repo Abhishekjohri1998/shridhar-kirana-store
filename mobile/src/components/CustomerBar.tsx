@@ -111,7 +111,11 @@ export function CustomerBar({ focusRef }: { focusRef?: CustomerFocus } = {}) {
   };
 
   if (shop.customer && !open) {
-    const c = shop.customer;
+    // Editing a saved bill: what they owed before it, as on a new bill -- theirs now already has
+    // the old version of this bill in it, and did not move as Paid was changed.
+    const c = shop.editing && shop.editing.customerId === shop.customer.id
+      ? { ...shop.customer, balance: shop.editing.previousBalance }
+      : shop.customer;
     return (
       <View style={styles.chip}>
         {/* One line, because this strip is pinned above the totals now and every millimetre it

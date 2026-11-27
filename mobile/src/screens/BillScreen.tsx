@@ -630,7 +630,7 @@ export function BillScreen() {
   // Taller (build 91), so writing reads back larger; printed size follows the strip, unchanged.
   const stripH = roomy ? 64 : 60;
   const contentH = useRef(0);
-  const padScroll = useCallback((y: number) => sheet.current?.scrollTo({ y, animated: false }), []);
+  const padScroll = useCallback((y: number, animated = false) => sheet.current?.scrollTo({ y, animated }), []);
   const padOffset = useCallback(() => offset.current, []);
   const padMax = useCallback(() => Math.max(0, contentH.current - viewport), [viewport]);
   const hasSomething = written.length > 0;
@@ -1237,18 +1237,25 @@ export function BillScreen() {
                       // Picked from stock: the name in the app's language. Typing over it lets go
                       // of the pick (setLineName), and a typed line shows just what was typed.
                       value={line.stockItemId ? lineName(line, shop.lang) : line.nameKn}
-                      onChangeText={(text) => {
+                      onChangeText={(raw) => {
+                        // One line of words, however it wraps on screen: a pasted line break is a space.
+                        const text = raw.replace(/[\r\n]+/g, ' ');
                         shop.setLineName(index, text);
                         stock.onNameTyped(line.itemId, text);
                       }}
                       placeholder={t('bill.typeHint')}
                       placeholderTextColor={C.faint}
                       accessibilityLabel={t('bill.writeLine', { n: index + 1 })}
+                      // A long name goes on to a second line instead of running off the box (build
+                      // 96); Enter still moves on rather than starting a new line.
+                      multiline
+                      scrollEnabled={false}
+                      textAlignVertical="center"
                       // Down the item column, not across to the price: the shop writes the whole
-                      // list first. blurOnSubmit false or the keyboard shuts before the next box
-                      // can take it, and it comes back up with a flicker.
+                      // list first. "submit" keeps the keyboard up for the next box, and the
+                      // flicker of it closing and coming back up never happens.
                       returnKeyType="next"
-                      blurOnSubmit={false}
+                      submitBehavior="submit"
                       onSubmitEditing={() => submitName(index, line.stockItemId ? lineName(line, shop.lang) : line.nameKn)}
                       onFocus={() => { focusRow(line.itemId); setView('items'); setTakeEnter(true); }}
                       // A beat late, so a tap on a unit below lands before the list goes.

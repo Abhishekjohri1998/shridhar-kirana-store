@@ -127,7 +127,10 @@ export function CustomerBar({ focusRef }: { focusRef?: CustomerFocus } = {}) {
   };
 
   if (shop.customer && !open) {
-    const c = shop.customer;
+    // Editing a saved bill: what they owed before it, as on a new bill (theirs now has the old bill in it).
+    const c = shop.editing && shop.editing.customerId === shop.customer.id
+      ? { ...shop.customer, balance: shop.editing.previousBalance }
+      : shop.customer;
     return (
       <div className="customer-bar">
         <div className="customer-chip">
